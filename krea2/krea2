@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# krea2 - wrapper around the locally-built krea2-harness Rust binary (Krea 2 on Apple MLX).
+# Locates the built binary and forwards every arg verbatim. The binary reads per-mode
+# weight dirs from env (KREA_TURBO_Q4 / KREA_RAW / KREA_TURBO_BF16 / KREA_EDIT_LORA /
+# KREA_POSE_OVERLAY); this wrapper downloads nothing and injects nothing.
+#
+# Run `krea2 help` for full usage (build, weights, env, flags, examples).
+# NOT URL-runnable: shells out to a Rust binary you build separately.
+
+set -eu
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+default_bin="$script_dir/krea2-harness/target/release/krea2"
+bin="${KREA_BIN:-$default_bin}"
+
+usage() {
+    cat <<'EOF'
+krea2 - Krea 2 image generation on Apple MLX (txt2img / img2img / edit / pose-control)
+
+Wraps the locally-built krea2-harness Rust binary (over SceneWorks/mlx-gen). Runs natively
+on Apple Silicon via MLX — no Python, no PyTorch, no ComfyUI.
+
+NOT URL-runnable: this shells out to a Rust binary you build separately.
+
+BUILD (one-time)
+  cd <repo>/krea2/krea2-harness
+  cargo build --release
+  # Requires Xcode + Metal toolchain (mlx-rs compiles Metal kernels from source):
+  #   xcode-select -s /Applications/Xcode.app/Contents/Developer
+  #   xcodebuild -runFirstLaunch
+  #   xcodebuild -downloadComponent MetalToolchain
+  # Binary lands at krea2/krea2-harness/target/release/krea2 . Override its path with KREA_BIN.
+
+WEIGHTS (one-time downloads; Krea 2 Community License, not gated)
+  txt2img / img2img — pre-packed Turbo turnkey (pick one tier):
+    huggingface-cli download SceneWorks/krea-2-turbo-mlx --local-dir ~/models/krea-turbo-q4 --include q4/
+    # near-lossless q8 (~20.6 GB, wants 48 GB):
+    huggingface-cli download SceneWorks/krea-2-turbo-mlx --local-dir ~/models/krea-turbo-q8 --include q8/
+    export KREA_TURBO_Q4=~/models/krea-turbo-q4/q4   # or KREA_TURBO_Q8=.../q8 + --weights
+
+  edit — Raw base + identity-edit LoRA:
+    huggingface-cli download krea/Krea-2-Raw --local-dir ~/models/krea-raw
+    huggingface-cli download conradlocke/krea2-identity-edit --local-dir ~/models/krea-edit-lora
+    export KREA_RAW=~/models/krea-raw
+    export KREA_EDIT_LORA=~/models/krea-edit-lora/krea2_identity_edit_v1_1_r128.safetensors
+    # confirm the exact LoRA filename inside that repo before exporting
+
+  control — DENSE bf16 Turbo base + pose overlay (NOT the packed turnkey; quant rejected):
+    huggingface-cli download krea/Krea-2-Turbo --local-dir ~/models/krea-turbo-bf16
+    huggingface-cli download SceneWorks/krea2-pose-controlnet-beta --local-dir ~/models/krea-pose
+    export KREA_TURBO_BF16=~/models/krea-turbo-bf16
+    export KREA_POSE_OVERLAY=~/models/krea-pose/control_step5000.safetensors
+
+ENV
+  KREA_BIN            override the built binary path
+  KREA_TURBO_Q4       Turbo q4 turnkey dir (txt2img/img2img default weights)
+  KREA_TURBO_Q8       Turbo q8 turnkey dir (use via --weights)
+  KREA_RAW            Krea-2-Raw snapshot dir (edit)
+  KREA_TURBO_BF16     dense bf16 Krea-2-Turbo dir (control)
+  KREA_EDIT_LORA      krea2-identity-edit LoRA .safetensors (edit)
+  KREA_POSE_OVERLAY   pose ControlNet overlay .safetensors (control)
+  KREA_WEIGHTS        generic fallback for --weights
+
+FLAGS — run `krea2 <subcommand> --help` for the full list. Common to every subcommand:
+  -o, --out PATH      output PNG (default out.png)
+  --seed N            random seed
+  --steps N           sampling steps (default 8; edit 16)
+  --weights DIR       weights snapshot dir (overrides the env default for this mode)
+  --quiet             suppress per-step progress on stderr
+
+SUBCOMMANDS
+  txt2img   --prompt "..." [--size WxH] [--quant q4|q8]
+  img2img   --prompt "..." --image IN.png [--strength 0.6] [--size WxH] [--quant q4|q8]
+  edit      --prompt "..." --source SRC.png [--person P.png] [--guidance 3.0] [--quant q4]
+  control   --prompt "..." --pose POSE.png [--control-scale 0.6] [--size WxH]
+
+  --quant (txt2img/img2img/edit) load-time-quantizes a DENSE snapshot. Do NOT pass it with a
+  pre-packed turnkey — point --weights at the q4/ or q8/ dir instead. Control is dense-only.
+
+EXAMPLES
+  krea2 txt2img --prompt "a red fox in a snowy forest" --size 1024x1024 -o /tmp/fox.png
+  krea2 img2img --prompt "oil painting" --image photo.jpg --strength 0.5 -o /tmp/oil.png
+  krea2 edit    --prompt "change the background to a snowy mountain" --source src.png -o /tmp/ed.png
+  krea2 control --prompt "a full-body studio photo" --pose tpose.png --control-scale 0.6 -o /tmp/ctrl.png
+EOF
+}
+
+# Top-level help: print our usage (richer than the binary's clap help). Subcommand --help
+# (e.g. `krea2 txt2img --help`) falls through to the binary, which clap handles.
+if [ "$#" -eq 0 ] || [ "${1:-}" = "help" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    usage
+    exit 0
+fi
+
+if [ ! -x "$bin" ]; then
+    echo "krea2: built binary not found at $bin" >&2
+    echo "       run: cd krea2/krea2-harness && cargo build --release   (or set KREA_BIN)" >&2
+    exit 1
+fi
+
+exec "$bin" "$@"

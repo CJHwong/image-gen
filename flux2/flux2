@@ -93,7 +93,7 @@ ENV
                      (small-decoder) or the klein-base-9B transformer (darknight9121
                      - not gated), and not needed once the encoder is cached.
 
-BUILD (once, from toolkit/swift/)
+BUILD (once, from the flux2/ dir)
   Prerequisites - full Xcode, not just Command Line Tools:
     xcode-select -p            # must be Xcode.app, not .../CommandLineTools;
                                # switch with: sudo xcode-select -s \
