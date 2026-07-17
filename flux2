@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+# flux2 - wrapper around the locally-built Flux2UncensoredTest Swift binary
+# (uncensored Qwen3-8B encoder + uncensored FLUX.2 klein-base-9B). Locates the
+# binary, injects --encoder-path from $FLUX_ENCODER_PATH, forwards the rest.
+# Encoder model: huggingface.co/ponpoke/flux2-klein-9b-uncensored-text-encoder
+#   (gated, flux-non-commercial-v2.1). See `flux2 help` for the download command.
+#
+# Run `flux2 help` for full usage (env vars, build, flags, examples).
+# NOT URL-runnable: shells out to a Swift binary you build separately.
+
+set -eu
+
+usage() {
+    cat <<'EOF'
+flux2 - uncensored Qwen3-8B encoder + uncensored FLUX.2 klein-base-9B generation
+
+It wraps a locally-built Swift binary (Flux2UncensoredTest) from the sibling
+flux2-harness package. The wrapper locates the binary, injects --encoder-path
+from $FLUX_ENCODER_PATH unless you pass it yourself, and forwards every other
+arg verbatim. The harness auto-downloads ONLY the VAE from HuggingFace if
+missing (small-decoder is not gated, no token needed). The uncensored encoder
+AND the uncensored klein-base-9B transformer are manual, one-time downloads (see
+ENCODER and TRANSFORMER below); the harness auto-fetches neither and errors if
+either is missing. This wrapper downloads nothing itself.
+
+ENCODER (uncensored Qwen3-8B - download once, gated)
+  Repo:    https://huggingface.co/ponpoke/flux2-klein-9b-uncensored-text-encoder
+  License: flux-non-commercial-v2.1 (BFL non-commercial). File downloads are
+           gated (HTTP 401 without a token) - accept the repo's conditions on the
+           HF page first, then authenticate with a HuggingFace token. You do NOT
+           need huggingface-cli for any of this; plain curl works.
+
+  The harness loads the F16 safetensors (model.safetensors, ~16.4GB) and
+  quantizes it to 8-bit at load. It CANNOT use the .gguf files in that repo
+  (those are for llama.cpp/Ollama), so fetch only the safetensors + the small
+  config/tokenizer files via the HF resolve URLs with a bearer token:
+
+    ENC=~/Library/Caches/models/ponpoke-uncensored-qwen3-8b
+    TOK="${HF_TOKEN:-$(cat ~/.cache/huggingface/token 2>/dev/null)}"
+    [ -n "$TOK" ] || { echo "set HF_TOKEN (accept repo conditions first)"; exit 1; }
+    mkdir -p "$ENC" && cd "$ENC"
+    for f in config.json generation_config.json tokenizer.json tokenizer_config.json \
+             chat_template.jinja model.safetensors; do
+      curl -L -C - -H "Authorization: Bearer $TOK" \
+        "https://huggingface.co/ponpoke/flux2-klein-9b-uncensored-text-encoder/resolve/main/$f" \
+        -o "$f"
+    done
+
+  ~/Library/Caches/models/ is the harness's default model cache; put the dir
+  anywhere and point FLUX_ENCODER_PATH at it. Token source: the HF client cache
+  at ~/.cache/huggingface/token (a ~37-char hf_ string), or set HF_TOKEN. Only
+  this encoder is gated; the uncensored klein-base-9B transformer is a plain
+  (also manual) curl download - see TRANSFORMER below.
+  The 4B equivalent (also gated, same abliteration method) is
+  ponpoke/flux2-klein-4b-uncensored-text-encoder - but it needs klein-4B, so the
+  harness must be switched from klein-base-9B (see Flux2UncensoredTest.swift:
+  model: .klein9BBase and the KleinTextEncoder variant).
+
+TRANSFORMER (uncensored FLUX.2 klein-base-9B - download once, NOT gated)
+  Repo:    https://huggingface.co/darknight9121/FLUX.2-klein-base-9B-bucket-uncensored
+  License: flux-non-commercial-license (BFL non-commercial), but the repo is NOT
+           gated - plain curl works, no token, no accepting conditions. It is a
+           finetune of BFL's klein-base-9B; the harness runs it as .klein9BBase,
+           which shares klein-9B's transformer config. The harness does NOT
+           auto-download it (it auto-fetches only the VAE); a first run without it
+           dies "...transformer weights not found. Run: flux2 download --model
+           klein-9b" - that subcommand does not exist here, so fetch by hand.
+  Fetch the single-file transformer + model_index.json (~18GB). The cache dir is
+  the BFL klein-base-9B path (the harness derives it from the .klein9BBase repo
+  id, not from the darknight repo name), so download the darknight file INTO it:
+
+    DST=~/Library/Caches/models/black-forest-labs/FLUX.2-klein-base-9B
+    SRC=https://huggingface.co/darknight9121/FLUX.2-klein-base-9B-bucket-uncensored/resolve/main
+    mkdir -p "$DST" && cd "$DST"
+    for f in model_index.json flux-2-klein-base-9b.safetensors; do
+      curl -L -C - "$SRC/$f" -o "$f"
+    done
+
+  This cache path is fixed - the harness derives it from the repo id, so (unlike
+  the encoder) it is not configurable.
+
+ENV
+  FLUX2_BIN          Built Swift binary. If unset, defaults to the xcodebuild
+                     output in the sibling package:
+                     flux2-harness/DerivedData/Build/Products/Debug/Flux2UncensoredTest
+  FLUX_ENCODER_PATH  Local dir with config.json/tokenizer.json/model.safetensors
+                     for the uncensored Qwen3-8B encoder (see ENCODER above for
+                     how to download it). Injected as --encoder-path. Required:
+                     the harness never auto-downloads this custom encoder.
+  HF_TOKEN           HuggingFace token. Needed only for the one gated download:
+                     the uncensored encoder (ponpoke). Accept that repo's
+                     conditions on its HF page first. Not needed for the VAE
+                     (small-decoder) or the klein-base-9B transformer (darknight9121
+                     - not gated), and not needed once the encoder is cached.
+
+BUILD (once, from toolkit/swift/)
+  Prerequisites - full Xcode, not just Command Line Tools:
+    xcode-select -p            # must be Xcode.app, not .../CommandLineTools;
+                               # switch with: sudo xcode-select -s \
+                               #   /Applications/Xcode.app/Contents/Developer
+    sudo xcodebuild -runFirstLaunch    # fresh Xcode: installs components, else
+                                       # "a required plug-in failed to load"
+    xcodebuild -downloadComponent MetalToolchain   # Xcode 26+ ships the Metal
+                               # toolchain separately; without it the build dies
+                               # "cannot execute tool 'metal'"
+    git submodule update --init        # engine lives in the flux-2-swift-mlx
+                                       # submodule, empty on a fresh clone
+
+  cd flux2-harness
+  xcodebuild -scheme flux2-harness -destination 'generic/platform=macOS' \
+      -configuration Debug -skipPackagePluginValidation \
+      -derivedDataPath ./DerivedData build
+
+  xcodebuild is required, not `swift build`: only an Xcode build compiles the
+  MLX .metal kernels into the mlx-swift_Cmlx.bundle shipped next to the binary.
+  `swift build` skips that, so the binary fails to load the Metal library.
+EOF
+
+    # FLAGS come straight from the binary's --help so the list never drifts from
+    # the actual @Options. The wrapper injects --encoder-path from
+    # $FLUX_ENCODER_PATH and forwards every other flag verbatim.
+    echo ""
+    if [ -f "$binary" ]; then
+        echo "FLAGS (from the binary's --help - authoritative; --encoder-path"
+        echo "       defaults to \$FLUX_ENCODER_PATH, everything else is forwarded):"
+        "$binary" --help | sed -n '/^OPTIONS:/,$p'
+    else
+        echo "FLAGS: build the binary (see BUILD above), then 'flux2 --help' lists"
+        echo "       every flag straight from the harness."
+    fi
+
+    cat <<'EOF'
+
+OUTPUT
+  Image is written to --output (default ./uncensored_test.png in your cwd).
+  i2i does NOT preserve input pixels: Flux.2 i2i is a conditioning mode (the
+  reference is encoded into latents concatenated with noise; output regenerates
+  from noise). This harness exposes no strength knob; influence is fixed by the
+  pipeline defaults.
+
+  Timing (measured at qint8/50 steps, models cached; the default is now 20 steps
+  so real times are lower - scale roughly by step count). A single image is
+  dominated by the one-time encoder + transformer load, so small sizes are not
+  proportionally faster:
+    256x256    ~77s
+    512x512    ~165s
+    1024x1024  ~640s
+  i2i is slower (it also encodes the reference). --count amortizes the model
+  load across a batch; lower --steps or --width for quicker drafts.
+
+EXAMPLES
+  # 1. download the models once - run the curl loops in ENCODER (gated, needs a
+  #    token) and TRANSFORMER (not gated, plain curl) above. Then point the
+  #    wrapper at the encoder and expose the token:
+  export FLUX_ENCODER_PATH=~/Library/Caches/models/ponpoke-uncensored-qwen3-8b
+  export HF_TOKEN="$(cat ~/.cache/huggingface/token)"
+
+  # text-to-image (auto-downloads only the VAE on first run; the transformer
+  # must already be fetched per TRANSFORMER above)
+  flux2 --prompt "a beaver building a dam, photorealistic, golden hour" --output out.png
+
+  # image edit / i2i
+  flux2 --prompt "new hairstyle, undercut" --input ref.png --output out.png --seed 7
+
+  # override defaults
+  flux2 --prompt "a red apple" --width 1024 --height 1024 --steps 28 --guidance 4.5 --output apple.png
+
+  # random seed (omit --seed); the seed used is printed so you can reproduce it
+  flux2 --prompt "a red apple" --output apple.png
+
+  # batch: 4 images of one prompt in a single run (t2i only) - encoder and
+  # transformer load once, then 4 denoises. Files: apple.s<seed>.png. Seeds are
+  # random unless --seed is given (then they increment: seed, seed+1, ...).
+  flux2 --prompt "a red apple" --count 4 --output apple.png
+EOF
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+default_bin="$script_dir/flux2-harness/DerivedData/Build/Products/Debug/Flux2UncensoredTest"
+binary="${FLUX2_BIN:-$default_bin}"
+
+# `flux2 help` (or --help/-h as the first arg) prints this wrapper's usage.
+# Anything else is forwarded to the Swift binary (which has its own --help).
+case "${1:-}" in
+    help|--help|-h) usage; exit 0 ;;
+esac
+
+if [ ! -f "$binary" ]; then
+    cat >&2 <<EOF
+Flux2UncensoredTest binary not found.
+Looked for: $binary
+Build it once with xcodebuild (not swift build):
+  cd flux2-harness
+  xcodebuild -scheme flux2-harness -destination 'generic/platform=macOS' \
+      -configuration Debug -skipPackagePluginValidation \
+      -derivedDataPath ./DerivedData build
+Or export FLUX2_BIN to point at a built binary elsewhere.
+Run 'flux2 help' for full usage.
+EOF
+    exit 1
+fi
+
+# Inject --encoder-path from $FLUX_ENCODER_PATH unless the caller already passed
+# --encoder-path (or -e) themselves.
+encoder_passed=0
+for arg in "$@"; do
+    case "$arg" in
+        --encoder-path|--encoder-path=*) encoder_passed=1; break ;;
+        -e|-e*) encoder_passed=1; break ;;
+    esac
+done
+
+if [ "$encoder_passed" -eq 0 ] && [ -n "${FLUX_ENCODER_PATH:-}" ]; then
+    set -- --encoder-path "$FLUX_ENCODER_PATH" "$@"
+fi
+
+# Replace this process with the Swift binary so its stdout/stderr stream
+# directly and its exit code propagates. Env is inherited.
+exec "$binary" "$@"
