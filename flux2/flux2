@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# flux2 - wrapper around the locally-built Flux2UncensoredTest Swift binary
-# (uncensored Qwen3-8B encoder + uncensored FLUX.2 klein-base-9B). Locates the
-# binary, injects --encoder-path from $FLUX_ENCODER_PATH, forwards the rest.
+# flux2 - wrapper for uncensored FLUX.2 klein-base-9B generation. Two engines:
+# mflux (Python-MLX, the default, via the PEP 723 script mflux_gen.py) and the
+# locally-built Flux2UncensoredTest Swift binary (FLUX2_ENGINE=swift). mflux is
+# ~1.4x faster on the same weights. The Swift path locates the binary, injects
+# --encoder-path from $FLUX_ENCODER_PATH, and forwards the rest.
 # Encoder model: huggingface.co/ponpoke/flux2-klein-9b-uncensored-text-encoder
 #   (gated, flux-non-commercial-v2.1). See `flux2 help` for the download command.
 #
@@ -80,6 +82,12 @@ TRANSFORMER (uncensored FLUX.2 klein-base-9B - download once, NOT gated)
   the encoder) it is not configurable.
 
 ENV
+  FLUX2_ENGINE       'mflux' (default, Python-MLX via mflux_gen.py) or 'swift'
+                     (the locally-built binary). mflux is ~1.4x faster on the
+                     same weights and needs no Xcode build; the Swift path is
+                     kept for comparison. mflux reads its weights from a
+                     diffusers-layout dir (see FLUX2_MFLUX_MODEL_DIR in
+                     mflux_gen.py), not from $FLUX_ENCODER_PATH.
   FLUX2_BIN          Built Swift binary. If unset, defaults to the xcodebuild
                      output in the sibling package:
                      flux2-harness/DerivedData/Build/Products/Debug/Flux2UncensoredTest
@@ -138,7 +146,7 @@ OUTPUT
   from noise). This harness exposes no strength knob; influence is fixed by the
   pipeline defaults.
 
-  Timing (measured at qint8/50 steps, models cached; the default is now 20 steps
+  Timing (measured at qint8/50 steps, models cached; the default is now 25 steps
   so real times are lower - scale roughly by step count). A single image is
   dominated by the one-time encoder + transformer load, so small sizes are not
   proportionally faster:
@@ -184,6 +192,15 @@ binary="${FLUX2_BIN:-$default_bin}"
 case "${1:-}" in
     help|--help|-h) usage; exit 0 ;;
 esac
+
+# Engine dispatch. Default to mflux (Python-MLX via the PEP 723 uv script
+# mflux_gen.py); it runs ~1.4x faster than the Swift binary on the same
+# uncensored weights, for both t2i and i2i. FLUX2_ENGINE=swift keeps the
+# original binary path below.
+engine="${FLUX2_ENGINE:-mflux}"
+if [ "$engine" = "mflux" ]; then
+    exec uv run "$script_dir/mflux_gen.py" "$@"
+fi
 
 if [ ! -f "$binary" ]; then
     cat >&2 <<EOF
