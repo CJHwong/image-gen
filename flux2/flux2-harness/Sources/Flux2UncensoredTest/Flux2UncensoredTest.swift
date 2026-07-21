@@ -5,7 +5,7 @@
 // uncensored Qwen3-8B text encoder (--encoder-path, e.g. the ponpoke encoder).
 // The pipeline unloads the encoder before loading the transformer, so both fit
 // in memory. qint8 transformer + small-decoder VAE are fixed; the base model
-// runs classical CFG (guidance 4.0, ~20 steps).
+// runs classical CFG (guidance 4.0, ~25 steps).
 //
 // Two modes, picked by --input: text-to-image (no --input) and image-to-image
 // editing (--input <ref>).
@@ -37,8 +37,8 @@ struct Flux2UncensoredTest: AsyncParsableCommand {
     @Option(name: .long, help: "Image height. See --width.")
     var height: Int?
 
-    @Option(name: .long, help: "Denoising steps. More = sharper (esp. faces), slower. Default 20.")
-    var steps: Int = 20
+    @Option(name: .long, help: "Denoising steps. More = sharper (esp. faces), slower. Default 25.")
+    var steps: Int = 25
 
     @Option(name: .long, help: "CFG guidance. Default 4.0.")
     var guidance: Float = 4.0
