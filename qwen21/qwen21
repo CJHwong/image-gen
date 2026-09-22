@@ -1,0 +1,370 @@
+#!/usr/bin/env bash
+# qwen21 - wrapper for Qwen-Image-2.1 generation on Apple MLX, via mflux
+# (Python-MLX) through the PEP 723 script qwen21_gen.py. No harness to build and
+# no Xcode: uv fetches mflux and its deps on first run, mflux fetches the weights.
+# Every flag is forwarded to mflux's own parser; the script only fills in the
+# defaults this repo wants (int8, 40 steps, 1024 square) when you omit them.
+#
+# Run `qwen21 help` for full usage (weights, licence, flags, examples).
+
+set -eu
+
+usage() {
+    cat <<'EOF'
+qwen21 - Qwen-Image-2.1 generation and editing on Apple Silicon
+
+  qwen21 <flags>        text-to-image and image-to-image, via mflux (MLX)
+  qwen21 edit <flags>   instruction editing, via diffusers (MPS)
+  qwen21 server         a local web page, model resident, nothing saved
+
+Wraps mflux's `mflux-generate-qwen-2.1` through the sibling PEP 723 script
+qwen21_gen.py. uv resolves mflux on first run; mflux downloads the weights on
+first generation. This wrapper downloads nothing itself and builds nothing.
+
+MODEL
+  Qwen-Image-2.1: a 7.1B single-stream, block-causal DiT with a Qwen3-VL text
+  encoder and a 64-channel causal VAE (16x spatial compression). It is trained
+  for guidance-free sampling, so the default is 40 steps at guidance 1.0.
+
+WEIGHTS (automatic, one-time, NOT gated)
+  Repo:    https://huggingface.co/Qwen/Qwen-Image-2.1
+  Licence: Qwen Research License Agreement. Research use only. This is stricter
+           than the licences on the flux2 and krea2 backends - check it before
+           you use any output commercially.
+  Size:    ~33 GB bf16 on disk - 14.2 GB transformer, 17.5 GB text encoder,
+           1.4 GB VAE. mflux puts them in the HuggingFace cache
+           (~/.cache/huggingface), downloads them on the first generation, and
+           needs no token.
+
+MEMORY AND PRECISION
+  The default is bf16. Quantization applies to the transformer and the VAE
+  only; the 17.5 GB Qwen3-VL text encoder is never quantized and stays
+  resident, so it sets the floor.
+
+  Measured here on an M5 Pro at 1024x1024, 40 steps, six runs:
+
+    peak memory   29.9 to 30.7 GB at BOTH bf16 and -q 8, never higher at bf16
+    speed         3.3 s/step cold, 4.3 to 4.6 s/step warm, at BOTH precisions
+
+  So on a 64 GB machine -q 8 buys no measurable memory and no measurable
+  speed, and it costs accuracy. That is why bf16 is the default. Pass -q 8
+  when another process needs the RAM.
+
+  Upstream measured ~46 GB peak at bf16 and ~30.7 GB at -q 8 on an M5 Max.
+  Our runs do not reproduce that gap. One hypothesis, unproven: mflux loads
+  the bf16 weights and quantizes them in memory, so the peak carries the
+  unquantized originals either way. Trust each run's own "Peak MLX memory"
+  line over any table, including this one.
+
+  mflux itself accepts only -q 3/4/5/6/8 and reaches bf16 by the flag being
+  absent. qwen21_gen.py takes `-q 0` as a synonym for that, so one flag spans
+  every precision. --low-ram and --vae-tiling cut peak memory further at a
+  speed cost.
+
+RESOLUTION IS THE REAL SPEED DIAL
+  It moves time and memory far more than precision does. Measured here on an
+  M5 Pro, bf16, 10 steps, warm cache, one run each:
+
+    size          s/step   10 steps   peak memory   latent tokens
+    512 x 512      1.01      10.1s      20.5 GB        1024
+    768 x 768      1.79      20.3s      25.1 GB        2304
+    1024 x 1024    3.32      41.2s      30.7 GB        4096
+    1328 x 1328    6.14      70.8s      39.8 GB        6889
+
+  Time tracks the token count almost linearly, so it is the pixel count that
+  costs, not attention blowing up. 512 runs 3.3x faster than 1024 and saves
+  10 GB. At the 40-step default that is about 40s against 133s.
+
+  The catch: this model is trained around 1 MP. A simple subject at 512 looks
+  fine. Text in the image is a known strength of this model and it is NOT
+  tested at 512 here, so check it yourself before you trust small sizes for
+  anything with words in it.
+
+  Warm the cache before you trust any timing. The same 512 run measured 30.1s
+  cold and 10.1s warm, and an earlier sweep read 97.2s at 1024 while the
+  machine was swapping. Take each run's own numbers over any table, this one
+  included.
+
+DO NOT RUN TWO AT ONCE
+  Two 512 generations, same prompt and steps, 20.5 GB each, so both fit in
+  64 GB without swapping:
+
+    one after the other    11.0s + 11.1s     26s wall clock
+    both at the same time  27.5s + 27.7s     31s wall clock
+
+  Each run slows 2.5x when they overlap, and the overlap does not win it back.
+  One generation already saturates the GPU. `qwen21 server` queues them for
+  this reason.
+
+DEFAULTS INJECTED (omit the flag to get these; pass it to override)
+  (no -q flag)      bf16 transformer and VAE
+  --steps 40        upstream's recommended guidance-free default
+  --width/--height  1024 square, text-to-image only (i2i takes the input's size)
+  --output          qwen21.png in your cwd
+  --auto-seeds 1    random seed, printed so you can reproduce it
+
+ENV
+  No wrapper-specific variables. mflux honours the usual HuggingFace ones, so
+  HF_HOME relocates the weight cache.
+
+TEXT IN THE IMAGE
+  The model renders text well, but only text you spell out. Quote the exact
+  string you want. A prompt that asks for "some explanatory notes" or "a short
+  caption" gives you text-shaped texture with no real characters, in Latin and
+  CJK alike.
+
+  Measured here, Traditional Chinese at int8, 1024x1024:
+    simple sign, 13 characters, 2 strings       13/13 correct
+    dense catalog page, 41 characters, 9 strings  37/41 correct
+    same page with the note text left unspecified  every note was fake glyphs
+
+  The remaining errors land on high-stroke characters and are not size-related: the
+  same word rendered correctly in 12px body copy and wrong in a 40px heading
+  on one page. Re-roll the seed or simplify the layout rather than enlarging.
+
+EDITING (qwen21 edit ...)
+  `qwen21 edit` is a second engine, diffusers on MPS, not mflux. mflux has not
+  ported the Qwen3-VL vision tower, so it cannot do instruction editing at all.
+  diffusers loads the full VL model, vision tower included, which is what lets
+  the transformer act on a reference image.
+
+    qwen21 edit --prompt "make it night, lights on" --image room.png
+
+  It takes up to 10 references (repeat --image), supports local edits driven by
+  circles or painted annotations on the reference, and reuses the same cached
+  weights. It is bf16 only: there is no int8 path here, and the vision tower is
+  resident on top of the 33 GB of weights, so it needs more memory than the
+  mflux side. Pass --offload when it will not fit.
+
+  Run `qwen21 edit --help` for its flags.
+
+  MPS VAE ENCODE, PATCHED HERE
+  The MPS backend miscomputes the VAE encoder. Every reference image lost 73%
+  of its contrast, and the tonal range collapsed into a mid-grey band. A VAE
+  encode/decode round trip with no transformer reproduced the defect, so a
+  device sweep on one image localised it:
+
+                        mean   contrast   tonal range (p1-p99)
+    source             147.6      64.2     4.7 - 230.3
+    mps bf16           100.4      17.8    53.0 - 144.7
+    mps fp32           100.5      17.8    53.0 - 144.7
+    cpu fp32           147.8      64.2     5.3 - 230.3
+
+  Both MPS dtypes fail. CPU reproduces the source. So this is a device bug,
+  not a precision bug, which is why fp32 alone did not help. Text-to-image
+  never hits it because that path only decodes.
+
+  The fix runs the VAE encode on CPU in fp32 and keeps the 40 denoise steps on
+  MPS. It is the default. Encode runs once per reference image, so the cost is
+  about 16s on a 1024 edit: 202s against 186s. Peak memory does not change.
+  Pass --vae-encode-on-mps to retest the broken path after a PyTorch upgrade.
+
+  Verified on a full edit, seed 505, one sign rewritten: contrast 62.0 against
+  the source image's 63.7, tonal range 6 - 232 against 4 - 232.
+
+  Root cause is not proven, and nothing is filed upstream. macOS 26.6.2 here
+  is below the build that fixed a near-identical PyTorch MPS report, so an OS
+  update may remove the whole problem. Full write-up, evidence and next steps:
+  qwen21/MPS-VAE-ENCODE.md, with the probe in qwen21/vae_device_sweep.py.
+
+  Separate upstream bug found on the way: `prepare_latents` casts the input
+  image to the PIPELINE dtype, while the decode path casts to `vae.dtype`. So
+  `pipe.vae.to(torch.float32)` alone raises a dtype error. The CPU encode shim
+  moves the image and the VAE together, so it avoids that seam.
+
+SERVER (qwen21 server)
+  Serves a one-page web UI on http://127.0.0.1:8765.
+
+  Use it for the form and for the privacy, not for speed. The model does stay
+  resident, but that buys nothing measurable: mflux memory-maps the weights, so
+  the same 8-step 1024 image took 30.2s through the CLI and 31s through the
+  server. The win is setting the knobs in a browser instead of retyping flags.
+
+  Nothing is logged and nothing is saved. The prompt never reaches disk, the
+  image never reaches disk, and no history is kept after the response. mflux
+  normally writes the prompt into the PNG as EXIF on save; this path never calls
+  save, so there is no metadata either. HTTP access logging is off. Use the
+  Download button in the page when you want to keep an image.
+
+  It binds 127.0.0.1, so it is not reachable from the network. Pass --host to
+  change that, and read the paragraph above again before you do.
+
+    qwen21 server                      # http://127.0.0.1:8765
+    qwen21 server --port 9000
+    qwen21 server -q 8                 # int8 weights, for when RAM is tight
+
+  MEMORY. The first version of this server crashed a 64 GB machine on the third
+  image of a batch. Not a leak: memory is flat across generations. The cause was
+  that it held the 17.5 GB Qwen3-VL text encoder through all 40 denoising steps.
+  The CLI drops it once the prompt is encoded, through mflux's MemorySaver, and
+  this server registered no callbacks at all. Measured at 1024:
+
+                          peak      active     cache
+    first version        45.01 GB  30.39 GB  22.42 GB
+    now                  30.68 GB  15.25 GB   0.00 GB
+
+  30.68 GB is exactly what the CLI reports for the same image. The encoder is
+  gone after the first generation, so a new prompt rebuilds the model. That
+  costs 1.0s against 40s for the generation. A batch reuses one prompt and pays
+  nothing.
+
+  PROGRESS AND CANCEL share one button. Idle it reads Generate or Edit. While a
+  run is in flight it turns red and reads Cancel, and after you press it it
+  reads Stopping. The panel shows a spinner, a bar with the step count, the
+  position in the batch, and a running clock. The page polls /progress once a
+  second; there is no websocket and no extra dependency.
+
+  Cancel on a generate stops at the end of the current step, so the wait is one
+  step: about 1s at 512 and about 3.5s at 1024. Cancel on an edit kills the
+  child process group, which took under 2s. Either way the rest of the batch is
+  dropped, and images already finished stay on the page.
+
+  NO LIVE PREVIEW, on purpose. Showing the half-finished image means a full VAE
+  decode per preview, and Qwen-Image-2.1 uses a 64-channel causal VAE at 16x
+  compression. The decode alone timed 1.40s at 512, 7.42s at 768 and 8.05s at
+  1024. Wall clock is worse still, because the decode's allocations disturb the
+  steps that follow. At 1024, 40 steps, two runs each:
+
+    no previews          157.4s  154.9s
+    every 20 steps       187.1s  176.0s
+    every 5 steps        248.3s  295.6s
+
+  One preview at 1024 costs about 25s. The step counter is free, so that is what
+  the page shows.
+
+  EDIT MODE in the page runs qwen21_edit.py as a child process, because editing
+  needs diffusers and the vision tower while the server runs on mflux. The job
+  goes over pipes as JSON, so the reference images never become files and the
+  prompt never appears in `ps`. The mflux model is dropped first: the edit engine
+  measured 38.7 GiB allocated on MPS and the two do not fit together. The next
+  generation rebuilds it in 3.8s.
+
+  The child stays alive between edits, because loading its pipeline costs 20 to
+  36s and nothing about it depends on the job. Two edits through the server took
+  34.2s then 22.1s. Switching back to generating kills it, since the two engines
+  cannot both be resident. Cancel kills it too, so the next edit reloads.
+
+  WHAT AN EDIT COSTS. Seconds per denoising step, measured on this machine:
+
+    megapixels   0.26   0.59   1.05   1.60   1.75
+    mflux t2i    1.01   1.79   3.32      -   6.14
+    edit         0.76   1.87   3.52   7.95   7.40
+
+  The two engines cost about the same per step, which is the evidence that the
+  edit path is really running on the GPU: PYTORCH_ENABLE_MPS_FALLBACK is on, and
+  an op falling back to CPU would not land within 25% of a native MLX build.
+
+  Cost climbs faster than pixel count, because attention is quadratic in token
+  count. So the output size is the expensive dial, not the step count. The same
+  edit, same prompt and seed, both correct:
+
+    1265 px, 40 steps    345s
+     768 px, 24 steps     72s
+
+  The page prints an estimate under the button before you press it, from a fit
+  of the table above. "Match the reference" on a large screenshot lands at the
+  top of that curve, so read the estimate before you commit to it.
+
+  Editing takes up to 10 references and defaults the output size to the
+  reference's own, capped at 1328. output_resolution is an area budget, not a
+  side: the pipeline calls calculate_dimensions(res * res, reference ratio), so
+  the shape always follows the reference. A 1280x720 reference comes back
+  1280x704, rounded to the multiple of 32 the pipeline requires.
+
+  RGBA IS REAL on the edit path. The 2.1 VAE has 4 channels in and out, the
+  pipeline converts every reference to RGBA, and the diffusers image processor
+  leaves alpha alone. Asking an edit to cut the subject out returned an image
+  with alpha spanning 0 to 255: 24% of pixels near transparent, 71% fully
+  opaque. mflux drops the 4th channel on decode, so the generate path stays RGB.
+
+  BATCHING is sequential and buys no speed. mflux has no batched inference:
+  generate_image takes no batch dimension, and --auto-seeds only loops over N
+  seeds. So N images cost N times one image. The Count field, up to 8, saves you
+  from resubmitting the form and nothing more. Each image appears as soon as it
+  is done rather than all at the end. With an explicit seed the batch walks
+  seed, seed+1, seed+2, so any image in it is reproducible from the CLI.
+
+  IMAGE-TO-IMAGE takes one reference image, with a strength dial. The reference
+  is handed to mflux as a PIL object, not a file, so it never reaches disk. Pick
+  "Match reference" for the size and the output keeps the reference's aspect
+  ratio at about 1 MP; any fixed size resizes the reference to it, which squashes
+  a photo that is not the same shape.
+
+  Strength is the share of the denoising schedule that gets skipped, from
+  init_time_step = max(1, int(steps * strength)). So 0.4 starts the run 40% of
+  the way in. It never reaches zero, and a low value still keeps the reference's
+  colour and composition. Measured on one pear at 8 steps, as RMS distance from
+  the reference image:
+
+    strength 0.15   17.1      strength 0.85    2.5
+    strength 0.55    4.0      no reference    74.5
+
+  The dial is monotonic and it works, but read the spread: every strength sits
+  far closer to the reference than to the same prompt with no reference. Drop the
+  reference entirely when you want the prompt to win.
+
+  ONE reference, not several. The model handles up to 10, but only through the
+  diffusers edit pipeline, and mflux's generate_image exposes a single
+  image_path. `qwen21 edit` is the multi-reference path and stays on the CLI.
+
+  Instruction editing also stays on the CLI, for the same reason.
+
+    qwen21 server                 # http://127.0.0.1:8765
+    qwen21 server --port 9000
+    qwen21 server -q 8            # int8 weights, for when RAM is tight
+
+  The page loads htmx from a CDN. That is the only outbound request, and it
+  carries no prompt data.
+
+STILL NOT SUPPORTED
+  LoRA, on either engine. Transparent/RGBA output: the model has it, but the
+  mflux VAE decodes RGB only.
+
+FLAGS
+  Forwarded verbatim to mflux. `qwen21 --help` lists every one from mflux's own
+  parser, so the list never drifts. The ones you want first:
+    --prompt            the prompt (required; or --prompt-file)
+    --negative-prompt   enables true CFG; pair it with --guidance > 1
+    --image PATH [STR]  reference image plus optional strength, switches to i2i
+    --steps             denoising steps
+    --seed              fixed seed; repeat the flag for a batch
+    --auto-seeds N      N random seeds in one run, model loads once
+    -q                  0 for bf16 (default), or 8, 6, 5, 4, 3 to quantize
+    --low-ram           trade speed for a lower peak
+    --vae-tiling        decode in tiles; cuts the decode-time spike
+    --width / --height  output size
+    --output            output path; {seed} in the name expands per seed
+
+EXAMPLES
+  # text-to-image at the defaults (int8, 40 steps, 1024 square)
+  qwen21 --prompt "a beaver building a dam, photorealistic, golden hour"
+
+  # fixed seed, explicit output
+  qwen21 --prompt "a red apple" --seed 42 --output apple.png
+
+  # image-to-image; size comes from the reference. The optional second value
+  # after the path is the strength (default 0.4).
+  qwen21 --prompt "make it winter" --image ref.png 0.6 --output winter.png
+
+  # true CFG with a negative prompt
+  qwen21 --prompt "a red apple" --negative-prompt "blurry, low quality" --guidance 2.5
+
+  # batch of 4 random seeds, one model load
+  qwen21 --prompt "a red apple" --auto-seeds 4 --output "apple_{seed}.png"
+
+  # int8, for when another process needs the memory
+  qwen21 --prompt "a red apple" -q 8
+EOF
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# `qwen21 help` prints this wrapper's usage. `--help` falls through to mflux's
+# own parser, which is authoritative for the flag list.
+case "${1:-}" in
+    help) usage; exit 0 ;;
+    edit) shift; exec uv run "$script_dir/qwen21_edit.py" "$@" ;;
+    server) shift; exec uv run "$script_dir/qwen21_server.py" "$@" ;;
+esac
+
+exec uv run "$script_dir/qwen21_gen.py" "$@"
