@@ -32,9 +32,7 @@ def score(pil, label):
     print(f"{label:28s} mean {g.mean():6.1f}  contrast {g.std():5.1f}  "
           f"p1-p99 {np.percentile(g,1):5.1f}-{np.percentile(g,99):5.1f}", flush=True)
 
-a = np.asarray(src.convert("RGB"), dtype=np.float32); g = a.mean(axis=2)
-print(f"{'source':28s} mean {g.mean():6.1f}  contrast {g.std():5.1f}  "
-      f"p1-p99 {np.percentile(g,1):5.1f}-{np.percentile(g,99):5.1f}", flush=True)
+score(src, "source")
 
 for device, dtype, label in (("mps", torch.bfloat16, "mps bf16"),
                              ("mps", torch.float32,  "mps fp32"),

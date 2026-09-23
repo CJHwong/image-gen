@@ -35,7 +35,13 @@ this downloads nothing extra beyond the vision tower shards.
 The MPS backend miscomputes the VAE encoder, which crushes the contrast of
 every reference image. This script runs that one encode on CPU in fp32 and
 keeps the denoise steps on MPS. It is the default, and it costs about 16s per
-run. See `qwen21 help` for the device sweep behind it.
+run. MPS-VAE-ENCODE.md holds the device sweep behind it.
+
+The output can carry alpha. The 2.1 VAE has 4 channels in and out, and asking
+an edit to cut the subject out returned alpha spanning 0 to 255: 24% of pixels
+near transparent, 71% fully opaque. The references go in as RGBA, so an input's
+own alpha reaches the VAE; the pipeline composites it over white for the vision
+encoder, which is how the checkpoint was trained.
 
 The diffusers pin is a git commit: QwenImage21Pipeline merged to main on
 2026-09-18 (PR #14804) and release 0.40.0 predates it. Move the pin to a version
@@ -118,7 +124,7 @@ def load_references(paths):
     for path in paths:
         if not os.path.exists(path):
             sys.exit(f"error: reference image not found: {path}")
-        images.append(Image.open(path).convert("RGB"))
+        images.append(Image.open(path).convert("RGBA"))
     return images
 
 
@@ -142,17 +148,10 @@ def print_header(args, images):
 def _encode_vae_on_cpu(pipe):
     """Run the VAE encode on CPU. Everything else stays on MPS.
 
-    The MPS backend miscomputes the Qwen-Image-2.1 VAE encoder. Measured with a
-    plain encode/decode round trip of one image, no transformer involved:
-
-        source          mean 147.6  contrast 64.2  range   4.7-230.3
-        mps bf16        mean 100.4  contrast 17.8  range  53.0-144.7
-        mps fp32        mean 100.5  contrast 17.8  range  53.0-144.7
-        cpu fp32        mean 147.8  contrast 64.2  range   5.3-230.3
-
-    Both MPS dtypes collapse the contrast; CPU reproduces the source. So this is
-    a device bug, not a precision one, which is why forcing fp32 did not help.
-    Text-to-image never hits it because that path only decodes.
+    The MPS backend miscomputes the Qwen-Image-2.1 VAE encoder: contrast drops
+    from 64.2 to 17.8 at both bf16 and fp32, while CPU fp32 reproduces the
+    source. So it is a device bug, not a precision one. Text-to-image never hits
+    it because that path only decodes. MPS-VAE-ENCODE.md has the full sweep.
 
     Encode runs once per reference image, so the CPU detour costs seconds while
     the 40 denoise steps stay on the GPU.
@@ -246,8 +245,6 @@ def job_from_args(args, images):
         "output_resolution": args.output_resolution,
         "use_kv_cache": not args.no_kv_cache,
         "seed": args.seed,
-        "offload": args.offload,
-        "vae_encode_on_mps": args.vae_encode_on_mps,
     }
 
 
@@ -264,19 +261,17 @@ def parse_stdio_job(request):
         )
     return {
         "prompt": request["prompt"],
-        "images": [Image.open(io.BytesIO(base64.b64decode(b))).convert("RGB") for b in encoded],
+        "images": [Image.open(io.BytesIO(base64.b64decode(b))).convert("RGBA") for b in encoded],
         "negative_prompt": request.get("negative_prompt") or None,
         "true_cfg_scale": float(request.get("true_cfg_scale") or 1.0),
         "steps": int(request.get("steps") or 40),
         "output_resolution": int(request.get("output_resolution") or 1024),
         "use_kv_cache": bool(request.get("use_kv_cache", True)),
         "seed": request.get("seed"),
-        "offload": bool(request.get("offload", False)),
-        "vae_encode_on_mps": bool(request.get("vae_encode_on_mps", False)),
     }
 
 
-def run_stdio():
+def run_stdio(args):
     """JSON jobs in on stdin, JSON results out on stdout, one per line.
 
     This exists for qwen21_server.py. The server cannot use the flag interface
@@ -288,7 +283,8 @@ def run_stdio():
     Progress lines go to stderr as "step N/M" so the caller can report them;
     stdout carries one JSON result per job and nothing else.
 
-    This loops until stdin closes, and builds the pipeline once. Loading it
+    This loops until stdin closes, and builds the pipeline once, from the
+    --offload and --vae-encode-on-mps flags of this process. Loading it
     costs 20 to 36 seconds, so a caller sending several edits pays that once
     instead of once per edit. A single job followed by EOF still works, which
     is what a plain `echo ... | qwen21_edit.py --stdio` does.
@@ -302,7 +298,7 @@ def run_stdio():
     def on_step(step, total):
         print(f"step {step}/{total}", file=sys.stderr, flush=True)
 
-    pipe, built_with = None, None
+    pipe = None
     for line in sys.stdin.buffer:
         line = line.strip()
         if not line:
@@ -314,12 +310,9 @@ def run_stdio():
             print(flush=True)
             continue
 
-        # Rebuild only when a setting that is baked into the pipeline changes.
-        wanted = (job["offload"], job["vae_encode_on_mps"])
-        if pipe is None or wanted != built_with:
+        if pipe is None:
             start = time.time()
-            pipe = build_pipeline(*wanted)
-            built_with = wanted
+            pipe = build_pipeline(args.offload, args.vae_encode_on_mps)
             log(f"{'Loaded':<12}: {time.time() - start:.1f}s")
         else:
             log("ready")
@@ -349,7 +342,7 @@ def run_stdio():
 def main():
     args = parse_args()
     if args.stdio:
-        run_stdio()
+        run_stdio(args)
         return
 
     images = load_references(args.image)

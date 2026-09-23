@@ -13,9 +13,35 @@ accepts works here unchanged. This script only injects the defaults this repo
 wants (bf16 weights, 40 steps, 1024 square, one auto seed) when you leave them
 out, and prints a run header and the wall time; mflux prints the measured peak memory.
 
-Default is bf16, not int8: measured on an M5 Pro, int8 and bf16 run at the same
-speed inside thermal noise and report the same peak memory, so quantizing buys
-nothing here and costs accuracy. Pass `-q 8` when another process needs the RAM.
+Default is bf16, not int8. Measured on an M5 Pro at 1024x1024, 40 steps, six runs:
+
+    peak memory   29.9 to 30.7 GB at BOTH bf16 and -q 8, never higher at bf16
+    speed         3.3 s/step cold, 4.3 to 4.6 s/step warm, at BOTH precisions
+
+So quantizing buys nothing here and costs accuracy. Pass `-q 8` when another
+process needs the RAM. The 17.5 GB text encoder is never quantized and sets the
+floor. Upstream measured ~46 GB at bf16 against ~30.7 GB at -q 8 on an M5 Max;
+these runs do not reproduce that gap. One unproven hypothesis: mflux quantizes
+in memory after loading bf16, so the peak carries the originals either way.
+
+Resolution is the real speed dial, far more than precision. M5 Pro, bf16, 10
+steps, warm cache, one run each:
+
+    size          s/step   10 steps   peak memory   latent tokens
+    512 x 512      1.01      10.1s      20.5 GB        1024
+    768 x 768      1.79      20.3s      25.1 GB        2304
+    1024 x 1024    3.32      41.2s      30.7 GB        4096
+    1328 x 1328    6.14      70.8s      39.8 GB        6889
+
+Time tracks the token count almost linearly. The model is trained around 1 MP,
+so 1024 stays the default; text rendering is untested at 512. Warm the cache
+before trusting a timing: the same 512 run read 30.1s cold and 10.1s warm.
+
+Text in the image renders only when the prompt spells it out. Traditional
+Chinese at int8, 1024x1024: a 13-character sign came out 13/13, a dense 41-
+character page 37/41, and notes left unspecified came out as fake glyphs. The
+errors land on high-stroke characters, not small sizes, so re-roll the seed
+rather than enlarging.
 
 The mflux pin is a git commit, not a release: Qwen-Image-2.1 landed in mflux
 main on 2026-09-21 (commit 8c00dab, PR #736) and no tagged release carries it
