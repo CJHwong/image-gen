@@ -23,6 +23,7 @@ Local image generation on Apple Silicon. Each backend is one directory with one 
 - **Edit an image by instruction:** `qwen21/qwen21 edit --prompt "make it night" --image room.png`, or `krea2/krea2 edit --prompt "..." --source src.png -o out.png`.
 - **Control the pose:** `krea2/krea2 control --prompt "..." --pose pose.png -o out.png`.
 - **Use a web page instead of the command line:** `qwen21/qwen21 server`, then open http://127.0.0.1:8765.
+- **Write a prompt that qwen21 follows:** start from a template in [qwen21/PROMPTS.md](qwen21/PROMPTS.md), or from the Templates menu in the page.
 - **Run a wrapper from anywhere:** symlink the wrapper into your `PATH`, for example `ln -s "$PWD/qwen21/qwen21" ~/.local/bin/qwen21`. `qwen21`, `flux2` and `flux2-gen` follow the symlink back to the repo. `krea2` does not, so call it by its path.
 
 ## Backends
