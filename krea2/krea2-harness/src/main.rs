@@ -26,9 +26,13 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Mode {
+    /// Text to image (Turbo).
     Txt2img(Txt2imgArgs),
+    /// Image to image from a reference (Turbo).
     Img2img(Img2imgArgs),
+    /// Instruction edit of a source image (Raw + identity-edit LoRA).
     Edit(EditArgs),
+    /// Pose-guided generation (dense Turbo + pose ControlNet).
     Control(ControlArgs),
 }
 
@@ -69,23 +73,17 @@ pub struct Txt2imgArgs {
     pub quant: Option<QuantArg>,
 }
 
+// txt2img flags plus a reference image.
 #[derive(clap::Args)]
 pub struct Img2imgArgs {
     #[command(flatten)]
-    pub common: Common,
-    /// Text prompt.
-    #[arg(long, required = true)]
-    pub prompt: String,
+    pub base: Txt2imgArgs,
     /// Input reference image.
     #[arg(long, required = true)]
     pub image: PathBuf,
     /// Strength (0.0–1.0): deviation from the reference.
     #[arg(long, default_value = "0.6")]
     pub strength: f32,
-    #[arg(long, default_value = "1024x1024")]
-    pub size: Size,
-    #[arg(long)]
-    pub quant: Option<QuantArg>,
 }
 
 #[derive(clap::Args)]
@@ -177,15 +175,7 @@ impl std::str::FromStr for QuantArg {
 }
 
 fn main() -> std::process::ExitCode {
-    // --help is handled by clap during parse, so it stays instant even off-platform.
     let cli = Cli::parse();
-
-    // MLX is Apple-Silicon-only; fail fast with a clear message rather than a Metal panic.
-    #[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
-    {
-        eprintln!("krea2: Apple Silicon (aarch64 macOS) only — MLX is Metal-only.");
-        return std::process::ExitCode::from(1);
-    }
 
     let quiet = cli.quiet;
     let res = match cli.mode {

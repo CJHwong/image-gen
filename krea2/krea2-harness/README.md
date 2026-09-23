@@ -4,8 +4,8 @@ Rust binary that runs Krea 2 on Apple Silicon via [SceneWorks/mlx-gen](https://g
 (the Rust MLX fork of mflux). Exposes four modes from the `mlx-gen-krea` provider crate:
 txt2img, img2img, edit, and pose-control. Native MLX — no Python, no PyTorch, no ComfyUI.
 
-The thin `../krea2` bash wrapper locates this binary and forwards args. Run `../krea2 help`
-for the full build + weight-download instructions; this file is the short version.
+The thin `../krea2` bash wrapper locates this binary and forwards args. This file is the
+reference for build and weights; `../krea2 help` lists the env vars and subcommands.
 
 ## Build
 
@@ -35,8 +35,21 @@ Krea 2 ships under the Krea 2 Community License — openly downloadable, not gat
 | control | `KREA_TURBO_BF16` + `KREA_POSE_OVERLAY` | DENSE `krea/Krea-2-Turbo` bf16 (NOT the packed turnkey) + `SceneWorks/krea2-pose-controlnet-beta` overlay |
 
 ```sh
+# txt2img / img2img (q4; swap q4 for q8 for near-lossless, ~20.6 GB, wants 48 GB)
 huggingface-cli download SceneWorks/krea-2-turbo-mlx --local-dir ~/models/krea-turbo-q4 --include q4/
 export KREA_TURBO_Q4=~/models/krea-turbo-q4/q4
+
+# edit (confirm the exact LoRA filename inside that repo before exporting)
+huggingface-cli download krea/Krea-2-Raw --local-dir ~/models/krea-raw
+huggingface-cli download conradlocke/krea2-identity-edit --local-dir ~/models/krea-edit-lora
+export KREA_RAW=~/models/krea-raw
+export KREA_EDIT_LORA=~/models/krea-edit-lora/krea2_identity_edit_v1_1_r128.safetensors
+
+# control
+huggingface-cli download krea/Krea-2-Turbo --local-dir ~/models/krea-turbo-bf16
+huggingface-cli download SceneWorks/krea2-pose-controlnet-beta --local-dir ~/models/krea-pose
+export KREA_TURBO_BF16=~/models/krea-turbo-bf16
+export KREA_POSE_OVERLAY=~/models/krea-pose/control_step5000.safetensors
 ```
 
 `--quant q4|q8` (txt2img/img2img/edit) load-time-quantizes a DENSE snapshot. Do NOT pass it
@@ -46,7 +59,7 @@ dense bf16 only (the engine rejects quant on the pose overlay).
 ## Use
 
 From the repo root, call the wrapper at `krea2/krea2` (or put it on `PATH`). Run
-`krea2/krea2 help` for the full reference; `krea2/krea2 <subcommand> --help` for per-mode flags.
+`krea2/krea2 <subcommand> --help` for per-mode flags.
 
 ```sh
 krea2/krea2 txt2img --prompt "a red fox in a snowy forest" --size 1024x1024 -o /tmp/fox.png
