@@ -8,16 +8,14 @@
 """
 Run the uncensored FLUX.2 klein-base-9B through mflux (Python-MLX).
 
-Same flags and defaults as the Swift `flux2` binary, so the `flux2` wrapper can
-call either engine. Text-to-image by default; passing --input switches to the
-i2i edit path (mflux-generate-flux2-edit), which conditions on the same
-klein-base transformer (no separate edit checkpoint).
+The `flux2` wrapper runs this script. Text-to-image by default; passing --input
+switches to the i2i edit path (mflux-generate-flux2-edit), which conditions on
+the same klein-base transformer (no separate edit checkpoint).
 
 The model dir must hold a diffusers-layout klein-base-9b (transformer/,
 text_encoder/, vae/, tokenizer/). The uncensored setup symlinks the ponpoke
-Qwen3-8B encoder into text_encoder/, so mflux loads the same weights the Swift
-harness does. Its name must contain "klein-base-9b" (mflux infers the config
-from the path).
+Qwen3-8B encoder into text_encoder/. Its name must contain "klein-base-9b"
+(mflux infers the config from the path). `flux2 help` has the download recipe.
 
 USAGE:
     # text-to-image
@@ -44,8 +42,8 @@ DEFAULT_MODEL_DIR = os.environ.get(
 
 
 def resolve_dims(width, height, is_i2i):
-    """Match the Swift binary: omit both -> 256 square (t2i) / source dims (i2i);
-    pass one -> square of that; pass both -> as given."""
+    """Omit both -> 256 square (t2i) / source dims (i2i); pass one -> square of
+    that; pass both -> as given."""
     if width is None and height is None:
         return (None, None) if is_i2i else (256, 256)
     if width is None:
@@ -56,8 +54,7 @@ def resolve_dims(width, height, is_i2i):
 
 
 def print_summary(args, width, height, is_i2i):
-    """Informative run header, mirroring the Swift binary's block but with values
-    that are true for mflux (local weights, no gated HF download)."""
+    """Run header: which weights loaded and with what settings."""
     enc_link = os.path.join(args.model_dir, "text_encoder", "model.safetensors")
     encoder = os.path.realpath(enc_link) if os.path.exists(enc_link) else f"{args.model_dir}/text_encoder"
     if args.seed is None:
@@ -89,7 +86,7 @@ def main():
     parser.add_argument("-p", "--prompt", required=True, help="Prompt to generate.")
     parser.add_argument("--input", help="Reference image for i2i editing. Omit for text-to-image.")
     parser.add_argument("--output", default="uncensored_test.png", help="Output PNG path.")
-    parser.add_argument("--width", type=int, help="Image width. See the Swift binary for the omit rules.")
+    parser.add_argument("--width", type=int, help="Image width. Omit both for 256 square (t2i) or the input size (i2i); one alone makes a square.")
     parser.add_argument("--height", type=int, help="Image height.")
     parser.add_argument("--steps", type=int, default=25, help="Denoising steps. Default 25.")
     parser.add_argument("--guidance", type=float, default=4.0, help="CFG guidance. Default 4.0.")
@@ -97,9 +94,6 @@ def main():
     parser.add_argument("--count", type=int, default=1, help="Generate N images in one run.")
     parser.add_argument("-q", "--quantize", type=int, default=8, choices=[3, 4, 5, 6, 8], help="Quantization bits. Default 8.")
     parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="Local diffusers-layout klein-base-9b dir.")
-    # Accepted for flux2 compatibility, ignored: mflux reads the encoder from the
-    # model dir (text_encoder/), not a separate path.
-    parser.add_argument("-e", "--encoder-path", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     is_i2i = args.input is not None

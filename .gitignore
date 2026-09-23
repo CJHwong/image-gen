@@ -1,7 +1,3 @@
-# Swift (flux2-harness build output)
-**/DerivedData/
-**/.build/
-
 # Rust (krea-harness build output)
 **/target/
 

@@ -4,15 +4,8 @@
 # (e.g. --input ref.png for i2i, --steps 12 for a quick draft).
 set -eu
 
-# Resolve this script through any symlink (it is meant to be symlinked into
-# ~/.local/bin) so the sibling `flux2` wrapper is found next to the real file.
-src="${BASH_SOURCE[0]}"
-while [ -L "$src" ]; do
-    dir="$(cd -P "$(dirname "$src")" && pwd)"
-    src="$(readlink "$src")"
-    [ "${src#/}" = "$src" ] && src="$dir/$src"
-done
-script_dir="$(cd -P "$(dirname "$src")" && pwd)"
+# realpath follows the ~/.local/bin symlink, so the sibling `flux2` is found.
+script_dir="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 flux2="$script_dir/flux2"
 
 case "${1:-}" in
@@ -24,19 +17,16 @@ flux2-gen - interactive flux2: prompts for a prompt, writes a timestamped PNG
 USAGE
     flux2-gen [extra flux2 flags...]
 
-Extra flags pass straight through to the flux2 binary, e.g.:
+Extra flags pass straight through to flux2, e.g.:
     flux2-gen --input ref.png            # image-to-image
     flux2-gen --steps 12 --seed 7        # override defaults
     flux2-gen --count 4                  # batch of 4
 
-FLUX_ENCODER_PATH defaults to the cached ponpoke encoder; export your own to
-override. Full flag list and model/setup notes follow:
+Full flag list and model setup notes follow:
 ==================================================================
 HELP
         exec "$flux2" help ;;
 esac
-
-export FLUX_ENCODER_PATH="${FLUX_ENCODER_PATH:-$HOME/Library/Caches/models/ponpoke-uncensored-qwen3-8b}"
 
 echo "prompt> (type/paste any number of lines, empty line to submit)" >&2
 prompt=""
