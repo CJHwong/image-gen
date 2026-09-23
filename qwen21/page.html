@@ -47,7 +47,10 @@
   .icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
     stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 
-  .app { display: grid; grid-template-columns: minmax(0, 1fr) 380px; height: 100vh; }
+  /* The row is capped at the window, so no content can make the page taller
+     and push the pinned run button out of view. */
+  .app { display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: minmax(0, 1fr);
+    height: 100vh; }
 
   /* Left: top bar, stage, filmstrip. Nothing here scrolls but the strip. */
   .work { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0;
@@ -64,29 +67,38 @@
   .canvas { position: relative; min-height: 0; display: flex; align-items: center;
     justify-content: center; padding: 24px; }
   /* A percentage max-height does not bound an image inside a grid-sized flex
-     box, and a tall image pushed the filmstrip off the screen. Pinning the
-     image to the canvas and letting object-fit shrink it cannot overflow. */
-  .canvas img.view { position: absolute; inset: 24px; width: calc(100% - 48px);
-    height: calc(100% - 48px); object-fit: contain; display: block; }
+     box, and a tall image pushed the filmstrip off the screen. The shot is
+     sized in pixels to the image's own shape instead (fitShot), so it cannot
+     overflow, and anything laid over the image lines up with its edges. */
+  .shot { position: relative; flex: none; box-shadow: 0 2px 12px rgba(0, 0, 0, .28); }
+  .shot img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   /* Before and after: the source image lies over the edit, clipped at the
-     slider. The range input covers the image, so a drag anywhere moves it. */
-  .canvas img.before { clip-path: inset(0 calc(100% - var(--split)) 0 0); }
-  .compare-range { position: absolute; inset: 24px; width: calc(100% - 48px); height: calc(100% - 48px);
+     slider. The range input covers the image, so a drag anywhere moves it.
+     The source is stretched to the shot, because the edit resized the whole
+     source; cropping it would shift every point it is compared against. */
+  .shot img.before { object-fit: fill; clip-path: inset(0 calc(100% - var(--split)) 0 0); }
+  .compare-range { position: absolute; inset: 0; width: 100%; height: 100%;
     margin: 0; opacity: 0; cursor: ew-resize; z-index: 2; }
-  .divider { position: absolute; top: 24px; bottom: 24px; width: 2px; margin-left: -1px;
-    left: calc(24px + (100% - 48px) * var(--split-ratio)); background: #fff;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, .25); pointer-events: none; z-index: 1; }
-  .compare-range:focus-visible ~ .divider { background: var(--accent); }
-  .compare-tag { position: absolute; top: 34px; z-index: 1; padding: 2px 8px; border-radius: 5px;
+  .divider { position: absolute; top: 0; bottom: 0; left: var(--split); width: 2px; margin-left: -1px;
+    background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .2); pointer-events: none; z-index: 1; }
+  .divider::after { content: ""; position: absolute; top: 50%; left: 50%; width: 30px; height: 30px;
+    margin: -15px 0 0 -15px; border-radius: 50%; background: #fff;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, .35); }
+  .divider .icon { position: absolute; top: 50%; left: 50%; z-index: 1; margin: -8px 0 0 -8px;
+    color: #3a3b40; }
+  .compare-range:focus-visible ~ .divider,
+  .compare-range:focus-visible ~ .divider::after { background: var(--accent-fill); }
+  .compare-range:focus-visible ~ .divider .icon { color: #fff; }
+  .compare-tag { position: absolute; top: 10px; z-index: 1; padding: 2px 8px; border-radius: 5px;
     background: rgba(0, 0, 0, .55); color: #fff; font-size: 12px; pointer-events: none; }
-  .compare-tag.left { left: 34px; }
-  .compare-tag.right { right: 34px; }
+  .compare-tag.left { left: 10px; }
+  .compare-tag.right { right: 10px; }
   .arrive { animation: arrive .22s ease-out; }
   @keyframes arrive { from { opacity: 0; transform: scale(.985); } }
 
   .empty { max-width: 320px; text-align: center; color: var(--text-2); }
-  .empty strong { display: block; color: var(--text); font-size: 15px; font-weight: 600;
-    margin-bottom: 4px; }
+  .empty strong { display: block; color: var(--text); font-size: 15px; font-weight: 600; }
+  .empty p { margin: 4px 0 16px; }
 
   /* The one bold element: a plate at the shape the image will have, holding
      the progress ring. The finished image takes its place. */
@@ -109,8 +121,11 @@
   .stage-bar { display: flex; align-items: center; gap: 20px; padding: 0 24px 16px; min-width: 0; }
   .stage-bar[hidden] { display: none; }
   .about { flex: 1; min-width: 0; }
-  .facts { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--text-2); font-size: 12px; }
-  .facts .mode { color: var(--text); font-weight: 600; }
+  .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; color: var(--text-2);
+    font-size: 12px; }
+  .facts .mode { display: inline-flex; align-items: center; gap: 4px; padding: 0 7px 0 5px;
+    border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); font-weight: 500; }
+  .facts .mode .icon { width: 12px; height: 12px; }
   .prompt-line { margin: 3px 0 0; color: var(--text-3); font-size: 12px; overflow: hidden;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .actions { display: flex; align-items: center; gap: 4px; flex: none; }
@@ -127,7 +142,23 @@
   .btn:hover { background: var(--chrome-3); }
   .btn.quiet { border-color: transparent; background: none; color: var(--text-2); }
   .btn.quiet:hover { background: var(--chrome-3); border-color: var(--line); color: var(--text); }
-  .text-btn { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer;
+  /* Menus open from a button and float over the page. */
+  .menu-anchor { position: relative; }
+  .menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; min-width: 220px;
+    padding: 4px; background: var(--chrome); border: 1px solid var(--line-strong);
+    border-radius: 10px; box-shadow: var(--shadow); animation: arrive .12s ease-out; }
+  .menu.up { top: auto; bottom: calc(100% + 6px); }
+  #templates { top: 30px; width: min(310px, 100%); }
+  .menu button { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 7px 10px;
+    border: 0; border-radius: 6px; background: none; color: var(--text); text-align: left;
+    cursor: pointer; font-size: 13px; }
+  .menu button .icon { margin-top: 1px; color: var(--text-2); }
+  .menu button:hover, .menu button:focus-visible { background: var(--chrome-3); outline: none; }
+  .item-note { display: block; color: var(--text-3); font-size: 12px; }
+  .menu-head, .menu-foot { padding: 6px 10px; color: var(--text-3); font-size: 12px; }
+  .menu-head { font-weight: 500; color: var(--text-2); }
+  .menu-foot { border-top: 1px solid var(--line); margin-top: 4px; }
+  .text-btn { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; white-space: nowrap;
     font-size: 12px; }
   .text-btn:hover { text-decoration: underline; }
 
@@ -168,13 +199,12 @@
   .field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
   label, .label { color: var(--text-2); font-size: 12px; font-weight: 500; }
   .prompt-field { position: relative; }
-  .templates { position: absolute; top: 22px; right: 0; z-index: 3; width: min(300px, 100%);
-    padding: 4px; background: var(--chrome); border: 1px solid var(--line-strong);
-    border-radius: 9px; box-shadow: var(--shadow); }
-  .templates button { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px;
-    background: none; color: var(--text); text-align: left; cursor: pointer; font-size: 13px; }
-  .templates button span { display: block; color: var(--text-3); font-size: 12px; }
-  .templates button:hover, .templates button:focus-visible { background: var(--chrome-3); outline: none; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px;
+    border: 1px solid var(--line-strong); border-radius: 999px; background: var(--chrome-2);
+    color: var(--text-2); cursor: pointer; font-size: 12px; }
+  .pill .icon { width: 14px; height: 14px; }
+  .pill:hover, .pill[aria-expanded=true] { border-color: var(--accent); color: var(--text); }
+  .field-head:has(.pill) { align-items: center; }
   .caption { color: var(--text-3); font-size: 12px; }
   textarea, input[type=text], input[type=number], select { width: 100%; background: var(--chrome-2);
     border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; }
@@ -260,9 +290,9 @@
   .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
   .footer { padding: 14px 20px 18px; border-top: 1px solid var(--line); background: var(--chrome); }
-  /* One button, three states: run, cancel, stopping. A separate Cancel button
-     meant two controls for one run. The second line carries the estimate when
-     idle and the step count while running. */
+  /* The run button only starts a run. While one is in flight it is disabled
+     and reads Generating or Editing, with the step count below; Cancel sits on
+     the progress card. The second line carries the estimate when idle. */
   #go { position: relative; overflow: hidden; width: 100%; min-height: 52px; border: 1px solid transparent;
     border-radius: 10px; background: var(--accent-fill); color: #fff; cursor: pointer;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
@@ -271,8 +301,8 @@
   #go .main { font-size: 14px; font-weight: 600; }
   #go .sub { font-size: 12px; }
   #go .busy-label, #go .stopping-label { display: none; }
-  body.busy #go { background: var(--chrome-2); border-color: var(--line-strong); color: var(--text); filter: none; }
-  body.busy #go:hover { background: var(--chrome-3); }
+  body.busy #go { background: var(--chrome-2); border-color: var(--line-strong); color: var(--text);
+    filter: none; cursor: progress; }
   body.busy #go .idle-label { display: none; }
   body.busy #go .busy-label { display: inline; }
   body.stopping #go .busy-label { display: none; }
@@ -289,7 +319,7 @@
   /* On a phone the image leads, and the run button sits at the bottom of the
      screen so it is reachable from anywhere in the form. */
   @media (max-width: 900px) {
-    .app { grid-template-columns: 1fr; height: auto; }
+    .app { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
     .work { grid-template-rows: auto 62vh auto; }
     .privacy span { display: none; }
     .stage-bar { flex-wrap: wrap; gap: 10px; padding: 0 16px 12px; }
@@ -321,6 +351,9 @@
   <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="18" cy="12" r="1.4" fill="currentColor"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/></symbol>
+  <symbol id="i-layout" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9.5h16M10 9.5V20"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/></symbol>
 </svg>
 
@@ -365,10 +398,10 @@
         <div class="field prompt-field">
           <div class="field-head">
             <label for="prompt"><span class="generate-only">Prompt</span><span class="edit-only">What to change</span></label>
-            <button type="button" class="text-btn" id="templates-toggle" aria-expanded="false"
-              aria-controls="templates">Templates</button>
+            <button type="button" class="pill" id="templates-toggle" aria-expanded="false"
+              aria-controls="templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
           </div>
-          <div class="templates" id="templates" role="menu" hidden></div>
+          <div class="menu" id="templates" role="menu" hidden></div>
           <textarea id="prompt" name="prompt" autofocus rows="4"></textarea>
         </div>
 
@@ -466,7 +499,7 @@
         <button id="go" type="submit">
           <span class="main">
             <span class="idle-label"><span class="generate-only">Generate</span><span class="edit-only">Edit</span></span>
-            <span class="busy-label">Cancel</span>
+            <span class="busy-label" id="go-busy">Generating</span>
             <span class="stopping-label">Stopping&hellip;</span>
           </span>
           <span class="sub num" id="go-sub" aria-live="polite"></span>
@@ -577,12 +610,14 @@
     note.hidden = count === 0;
     if (editing() && count) {
       const last = lastReference();
-      note.textContent = count + ' of ' + MAX_REFERENCES + '. The last one sets the output shape'
-        + (last.width ? ' (' + last.width + ' × ' + last.height + ').' : '.');
+      note.textContent = count + ' of ' + MAX_REFERENCES + ' images. The result takes the shape of the last one'
+        + (last.width ? ', ' + last.width + ' × ' + last.height + '.' : '.');
     } else if (count) {
       note.textContent = 'Drop or paste another image to replace it.';
     }
     refreshForm();
+    // An empty stage says what to do next, and that depends on the references.
+    if (view === null) renderStage();
   }
 
   function addReference(b64, name) {
@@ -833,6 +868,20 @@
   const GENERATE_OVERHEAD = 3;    // per image; the model is already resident
   const EDIT_OVERHEAD = 20;       // once per batch; the child may have to load a pipeline
 
+  // The constants above fit one machine. Once a run shows its real step rate,
+  // that rate, brought back to one megapixel, replaces STEP_COST for the next
+  // estimate on this device. It comes from the live steps, not from the time
+  // an image took, which also holds one-off loads. Guidance above 1 runs two
+  // passes per step, so those runs learn apart. Tab memory only.
+  const learnedCost = {};
+  let runKey = null;
+  let runPixels = 0;
+
+  function costKey() {
+    const scale = Number(document.getElementById(editing() ? 'cfg' : 'guidance').value);
+    return (editing() ? 'edit' : 'generate') + (scale > 1 ? ' two-pass' : '');
+  }
+
   function targetPixels() {
     if (editing()) return Math.pow(editResolution(), 2);
     const current = currentOption();
@@ -842,7 +891,8 @@
   function estimate() {
     const steps = Number(document.getElementById('steps').value) || 0;
     const count = clampCount();
-    const perStep = STEP_COST * Math.pow(targetPixels() / 1e6, STEP_EXPONENT);
+    const cost = learnedCost[costKey()] || STEP_COST;
+    const perStep = cost * Math.pow(targetPixels() / 1e6, STEP_EXPONENT);
     const overhead = editing() ? EDIT_OVERHEAD : count * GENERATE_OVERHEAD;
     return 'about ' + spell(count * steps * perStep + overhead);
   }
@@ -903,27 +953,30 @@
   const templatesToggle = document.getElementById('templates-toggle');
   const templatesMenu = document.getElementById('templates');
 
-  function showTemplates(open) {
-    templatesMenu.hidden = !open;
-    templatesToggle.setAttribute('aria-expanded', String(open));
-    if (!open) return;
+  // The list is rebuilt on each open, because it follows the current mode. The
+  // header and the hint are not items, so arrow keys and Tab skip them.
+  function openTemplates() {
     templatesMenu.replaceChildren();
+    const head = document.createElement('div');
+    head.className = 'menu-head';
+    head.textContent = editing() ? 'Start an edit from a template' : 'Start from a template';
+    templatesMenu.append(head);
     TEMPLATES[editing() ? 'edit' : 'generate'].forEach(function ([name, hint, text]) {
-      const option = document.createElement('button');
-      option.type = 'button';
-      option.setAttribute('role', 'menuitem');
-      option.textContent = name;
+      const option = menuItem('', name, function () { useTemplate(text); });
       const note = document.createElement('span');
+      note.className = 'item-note';
       note.textContent = hint;
-      option.append(note);
-      option.addEventListener('click', function () { useTemplate(text); });
+      option.querySelector('.item-text').append(note);
       templatesMenu.append(option);
     });
-    templatesMenu.querySelector('button').focus();
+    const foot = document.createElement('div');
+    foot.className = 'menu-foot';
+    foot.textContent = 'Press Tab to jump to the next [bracket].';
+    templatesMenu.append(foot);
+    toggleMenu(templatesMenu);
   }
 
   function useTemplate(text) {
-    showTemplates(false);
     promptInput.value = text;
     growPrompt();
     refreshForm();
@@ -940,15 +993,8 @@
     return true;
   }
 
-  templatesToggle.addEventListener('click', function () { showTemplates(templatesMenu.hidden); });
-  templatesMenu.addEventListener('keydown', function (event) {
-    if (event.key !== 'Escape') return;
-    showTemplates(false);
-    templatesToggle.focus();
-  });
-  document.addEventListener('click', function (event) {
-    if (templatesMenu.hidden || event.target.closest('#templates, #templates-toggle')) return;
-    showTemplates(false);
+  templatesToggle.addEventListener('click', function () {
+    if (templatesMenu.hidden) openTemplates(); else closeMenus();
   });
   promptInput.addEventListener('keydown', function (event) {
     if (event.key !== 'Tab' || event.shiftKey) return;
@@ -962,7 +1008,8 @@
   // htmx resolves the route when it first processes the element, so a later
   // setAttribute is ignored and every edit went to the generate engine.
   // The references are cleared, because the two modes read them differently:
-  // a list built for an edit would silently shrink to its first image.
+  // a list built for an edit would silently shrink to its first image. The
+  // prompt is cleared too: a scene description is not an edit instruction.
   function applyMode() {
     form.classList.toggle('mode-edit', editing());
     form.classList.toggle('mode-generate', !editing());
@@ -973,8 +1020,10 @@
   form.querySelectorAll('input[name=mode]').forEach(function (radio) {
     radio.addEventListener('change', function () {
       applyMode();
-      showTemplates(false);
+      closeMenus();
       references = [];
+      promptInput.value = '';
+      growPrompt();
       renderReferences();
       renderStage();
     });
@@ -991,7 +1040,7 @@
   let view = null;          // an image id, or 'progress' while a run is shown
   let arrivedId = null;     // the image to fade in once, on arrival
   let nextId = 1;
-  let batchSource = null;   // the first reference of the running edit, for before and after
+  let batchSource = null;   // the source of a one-image edit, for before and after
 
   function harvest() {
     incoming.querySelectorAll('.item').forEach(function (node) {
@@ -1089,33 +1138,64 @@
       cancel.addEventListener('click', requestCancel);
       card.append(cancel);
       canvas.append(card);
-      fitCard();
+      fitStage();
       renderProgress();
       return;
     }
     const entry = selected();
-    if (!entry) {
-      const empty = document.createElement('div');
-      empty.className = 'empty';
-      empty.innerHTML = editing()
-        ? '<strong>Edit an image</strong>Add it on the right and say what to change.'
-        : '<strong>Nothing here yet</strong>Write a prompt and press Generate. Images stay in this tab.';
+    if (!entry) return renderEmpty();
+    const shot = document.createElement('div');
+    shot.className = 'shot' + (entry.id === arrivedId ? ' arrive' : '');
+    shot.dataset.ratio = entry.width / entry.height;
+    const image = document.createElement('img');
+    image.src = entry.src;
+    image.alt = entry.prompt;
+    shot.append(image);
+    if (entry.before) renderCompare(shot, entry.before);
+    canvas.append(shot);
+    arrivedId = null;
+    // The bar takes its height from the stage, so the shot is fitted after it.
+    renderStageBar(entry);
+    fitStage();
+  }
+
+  // An empty stage names the next step and offers it as a button.
+  function renderEmpty() {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    const title = document.createElement('strong');
+    const line = document.createElement('p');
+    const start = document.createElement('button');
+    start.type = 'button';
+    start.className = 'btn';
+    if (editing() && references.length) {
+      title.textContent = 'Ready to edit';
+      line.textContent = 'Say what to change, then press Edit.';
+      empty.append(title, line);
       canvas.append(empty);
       return;
     }
-    const image = document.createElement('img');
-    image.className = 'view' + (entry.id === arrivedId ? ' arrive' : '');
-    image.src = entry.src;
-    image.alt = entry.prompt;
-    canvas.append(image);
-    if (entry.before) renderCompare(entry.before);
-    arrivedId = null;
-    renderStageBar(entry);
+    if (editing()) {
+      title.textContent = 'Edit an image';
+      line.textContent = 'Add the image, then say what to change.';
+      start.innerHTML = icon('image-in') + 'Choose an image';
+      start.addEventListener('click', function () { referenceInput.click(); });
+    } else {
+      title.textContent = 'Nothing here yet';
+      line.textContent = 'Write a prompt and press Generate, or start from a template.';
+      start.innerHTML = icon('layout') + 'Browse templates';
+      start.addEventListener('click', function (event) {
+        event.stopPropagation();  // the click would reach the document and close the menu
+        openTemplates();
+      });
+    }
+    empty.append(title, line, start);
+    canvas.append(empty);
   }
 
-  function renderCompare(source) {
+  function renderCompare(shot, source) {
     const before = document.createElement('img');
-    before.className = 'view before';
+    before.className = 'before';
     before.src = source;
     before.alt = 'The image before the edit';
     const range = document.createElement('input');
@@ -1126,20 +1206,18 @@
     range.setAttribute('aria-label', 'Compare before and after');
     const divider = document.createElement('div');
     divider.className = 'divider';
+    divider.innerHTML = icon('grip');
     const left = document.createElement('span');
     left.className = 'compare-tag left';
     left.textContent = 'Before';
     const right = document.createElement('span');
     right.className = 'compare-tag right';
     right.textContent = 'After';
-    function split() {
-      canvas.style.setProperty('--split', range.value + '%');
-      canvas.style.setProperty('--split-ratio', range.value / 100);
-    }
+    function split() { shot.style.setProperty('--split', range.value + '%'); }
     range.value = '50';
     range.addEventListener('input', split);
     split();
-    canvas.append(before, range, divider, left, right);
+    shot.append(before, range, divider, left, right);
   }
 
   function renderStageBar(entry) {
@@ -1149,8 +1227,11 @@
     about.className = 'about';
     const facts = document.createElement('div');
     facts.className = 'facts num';
-    [[entry.mode === 'edit' ? 'Edit' : 'Generate', 'mode'],
-     [entry.position === '1 image' ? '' : 'Image ' + entry.position, ''],
+    const mode = document.createElement('span');
+    mode.className = 'mode';
+    mode.innerHTML = icon(entry.mode === 'edit' ? 'brush' : 'sparkle') + (entry.mode === 'edit' ? 'Edit' : 'Generate');
+    facts.append(mode);
+    [[entry.position === '1 image' ? '' : 'Image ' + entry.position, ''],
      ['Seed ' + entry.seed, ''], [entry.width + ' × ' + entry.height, ''],
      [entry.steps + ' steps', ''], [entry.elapsed + 's', '']].forEach(function (pair) {
       if (!pair[0]) return;
@@ -1168,22 +1249,35 @@
     // Every action is page state only; nothing is sent until the next run.
     const actions = document.createElement('div');
     actions.className = 'actions';
-    actions.append(
-      textButton('brush', 'Edit this', function () { editThis(entry); }),
-      textButton('image-in', 'Use as reference', function () {
+    // Edit this and Download are the two next steps people take; the reuse
+    // actions are rarer, so they wait behind More to keep the row short.
+    const more = document.createElement('div');
+    more.className = 'menu-anchor';
+    const moreToggle = iconButton('more', 'More actions', function () { toggleMenu(moreMenu); });
+    moreToggle.setAttribute('aria-controls', 'more-menu');
+    moreToggle.setAttribute('aria-expanded', 'false');
+    const moreMenu = document.createElement('div');
+    moreMenu.className = 'menu up';
+    moreMenu.id = 'more-menu';
+    moreMenu.setAttribute('role', 'menu');
+    moreMenu.hidden = true;
+    moreMenu.append(
+      menuItem('image-in', 'Use as reference', function () {
         addReference(entry.src.split(',')[1], 'Seed ' + entry.seed);
       }),
-      textButton('hash', 'Reuse seed', function () {
+      menuItem('hash', 'Reuse seed ' + entry.seed, function () {
         document.getElementById('seed').value = entry.seed;
+        document.getElementById('advanced').open = true;
         refreshForm();
       }),
-      textButton('text', 'Reuse prompt', function () {
+      menuItem('text', 'Reuse prompt', function () {
         promptInput.value = entry.prompt;
         growPrompt();
         refreshForm();
         promptInput.focus();
       })
     );
+    more.append(moreToggle, moreMenu);
     const download = document.createElement('a');
     download.className = 'btn';
     download.href = entry.src;
@@ -1191,13 +1285,71 @@
     download.innerHTML = icon('download') + 'Download';
     const rule = document.createElement('span');
     rule.className = 'rule';
-    actions.append(download, rule,
+    actions.append(textButton('brush', 'Edit this', function () { editThis(entry); }), more,
+      download, rule,
       iconButton('trash', 'Remove from this tab', function () { removeEntry(entry.id); }, 'danger'));
     stageBar.append(about, actions);
   }
 
-  // Edit mode with this image as the only reference. The old prompt stays,
-  // selected, so typing the change replaces it and Reuse prompt is not needed.
+  // ---- Menus -----------------------------------------------------------------
+  // One menu is open at most. A click outside or Escape closes it, and Escape
+  // returns focus to the button that opened it.
+  function toggleMenu(menu) {
+    const opening = menu.hidden;
+    closeMenus();
+    if (!opening) return;
+    menu.hidden = false;
+    menuToggle(menu).setAttribute('aria-expanded', 'true');
+    menu.querySelector('button').focus();
+  }
+
+  function menuToggle(menu) {
+    return document.querySelector('[aria-controls="' + menu.id + '"]');
+  }
+
+  function closeMenus() {
+    document.querySelectorAll('.menu:not([hidden])').forEach(function (menu) {
+      menu.hidden = true;
+      const toggle = menuToggle(menu);
+      if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function menuItem(name, label, handler) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.setAttribute('role', 'menuitem');
+    item.innerHTML = (name ? icon(name) : '') + '<span class="item-text"></span>';
+    item.querySelector('.item-text').textContent = label;
+    item.addEventListener('click', function () {
+      closeMenus();
+      handler();
+    });
+    return item;
+  }
+
+  document.addEventListener('click', function (event) {
+    if (event.target.closest('.menu, [aria-controls]')) return;
+    closeMenus();
+  });
+  document.addEventListener('keydown', function (event) {
+    const open = document.querySelector('.menu:not([hidden])');
+    if (!open) return;
+    if (event.key === 'Escape') {
+      closeMenus();
+      menuToggle(open).focus();
+      return;
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    const items = Array.from(open.querySelectorAll('button'));
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    const index = items.indexOf(document.activeElement);
+    items[(index + step + items.length) % items.length].focus();
+  });
+
+  // Edit mode with this image as the only reference, an empty prompt, and the
+  // image's own seed, so a rerun of the same edit gives the same result.
   function editThis(entry) {
     const editRadio = document.getElementById('mode-edit');
     if (!editRadio.checked) {
@@ -1205,11 +1357,13 @@
       editRadio.dispatchEvent(new Event('change', { bubbles: true }));
     }
     references = [];
+    promptInput.value = '';
+    growPrompt();
+    document.getElementById('seed').value = entry.seed;
     addReference(entry.src.split(',')[1], 'Seed ' + entry.seed);
     view = entry.id;
     renderStage();
     promptInput.focus();
-    promptInput.select();
   }
 
   function textButton(name, label, handler) {
@@ -1234,15 +1388,19 @@
 
   // The card takes the shape of the coming image, fitted inside the stage the
   // way the image itself will be.
-  function fitCard() {
-    const card = canvas.querySelector('.card');
-    if (!card) return;
-    const ratio = targetRatio();
-    const width = Math.min((canvas.clientWidth - 48) * 0.9, (canvas.clientHeight - 48) * 0.9 * ratio);
-    card.style.width = Math.round(width) + 'px';
-    card.style.height = Math.round(width / ratio) + 'px';
+  function fitBox(box, ratio, share) {
+    const width = Math.min((canvas.clientWidth - 48) * share, (canvas.clientHeight - 48) * share * ratio);
+    box.style.width = Math.round(width) + 'px';
+    box.style.height = Math.round(width / ratio) + 'px';
   }
-  window.addEventListener('resize', fitCard);
+
+  function fitStage() {
+    const card = canvas.querySelector('.card');
+    if (card) fitBox(card, targetRatio(), 0.9);
+    const shot = canvas.querySelector('.shot');
+    if (shot) fitBox(shot, Number(shot.dataset.ratio), 1);
+  }
+  window.addEventListener('resize', fitStage);
 
   function removeEntry(id) {
     const index = gallery.findIndex(function (entry) { return entry.id === id; });
@@ -1289,10 +1447,13 @@
   function startWork(element) {
     const fresh = element === form;
     document.body.classList.add('busy');
-    go.disabled = false;
+    go.disabled = true;
+    document.getElementById('go-busy').textContent = editing() ? 'Editing' : 'Generating';
     progressSlot.innerHTML = POLLER;
     htmx.process(progressSlot);
     if (fresh) {
+      runKey = costKey();
+      runPixels = targetPixels();
       view = 'progress';
       progressState = null;
       pace = null;
@@ -1301,8 +1462,16 @@
     }
   }
 
+  // The tab title shows the progress, so a run can be watched from another tab.
+  // A run that ends in the background leaves "Done" until the tab is seen.
+  const BASE_TITLE = document.title;
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && !busy()) document.title = BASE_TITLE;
+  });
+
   function stopWork() {
     if (!busy()) return;
+    document.title = (document.hidden ? '(Done) ' : '') + BASE_TITLE;
     document.body.classList.remove('busy', 'stopping');
     progressSlot.innerHTML = '';
     progressState = null;
@@ -1320,15 +1489,13 @@
     htmx.ajax('POST', '/cancel', { swap: 'none' });
   }
 
-  // One button, three states. Idle it submits the form. While a run is in
-  // flight it reads Cancel, so the click must not reach htmx's submit handling;
-  // capture phase runs before that.
-  go.addEventListener('click', function (event) {
-    if (!busy()) return;
+  // Cmd+Enter (Ctrl+Enter off a Mac) runs from anywhere on the page. It obeys
+  // the same rule as a click: nothing happens while the button is disabled.
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return;
     event.preventDefault();
-    event.stopPropagation();
-    requestCancel();
-  }, true);
+    if (!go.disabled) form.requestSubmit(go);
+  });
 
   new MutationObserver(function () {
     const node = progressSlot.querySelector('.progress-state');
@@ -1351,6 +1518,10 @@
       return;
     }
     pace.lastStep = state.step;
+    const stepsSeen = state.step - pace.firstStep;
+    if (stepsSeen < 2) return;
+    const perStep = (now - pace.startedAt) / 1000 / stepsSeen;
+    learnedCost[runKey] = perStep / Math.pow(runPixels / 1e6, STEP_EXPONENT);
   }
 
   function timeLeft() {
@@ -1375,6 +1546,7 @@
     if (stopping) stepText = 'Stopping at the end of this step';
 
     goSub.textContent = stopping ? '' : stepText;
+    document.title = (running ? '(' + Math.round(fraction * 100) + '%) ' : '') + BASE_TITLE;
     goFill.style.width = Math.round(fraction * 100) + '%';
     document.querySelectorAll('.ring').forEach(function (ring) {
       ring.classList.toggle('waiting', !running);
@@ -1402,7 +1574,10 @@
   // Only the form itself carries them: a chain request already has a token.
   document.body.addEventListener('htmx:configRequest', function (event) {
     if (event.detail.elt !== form) return;
-    batchSource = editing() && references.length
+    // Only a one-image edit changes that image in place. An edit from several
+    // images composes them, so no single source lines up with the result and
+    // a wipe between them would mislead.
+    batchSource = editing() && references.length === 1
       ? 'data:image/png;base64,' + references[0].b64 : null;
     event.detail.parameters.references = JSON.stringify(references.map(function (r) {
       return r.b64;
