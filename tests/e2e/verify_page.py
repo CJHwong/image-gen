@@ -196,8 +196,10 @@ with sync_playwright() as playwright:
     page.keyboard.press("Meta+Enter")
     page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
     check("Cmd+Enter starts a run", True)
+    # The percent shows at 0% while the backend still loads, before step 1.
+    page.wait_for_function("document.getElementById('status').innerText.startsWith('Step ')", timeout=300000)
     status = page.inner_text("#status")
-    check("the status reads the run", status.startswith("Developing") and "%" in status, status)
+    check("the status reads the step", status.startswith("Step ") and " of " in status, status)
     bar = page.evaluate("""() => {
         const plate = document.querySelector('.card .plate').getBoundingClientRect();
         const bar = document.querySelector('.card .exposure').getBoundingClientRect();

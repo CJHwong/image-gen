@@ -296,7 +296,9 @@
   .rewind .exposure { transition: none; }
   /* Polaroid: the print drops out of the slot at the top, in the dark teal of
      an undeveloped SX-70 print. Kodak: the print rises out of a slot at the
-     bottom. The line is the print's leading edge. */
+     bottom. The line is the print's leading edge, and the developing band
+     lies along it, as the Darkroom band trails its line. The film's specks
+     stay over the print too, so it is grain, not a flat block. */
   [data-theme=polaroid] .exposure, [data-theme=kodak] .exposure { inset: 0 0 auto 0; width: auto;
     height: var(--exposed, 0%); transition: height .6s linear; }
   [data-theme=kodak] .exposure { inset: auto 0 0 0; }
@@ -305,16 +307,32 @@
   [data-theme=polaroid] .exposure::after, [data-theme=kodak] .exposure::after {
     inset: auto 0 0 0; width: auto; height: 1px; }
   [data-theme=kodak] .exposure::after { inset: 0 0 auto 0; }
-  [data-theme=polaroid] .exposure::before, [data-theme=kodak] .exposure::before { display: none; }
+  [data-theme=polaroid] .exposure::before, [data-theme=kodak] .exposure::before {
+    inset: auto 0 1px 0; width: auto; height: 56px;
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000); mask-image: linear-gradient(180deg, transparent, #000); }
+  [data-theme=kodak] .exposure::before { inset: 1px 0 auto 0;
+    -webkit-mask-image: linear-gradient(0deg, transparent, #000); mask-image: linear-gradient(0deg, transparent, #000); }
+  [data-theme=polaroid] .plate::before, [data-theme=kodak] .plate::before,
+  [data-theme=polaroid] .frame.pending .still::before, [data-theme=kodak] .frame.pending .still::before { z-index: 1; }
+  [data-theme] .card .percent { z-index: 2; }
   [data-theme=polaroid] .card::after, [data-theme=kodak] .card::after { content: ""; position: absolute;
     left: 5px; right: 5px; height: 4px; border-radius: 2px; background: #000;
     box-shadow: inset 0 1px 2px rgba(255, 255, 255, .08); }
   [data-theme=polaroid] .card::after { top: 3px; }
   [data-theme=kodak] .card::after { bottom: 21px; }
-  /* Leica: film, so no eject. The print comes up all over in the tray. */
+  /* Leica: film, so no eject. The print comes up all over in the tray: the
+     plate lifts to a warm latent grey, coarse grain settles as it firms up,
+     and the developer rocks across it in a slow ripple. */
   [data-theme=leica] .exposure { inset: 0; width: auto; opacity: var(--exposed, 0%);
-    background: rgba(255, 255, 255, .14); transition: opacity .6s linear; }
+    background: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(255, 246, 232, .34), rgba(255, 246, 232, .2));
+    transition: opacity .6s linear; }
   [data-theme=leica] .exposure::before, [data-theme=leica] .exposure::after { display: none; }
+  [data-theme=leica] .plate::before, [data-theme=leica] .frame.pending .still::before { z-index: 1; opacity: calc(55% - var(--exposed, 0%) * .45);
+    transition: opacity .6s linear; }
+  [data-theme=leica] .card .plate::after { content: ""; position: absolute; inset: -20%; z-index: 1;
+    background: radial-gradient(ellipse 35% 25% at 50% 50%, rgba(255, 255, 255, .09), transparent 70%);
+    animation: tray 3.6s ease-in-out infinite alternate; pointer-events: none; }
+  @keyframes tray { from { transform: translate(-18%, -10%); } to { transform: translate(18%, 12%); } }
   .card .percent { position: relative; color: #f2f2f2; font: 300 28px/1.1 var(--mono); letter-spacing: -.02em; }
 
   /* Under the frame: the prompt as its caption, then one quiet line of facts. */
@@ -2388,12 +2406,15 @@
     const running = now.running;
     let stepText = 'Starting';
     if (state && state.stage === 'preparing') stepText = 'Preparing the model';
-    if (running) stepText = 'Step ' + state.step + ' of ' + state.total;
+    // Step 0 is the backend's notice before the engine starts. The engine may
+    // then run fewer steps (a starting image skips part of the schedule), so
+    // the count shows from the first real step.
+    if (running && state.step > 0) stepText = 'Step ' + state.step + ' of ' + state.total;
     if (stopping) stepText = 'Stopping at the end of this step';
 
     const left = running && !stopping ? timeLeft() : '';
     statusText.textContent = stopping ? 'Stopping' : running
-      ? ['Developing ' + now.percent + '%', state.label ? 'image ' + state.label : '',
+      ? [stepText, state.label ? 'image ' + state.label : '',
         left.charAt(0).toLowerCase() + left.slice(1)].filter(Boolean).join(', ')
       : stepText;
     document.title = (running ? '(' + now.percent + '%) ' : '') + BASE_TITLE;
