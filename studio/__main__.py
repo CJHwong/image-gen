@@ -1,10 +1,11 @@
-"""A local web page for image generation. Nothing is logged or saved.
+"""A local web page for image generation. The server logs and saves nothing.
 
-The prompt never reaches disk, and neither does the image: it goes from the
-engine to the page as an in-page data URL, so no EXIF or prompt text is
-embedded either. The page keeps this session's images in tab memory, so a
-reload clears them. The server binds 127.0.0.1 by default. Its one outbound
-request is the htmx script from a CDN, which carries no prompt data.
+The server writes neither the prompt nor the image to disk: the image goes from
+the engine to the page as an in-page data URL, so no EXIF or prompt text is
+embedded either. The browser keeps the images and their prompts until Clear all,
+unless "Keep in this browser" is off in the page. The server binds 127.0.0.1 by
+default. Its one outbound request is the htmx script from a CDN, which carries
+no prompt data.
 
 USAGE:
     uv run studio                      # http://127.0.0.1:8765, the default backend
@@ -25,7 +26,9 @@ DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Serve a local image generation page. Nothing is logged or saved.")
+    parser = argparse.ArgumentParser(
+        description="Serve a local image generation page. The server logs and saves nothing."
+    )
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8765, help="port (default 8765)")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="settings file (default studio.toml)")
@@ -65,7 +68,7 @@ def main():
     except Exception as error:
         sys.exit(f"Could not load the model: {error}")
     print(f"\nReady on http://{args.host}:{args.port}", flush=True)
-    print("Nothing is written to disk. Ctrl-C to stop.\n", flush=True)
+    print("The server writes nothing to disk. Ctrl-C to stop.\n", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

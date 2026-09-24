@@ -6,8 +6,9 @@
 <title>__NAME__</title>
 <script>
   // The saved theme applies before the first paint, so the page never flashes the default.
+  // Kodak is the default. Darkroom saves an empty name, so a pick of it stays.
   try {
-    const theme = localStorage.getItem('studio-theme');
+    const theme = localStorage.getItem('studio-theme') ?? 'kodak';
     if (theme) document.documentElement.dataset.theme = theme;
   } catch (error) {
     console.warn('The saved theme was not read:', error);
@@ -342,9 +343,17 @@
   .about { flex: 1; min-width: 0; }
   .prompt-line { margin: 0; color: var(--text); font: 15px/1.4 var(--serif); overflow: hidden;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  /* A cut caption opens in place. Open, it scrolls past 40% of the window, so
+     a long prompt cannot push the image away. */
+  .prompt-line[role=button] { cursor: pointer; border-radius: 3px; }
+  .prompt-line[role=button]:focus-visible { outline: 1.5px solid var(--text-2); outline-offset: 3px; }
+  .prompt-line.open { display: block; max-height: 40vh; overflow-y: auto; }
+  .prompt-line.open::after { content: "Show less"; margin-left: 8px; color: var(--text-3);
+    font: 12px var(--sans); text-decoration: underline; text-underline-offset: 2px; }
   .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; margin-top: 4px;
     color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
   .facts .mode { color: var(--text-2); font-weight: 500; }
+  .facts .break { display: none; }
   .actions { display: flex; align-items: center; gap: 2px; flex: none; }
   .actions .rule { width: 1px; height: 18px; background: var(--line-strong); margin: 0 6px; }
 
@@ -611,6 +620,7 @@
     .canvas { padding: 18px; }
     .stage-bar { flex-wrap: wrap; gap: 10px; padding: 0 18px 14px; }
     .about { flex-basis: 100%; }
+    .facts .break { display: block; flex-basis: 100%; }
     .actions { flex: 1 1 100%; flex-wrap: wrap; min-width: 0; margin-left: -8px; }
     .actions .rule { display: none; }
     .wide-only { display: none; }
@@ -665,7 +675,7 @@
         <span class="status" id="status" aria-live="polite"><span class="dot"></span><span id="status-text">Ready</span></span>
         <div class="menu-anchor">
         <button type="button" id="theme-toggle" class="icon-btn" aria-haspopup="menu" aria-expanded="false"
-          aria-controls="theme-menu" title="Theme" aria-label="Theme"><svg class="icon"><use href="#i-aperture"/></svg></button>
+          aria-controls="theme-menu" title="Theme and images" aria-label="Theme and images"><svg class="icon"><use href="#i-aperture"/></svg></button>
           <div class="menu" id="theme-menu" role="menu" hidden></div>
         </div>
       </div>
@@ -1650,9 +1660,9 @@
   });
 
   // ---- Gallery ----------------------------------------------------------------
-  // The gallery lives in this tab only. The server keeps no image after it
-  // answers and the page keeps them in memory, so a reload clears them and
-  // nothing reaches disk. Download is the way to keep one.
+  // The server keeps no image after it answers. The browser keeps them, with
+  // their facts, until Clear all, unless "Keep in this browser" is off: then
+  // they live in this tab's memory only, and a reload clears them.
   const canvas = document.getElementById('canvas');
   const stageBar = document.getElementById('stage-bar');
   const strip = document.getElementById('strip');
@@ -1700,6 +1710,7 @@
         if (runLook.labels.length) entry.look = runLook;
       }
       gallery.unshift(entry);
+      keepEntry(entry);
       arrivedId = entry.id;
       if (view !== 'progress') view = entry.id;
       node.remove();
@@ -1819,10 +1830,11 @@
     });
     markSelected();
     const count = gallery.length;
-    document.getElementById('strip-note').innerHTML = count
-      ? count + (count === 1 ? ' image' : ' images') + ' in this tab.'
-        + '<span class="wide-only"> Download the ones you want to keep.</span>'
-      : 'Images stay in this tab only.';
+    const images = count + (count === 1 ? ' image' : ' images');
+    document.getElementById('strip-note').innerHTML = keeping
+      ? (count ? images + ', kept in this browser.' : 'Images are kept in this browser.')
+      : (count ? images + ' in this tab.<span class="wide-only"> Download the ones you want to keep.</span>'
+        : 'Images stay in this tab only.');
     document.getElementById('clear-gallery').hidden = !count;
     renderProgress();
   }
@@ -1973,16 +1985,24 @@
     mode.className = 'mode';
     mode.textContent = entry.mode === 'edit' ? 'Edit' : 'Generate';
     facts.append(mode);
-    [entry.position === '1 image' ? '' : 'Image ' + entry.position,
-     'Seed ' + entry.seed, entry.width + ' × ' + entry.height,
-     entry.steps + ' steps', entry.elapsed + 's',
-     entry.look ? 'Look: ' + entry.look.labels.join(', ') : ''].forEach(function (text) {
-      if (!text) return;
-      const fact = document.createElement('span');
-      fact.textContent = text;
-      facts.append(fact);
+    // Two groups: which image, then how it was made. A phone puts each on its own line.
+    [[entry.position === '1 image' ? '' : 'Image ' + entry.position, 'Seed ' + entry.seed],
+     [entry.width + ' × ' + entry.height, entry.steps + ' steps', 'Took ' + entry.elapsed + ' s']
+    ].forEach(function (group, index) {
+      if (index) {
+        const lineBreak = document.createElement('span');
+        lineBreak.className = 'break';
+        facts.append(lineBreak);
+      }
+      group.forEach(function (text) {
+        if (!text) return;
+        const fact = document.createElement('span');
+        fact.textContent = text;
+        facts.append(fact);
+      });
     });
     // The prompt leads, as the frame's caption; the facts sit quietly under it.
+    // The Look shows as the muted end of the caption, so the facts leave it out.
     const prompt = document.createElement('p');
     prompt.className = 'prompt-line';
     if (entry.look) {
@@ -1993,7 +2013,12 @@
     } else {
       prompt.textContent = entry.prompt;
     }
-    prompt.title = entry.look ? entry.look.sent : entry.prompt;
+    prompt.addEventListener('click', function () { toggleCaption(prompt); });
+    prompt.addEventListener('keydown', function (event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      toggleCaption(prompt);
+    });
     about.append(prompt, facts);
 
     // Every action is page state only; nothing is sent until the next run.
@@ -2013,7 +2038,7 @@
     moreMenu.hidden = true;
     moreMenu.append(
       menuItem('image-in', 'Use as reference', function () {
-        addReference(entry.b64, 'Seed ' + entry.seed);
+        referFrom(entry);
       }),
       menuItem('hash', 'Reuse seed ' + entry.seed, function () {
         document.getElementById('seed').value = entry.seed;
@@ -2045,13 +2070,40 @@
     rule.className = 'rule';
     actions.append(textButton('brush', 'Edit this', function () { editThis(entry); }), more,
       rule, download,
-      iconButton('trash', 'Remove from this tab', function () { removeEntry(entry.id); }, 'danger'));
+      iconButton('trash', 'Remove', function () { removeEntry(entry.id); }, 'danger'));
     if (document.fullscreenEnabled) {
       actions.append(document.fullscreenElement
         ? iconButton('shrink', 'Exit full screen (F)', toggleFullscreen)
         : iconButton('expand', 'Full screen (F)', toggleFullscreen));
     }
     stageBar.append(about, actions);
+    captionWatch.disconnect();
+    captionWatch.observe(prompt);
+  }
+
+  // A caption is a toggle only while it is cut, or open. The watch marks it
+  // again when a resize cuts it or gives it room.
+  const captionWatch = new ResizeObserver(function (entries) {
+    entries.forEach(function (entry) { markCaption(entry.target); });
+  });
+
+  function markCaption(prompt) {
+    const open = prompt.classList.contains('open');
+    if (open || prompt.scrollHeight > prompt.clientHeight + 1) {
+      prompt.setAttribute('role', 'button');
+      prompt.tabIndex = 0;
+      prompt.setAttribute('aria-expanded', String(open));
+    } else {
+      prompt.removeAttribute('role');
+      prompt.removeAttribute('tabindex');
+      prompt.removeAttribute('aria-expanded');
+    }
+  }
+
+  function toggleCaption(prompt) {
+    if (!prompt.hasAttribute('role')) return;
+    prompt.classList.toggle('open');
+    markCaption(prompt);
   }
 
   // ---- Menus -----------------------------------------------------------------
@@ -2113,6 +2165,24 @@
 
   // Edit mode with this image as the only reference, an empty prompt, and the
   // image's own seed, so a rerun of the same edit gives the same result.
+  // An image made in this tab carries its base64. A kept one reads it from its
+  // blob only when it is used, so a long strip does not hold every image twice.
+  function referFrom(entry) {
+    const ready = entry.b64 ? Promise.resolve(entry.b64) : blobOf(entry.src).then(function (blob) {
+      return new Promise(function (resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = function () { resolve(reader.result.split(',')[1]); };
+        reader.onerror = function () { reject(reader.error); };
+        reader.readAsDataURL(blob);
+      });
+    });
+    ready.then(function (b64) {
+      addReference(b64, 'Seed ' + entry.seed);
+    }).catch(function (error) {
+      showToast('error', 'The image did not load as a reference: ' + error.message);
+    });
+  }
+
   function editThis(entry) {
     const editRadio = document.getElementById('mode-edit');
     if (!editRadio.checked) {
@@ -2125,7 +2195,7 @@
     look = (entry.look && picksHere(entry.look.picks)) || {};
     renderLook();
     document.getElementById('seed').value = entry.seed;
-    addReference(entry.b64, 'Seed ' + entry.seed);
+    referFrom(entry);
     view = entry.id;
     renderStage();
     promptInput.focus();
@@ -2172,23 +2242,194 @@
   window.addEventListener('resize', fitStage);
 
   function removeEntry(id) {
+    dropEntry(id);
+    forget(function (images) { images.delete(id); }, { kind: 'remove', id: id });
+  }
+
+  // The shown image gives way to its neighbour. Another tab's removal leaves
+  // this tab's view alone unless it shows that image.
+  function dropEntry(id) {
     const index = gallery.findIndex(function (entry) { return entry.id === id; });
+    if (index < 0) return;
     release(gallery.splice(index, 1)[0]);
-    const neighbour = gallery[Math.min(index, gallery.length - 1)];
-    view = neighbour ? neighbour.id : null;
+    if (view === id) {
+      const neighbour = gallery[Math.min(index, gallery.length - 1)];
+      view = neighbour ? neighbour.id : null;
+    }
     renderStrip();
     renderStage();
   }
 
-  document.getElementById('clear-gallery').addEventListener('click', function () {
-    if (!confirm('Remove all ' + gallery.length + ' images from this tab?')) return;
+  function dropAll() {
     const cleared = gallery;
     gallery = [];
     cleared.forEach(release);
     view = busy() ? 'progress' : null;
     renderStrip();
     renderStage();
+  }
+
+  document.getElementById('clear-gallery').addEventListener('click', function () {
+    const question = keeping
+      ? 'Remove all ' + gallery.length + ' images from this browser? Every open tab clears too.'
+      : 'Remove all ' + gallery.length + ' images from this tab?';
+    if (!confirm(question)) return;
+    dropAll();
+    forget(function (images) { images.clear(); }, { kind: 'clear' });
   });
+
+  // ---- Kept images --------------------------------------------------------------
+  // Each image and its facts go to IndexedDB, so a reload or a new tab brings
+  // them back; localStorage holds about 5 MB, a few images. The store belongs to
+  // this address and port. Every change goes out on a channel, so each open tab
+  // shows the same strip. The server allows one run at a time, so two tabs
+  // never number two new images at once.
+  const KEEP_KEY = 'studio-keep';
+  const KEPT_FIELDS = ['id', 'seed', 'width', 'height', 'steps', 'elapsed', 'position', 'mode', 'prompt',
+    'look', 'negative'];
+  const channel = new BroadcastChannel('studio-gallery');
+  let keeping = readKeep();
+  let store = null;
+
+  function readKeep() {
+    try {
+      return localStorage.getItem(KEEP_KEY) !== 'off';
+    } catch (error) {
+      console.warn('The keep setting was not read:', error);
+      return true;
+    }
+  }
+
+  function openStore() {
+    if (!store) {
+      store = new Promise(function (resolve, reject) {
+        const request = indexedDB.open('studio', 1);
+        request.onupgradeneeded = function () { request.result.createObjectStore('images', { keyPath: 'id' }); };
+        request.onsuccess = function () { resolve(request.result); };
+        request.onerror = function () { reject(request.error); };
+      });
+    }
+    return store;
+  }
+
+  // Run one request on the images store. It settles when the transaction ends,
+  // so a write has landed before any other tab hears of it.
+  function inStore(access, work) {
+    return openStore().then(function (database) {
+      return new Promise(function (resolve, reject) {
+        const transaction = database.transaction('images', access);
+        const request = work(transaction.objectStore('images'));
+        transaction.oncomplete = function () { resolve(request ? request.result : undefined); };
+        transaction.onabort = function () { reject(transaction.error); };
+      });
+    });
+  }
+
+  function blobOf(url) {
+    return fetch(url).then(function (response) { return response.blob(); });
+  }
+
+  function keepEntry(entry) {
+    if (!keeping) return;
+    Promise.all([blobOf(entry.src), entry.before ? blobOf(entry.before) : null]).then(function ([png, before]) {
+      const record = { png: png, before: before };
+      KEPT_FIELDS.forEach(function (field) { record[field] = entry[field]; });
+      return inStore('readwrite', function (images) { return images.add(record); });
+    }).then(function () {
+      channel.postMessage({ kind: 'add', id: entry.id });
+    }).catch(function (error) {
+      showToast('error', 'The browser did not keep image ' + frameNumber(entry.id) + ': ' + error.message
+        + ' It stays in this tab until a reload. Download it to keep it.');
+    });
+  }
+
+  // Delete from the store, then tell the other tabs. With keeping off there is
+  // nothing stored, and each tab's strip is its own.
+  function forget(work, message) {
+    if (!keeping) return;
+    inStore('readwrite', work).then(function () {
+      channel.postMessage(message);
+    }).catch(function (error) {
+      showToast('error', 'The browser did not remove the image: ' + error.message);
+    });
+  }
+
+  // A kept image joins the strip in order, newest first, and moves the frame
+  // numbers past it.
+  function addKept(record) {
+    if (gallery.some(function (entry) { return entry.id === record.id; })) return;
+    const entry = { src: URL.createObjectURL(record.png), before: record.before && URL.createObjectURL(record.before) };
+    KEPT_FIELDS.forEach(function (field) { entry[field] = record[field]; });
+    const later = gallery.findIndex(function (other) { return other.id < entry.id; });
+    gallery.splice(later < 0 ? gallery.length : later, 0, entry);
+    nextId = Math.max(nextId, entry.id + 1);
+  }
+
+  // With nothing on the stage, the newest image takes it.
+  function showNewest() {
+    if (view === null && gallery.length) view = gallery[0].id;
+    renderStrip();
+    renderStage();
+  }
+
+  function loadKept() {
+    if (!keeping) return;
+    inStore('readonly', function (images) { return images.getAll(); }).then(function (records) {
+      records.forEach(addKept);
+      showNewest();
+    }).catch(function (error) {
+      showToast('error', 'The kept images did not load: ' + error.message);
+    });
+  }
+
+  channel.addEventListener('message', function (event) {
+    const message = event.data;
+    if (message.kind === 'remove') dropEntry(message.id);
+    if (message.kind === 'clear') dropAll();
+    if (message.kind === 'keep') {
+      keeping = message.on;
+      markKeep();
+      renderStrip();
+    }
+    if (message.kind !== 'add' || !keeping) return;
+    inStore('readonly', function (images) { return images.get(message.id); }).then(function (record) {
+      if (!record) return;
+      addKept(record);
+      showNewest();
+    }).catch(function (error) {
+      showToast('error', 'An image from another tab did not load: ' + error.message);
+    });
+  });
+
+  // Off empties the store at once; the images stay in the open tabs until a
+  // reload. On keeps what this tab shows now, oldest first.
+  function setKeep(on) {
+    if (!on && gallery.length
+      && !confirm('Stop keeping images? The kept images leave this browser. Open tabs show them until a reload.')) {
+      return;
+    }
+    keeping = on;
+    try {
+      localStorage.setItem(KEEP_KEY, on ? 'on' : 'off');
+    } catch (error) {
+      showToast('error', 'The keep setting applies to this tab only: ' + error.message);
+    }
+    channel.postMessage({ kind: 'keep', on: on });
+    markKeep();
+    renderStrip();
+    if (!on) {
+      inStore('readwrite', function (images) { images.clear(); }).catch(function (error) {
+        showToast('error', 'The kept images were not removed: ' + error.message);
+      });
+      return;
+    }
+    gallery.slice().reverse().forEach(keepEntry);
+  }
+
+  function markKeep() {
+    const item = document.getElementById('keep-toggle');
+    if (item) item.setAttribute('aria-checked', String(keeping));
+  }
 
   // ---- Toasts -----------------------------------------------------------------
   // Errors stay until closed, because they say what to fix. Anything else
@@ -2468,10 +2709,10 @@
     showToast('error', 'The server did not answer. Check that the studio server is still running.');
   });
 
-  // The images live only in this tab, so a reload or a close would lose them.
+  // A run, or images kept only in this tab, would be lost to a reload or a close.
   // Browsers show their own fixed text here; the page cannot set it.
   window.addEventListener('beforeunload', function (event) {
-    if (!gallery.length && !busy()) return;
+    if (!busy() && (keeping || !gallery.length)) return;
     event.preventDefault();
     event.returnValue = '';
   });
@@ -2548,7 +2789,15 @@
       item.dataset.theme = id;
       menu.append(item);
     });
+    const imagesHead = document.createElement('div');
+    imagesHead.className = 'menu-head';
+    imagesHead.textContent = 'Images';
+    const keep = menuItem('check', 'Keep in this browser', function () { setKeep(!keeping); });
+    keep.setAttribute('role', 'menuitemcheckbox');
+    keep.id = 'keep-toggle';
+    menu.append(imagesHead, keep);
     markTheme();
+    markKeep();
   }
 
   function applyTheme(id) {
@@ -2556,8 +2805,7 @@
     else delete document.documentElement.dataset.theme;
     markTheme();
     try {
-      if (id) localStorage.setItem('studio-theme', id);
-      else localStorage.removeItem('studio-theme');
+      localStorage.setItem('studio-theme', id);
     } catch (error) {
       showToast('info', 'The theme applies to this tab only: ' + error.message);
     }
@@ -2579,6 +2827,7 @@
   renderReferences();
   renderStrip();
   renderStage();
+  loadKept();
 </script>
 </body>
 </html>

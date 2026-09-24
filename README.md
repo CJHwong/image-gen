@@ -1,6 +1,6 @@
 # image-gen
 
-A local image generation page for Apple Silicon. One page, one adapter per model. No image or prompt is saved to disk. The page keeps only your theme, in the browser.
+A local image generation page for Apple Silicon. One page, one adapter per model. The server saves no image or prompt. Your browser keeps the images, with their prompts, until you clear them.
 
 ## Quick start
 
@@ -23,7 +23,7 @@ The first start downloads the Qwen-Image-2.1 weights, about 33 GB. See [Models](
 - **Save memory on qwen21:** `uv run studio -q 8` loads the weights as int8.
 - **Use FLUX.2:** set up its weights (see [Models](#models)), then `uv run studio --backend flux2`. The title of the page becomes a menu that switches between the models. To offer both every time, add `"flux2"` to `visible_backends` in [studio.toml](studio.toml).
 - **Write a prompt the model follows:** use the Templates menu and the Look section in the page. Each model offers only the Look options that passed a test on it. [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) has the tests.
-- **Keep an image:** use the download button. The page keeps images in tab memory only, so a reload clears them.
+- **Keep an image:** the browser keeps every image, with its prompt and settings, until Clear all. Every open tab shows the same images. For a private session, turn off **Keep in this browser** in the theme menu: the kept images leave the browser, and new ones stay in the tab until a reload. Use the download button to keep an image outside the browser.
 
 ## Models
 
@@ -66,7 +66,7 @@ The first start downloads the Qwen-Image-2.1 weights, about 33 GB. See [Models](
 - **Two engines for qwen21.** mflux is faster and quantizes, but it has no port of the Qwen3-VL vision tower that instruction editing needs. So editing runs on diffusers, in a child process.
 - **The edit VAE encoder runs on the CPU.** MPS computes it wrong, and every reference image comes out washed out. [MPS-VAE-ENCODE.md](studio/l3_interface_adapters/gateways/qwen21/MPS-VAE-ENCODE.md) holds the measurements.
 - **A batch is images in a row, not a real batch.** On this machine a batched flux2 run was 2 to 8% slower per image than one at a time, and it used more memory. One at a time also shows each image as soon as it is done.
-- **Nothing is written to disk.** The server keeps neither the prompt nor the image, and it binds 127.0.0.1.
+- **The server writes nothing to disk.** It keeps neither the prompt nor the image, and it binds 127.0.0.1. The browser's store belongs to the address and port, so a server on another port shows an empty strip.
 
 ## Licenses
 

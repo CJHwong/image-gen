@@ -41,7 +41,7 @@ Run this flow when you add a backend. Also run it when you change one: its capab
 9. **Prove it with real runs.** A green test is a gate, not proof.
    - `tests/e2e/verify_capabilities.py`, which needs no GPU.
    - `tests/e2e/verify_backends.py`, against `uv run studio --port <port> --backend <id>`.
-   - `tests/e2e/verify_page.py`, if the page changed.
+   - `tests/e2e/verify_page.py` and `tests/e2e/verify_storage.py`, if the page changed.
    - In the browser, one generate, one edit, and one cancel during a run.
 10. **Get a review.** Get an independent code review of the change. Fix each finding the way step 7 says, then run steps 8 and 9 again.
 11. **Update the docs.**

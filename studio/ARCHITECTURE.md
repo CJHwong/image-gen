@@ -42,4 +42,4 @@ The page knows two mode ids, `generate` and `edit`, and the params `size`, `reso
 - `prek install` once per clone. Each commit then runs ruff, ty, import-linter and a secret scan, and checks the message against Conventional Commits.
 - `uv run pytest` runs the unit and gateway tests. They need no model.
 - `uv run pytest -m live` loads real weights.
-- `tests/e2e/` holds browser checks. Each script names how to run it in its first lines. `verify_capabilities.py` needs no GPU. `verify_page.py` and `verify_backends.py` run real models against a running server.
+- `tests/e2e/` holds browser checks. Each script names how to run it in its first lines. `verify_capabilities.py` needs no GPU. `verify_page.py` and `verify_backends.py` run real models against a running server. `verify_storage.py` checks the images the browser keeps, and the stub is enough for it.

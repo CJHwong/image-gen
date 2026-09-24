@@ -203,9 +203,9 @@ with sync_playwright() as playwright:
     bar = page.evaluate("""() => {
         const plate = document.querySelector('.card .plate').getBoundingClientRect();
         const bar = document.querySelector('.card .exposure').getBoundingClientRect();
-        return [Math.round(bar.left - plate.left), bar.width / plate.width];
+        return [Math.round(plate.bottom - bar.bottom), bar.height / plate.height];
     }""")
-    check("the bar grows from the left edge", bar[0] == 0 and bar[1] < 0.5, str(bar))
+    check("the Kodak print rises from the bottom edge", bar[0] == 0 and bar[1] < 0.5, str(bar))
     card = page.evaluate_handle("document.querySelector('.card')")
     page.click("label[for=mode-edit]")
     check(
@@ -251,7 +251,7 @@ with sync_playwright() as playwright:
         go_box["y"] + go_box["height"] <= 900 and page.evaluate("document.documentElement.scrollHeight") <= 900,
         f"bottom {go_box['y'] + go_box['height']:.0f}",
     )
-    check("leave warning with images", leave_blocked(page))
+    check("no leave warning while the browser keeps the images", not leave_blocked(page))
     learned = page.evaluate("learnedCost[STUDIO.backend.id + ' generate'] || 0")
     check("a run teaches the step rate", 0.3 < learned < 20, f"{learned:.2f} s per step at 1 MP")
     check(
@@ -262,9 +262,11 @@ with sync_playwright() as playwright:
         and page.inner_text(".prompt-line .look-said").startswith("Overcast"),
         page.inner_text(".prompt-line"),
     )
+    check("the facts do not repeat the Look", page.locator(".facts span", has_text="Look").count() == 0)
     check(
-        "the model got the look, and the facts say so",
-        page.locator(".facts span", has_text="Look: Overcast").count() == 1,
+        "the facts name the time",
+        page.locator(".facts span", has_text="Took ").count() == 1,
+        page.inner_text(".facts"),
     )
     toggle_look(page, "Light", "Overcast")
     page.fill("#prompt", "")
@@ -435,9 +437,13 @@ with sync_playwright() as playwright:
 
     # Remove, themes, phone
     page.locator("#strip .frame >> nth=0").click()
-    page.get_by_role("button", name="Remove from this tab").click()
+    page.get_by_role("button", name="Remove", exact=True).click()
     check("remove takes one", page.locator("#strip .frame").count() == 3)
     check("the status is ready again", page.inner_text("#status") == "Ready", page.inner_text("#status"))
+    check("Kodak is the default theme", page.evaluate("document.documentElement.dataset.theme") == "kodak")
+    page.click("#theme-toggle")
+    page.get_by_role("menuitemradio", name="Darkroom").click()
+    check("Darkroom clears the theme", page.evaluate("document.documentElement.dataset.theme") is None)
     check_contrast(page, "Darkroom dark")
     page.emulate_media(color_scheme="light")
     time.sleep(0.5)
@@ -479,11 +485,36 @@ with sync_playwright() as playwright:
     fresh.close()
     page.click("#theme-toggle")
     page.get_by_role("menuitemradio", name="Darkroom").click()
-    check("Darkroom clears the theme", page.evaluate("document.documentElement.dataset.theme") is None)
+    fresh = page.context.new_page()
+    fresh.goto(f"http://127.0.0.1:{PORT}/")
+    check("a new tab keeps Darkroom", fresh.evaluate("document.documentElement.dataset.theme") is None)
+    fresh.close()
+    for frame in page.locator("#strip .frame").all():
+        frame.click()
+        if page.inner_text(".prompt-line").startswith("A ceramic teapot"):
+            break
+    check("a caption that fits is plain text", page.get_attribute(".prompt-line", "role") is None)
     page.set_viewport_size({"width": 390, "height": 844})
     time.sleep(0.5)
     width = page.evaluate("document.documentElement.scrollWidth")
     check("phone has no sideways scroll", width <= 390, str(width))
+    rows = page.evaluate("""() => [...document.querySelectorAll('.facts span:not(.break)')]
+        .map(fact => [fact.innerText, Math.round(fact.getBoundingClientRect().top)])""")
+    seed = next(index for index, (text, _) in enumerate(rows) if text.startswith("Seed"))
+    check(
+        "a phone puts the facts on two lines: which image, then how",
+        rows[0][1] == rows[seed][1] and rows[seed + 1][1] == rows[-1][1] > rows[seed][1],
+        str(rows),
+    )
+    caption = page.locator(".prompt-line")
+    check("a caption the phone cuts becomes a toggle", caption.get_attribute("aria-expanded") == "false")
+    caption.click()
+    opened = page.evaluate(
+        "(line => line.scrollHeight <= line.clientHeight + 1)(document.querySelector('.prompt-line'))"
+    )
+    check("a click shows the whole caption", caption.get_attribute("aria-expanded") == "true" and opened)
+    caption.press("Enter")
+    check("Enter cuts it again", caption.get_attribute("aria-expanded") == "false")
     page.screenshot(path=OUT + "5-phone.png")
     page.evaluate("window.scrollTo(0, 560)")
     page.screenshot(path=OUT + "6-phone-form.png")
