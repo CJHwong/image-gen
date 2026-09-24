@@ -1,31 +1,88 @@
 # image-gen
 
-A local image generation page for Apple Silicon. One page, one adapter per model. The server saves no image or prompt. Your browser keeps the images, with their prompts, until you clear them.
+A local image generation page for Apple Silicon. Write a prompt, get an image, then say what to change. One page, one adapter per model. The server saves no image or prompt. Your browser keeps the images, with their prompts, until you clear them.
 
-## Quick start
+![The page after an edit: the elevator's beach door turned into a snowstorm, with the before and after slider on the print](docs/images/hero.jpg)
 
-1. Clone the repo.
+## Get started
+
+This walk-through makes the image above: first a beach outside an elevator, then the same elevator in a snowstorm. It needs a Mac with Apple Silicon and [uv](https://docs.astral.sh/uv/). It was built on a machine with 64 GB of memory.
+
+1. Clone the repo and start the page.
 
        git clone git@github.com:CJHwong/image-gen.git
-
-2. Start the page.
-
+       cd image-gen
        uv run studio
 
-3. Open http://127.0.0.1:8765.
+   The first start downloads the Qwen-Image-2.1 weights, about 33 GB. When the terminal says "Ready", open http://127.0.0.1:8765.
 
-The first start downloads the Qwen-Image-2.1 weights, about 33 GB. See [Models](#models).
+2. Paste this prompt into **Prompt**, pick **16:9** under **Size**, and press **Generate**.
+
+       A realistic architectural photograph from inside a slightly old office elevator. Beige walls, scratched stainless-steel doors, fluorescent ceiling light. The doors are open, but instead of an office hallway there is a sunny tropical beach directly outside, with sand beginning exactly at the elevator threshold. Shot with a 24mm lens, neutral exposure, extremely realistic materials, no surreal color grading.
+
+   The top bar counts the steps and the time left. The image took 105 s on the test machine.
+
+   ![The beach image on the page, with its caption and facts under the print](docs/images/generate.jpg)
+
+3. Press **Edit this** under the image. The page switches to **Edit** and takes the image as the one to change. Paste this into **What to change**, then press **Edit**.
+
+       Keep the elevator interior exactly unchanged. Change the beach outside into a snowy mountain landscape during a mild snowstorm. Add a small amount of windblown snow accumulating just inside the elevator threshold. Match the cold outdoor light spilling into the elevator while preserving the original fluorescent indoor lighting. Photorealistic and physically plausible.
+
+   ![The Edit form with the beach image as the image to edit and the snow prompt filled in](docs/images/edit.jpg)
+
+4. The edit took 143 s. Drag the line across the result to compare before and after. The badge under the print reads "Edited from 01": click 01 to go back to the beach. Click the caption to read the whole prompt.
+
+Both images stay in the strip at the bottom, also after a reload.
 
 ## How to
 
 - **Use another port:** `uv run studio --port 9000`.
-- **Work on the page without a model:** `uv run studio --stub`. Each backend keeps its form, but a run shows fake steps and returns a placeholder image. It uses no GPU.
 - **Save memory on qwen21:** `uv run studio -q 8` loads the weights as int8.
 - **Use FLUX.2:** set up its weights (see [Models](#models)), then `uv run studio --backend flux2`. The title of the page becomes a menu that switches between the models. To offer both every time, add `"flux2"` to `visible_backends` in [studio.toml](studio.toml).
-- **Write a prompt the model follows:** use the Templates menu and the Look section in the page. Each model offers only the Look options that passed a test on it. [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) has the tests.
-- **Keep an image:** the browser keeps every image, with its prompt and settings, until Clear all. Every open tab shows the same images. For a private session, turn off **Keep in this browser** in the theme menu: the kept images leave the browser, and new ones stay in the tab until a reload. Use the download button to keep an image outside the browser.
+- **Write a prompt the model follows:** start from the **Templates** menu, and add a style from the **Look** section. Each model offers only the Look options that passed a test on it. [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) has the tests.
+- **Reuse a seed or a prompt:** open the **⋯** menu under the image. It also offers the image as a reference for the next run.
+- **Keep an image outside the browser:** use the download button under the image.
+- **Work in private:** open the theme menu (the aperture button, top right) and turn off **Keep in this browser**. The kept images leave the browser, and new ones stay in the tab until a reload.
+- **Change the theme:** pick one in the theme menu. The page remembers it.
 
-## Models
+  ![The four themes: Darkroom, Leica M, Kodak Instamatic and Polaroid SX-70](docs/images/themes.jpg)
+
+- **Work on the page without a model:** `uv run studio --stub`. Each model keeps its form, but a run shows fake steps and returns a placeholder image. It uses no GPU.
+
+## Reference
+
+### Command line
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--port` | `8765` | The port of the page. |
+| `--host` | `127.0.0.1` | The address the server binds. |
+| `--backend` | `default_backend` | Open on this model, and add it to the models the page offers. |
+| `-q`, `--quantize` | the `studio.toml` value | Quantize the weights of the opening model: 3, 4, 5, 6 or 8 bits. |
+| `--config` | `studio.toml` | The settings file. |
+| `--stub` | off | Fake every engine: timed steps and placeholder images, no weights. |
+
+### Settings in studio.toml
+
+| Key | What it sets |
+|---|---|
+| `default_backend` | The model the page opens with. |
+| `visible_backends` | The models the page offers. With more than one, the title becomes a menu. |
+| `[qwen21] quantize` | 0 for bf16, or the bits for quantized weights. |
+| `[qwen21] edit_script` | The diffusers script that runs edits in a child process. |
+| `[flux2] quantize` | The bits for the FLUX.2 weights. |
+| `[flux2] model_dir` | The folder of the FLUX.2 weights. |
+
+### Keys
+
+| Key | What it does |
+|---|---|
+| Cmd+Enter | Run, from anywhere on the page. |
+| Left and Right arrows | Show the previous or next image in the strip. |
+| F | Full screen. |
+| Escape | Close a menu, or the whole prompt over the print. |
+
+### Models
 
 | Model | Adapter | Modes | Weights |
 |---|---|---|---|
@@ -66,7 +123,8 @@ The first start downloads the Qwen-Image-2.1 weights, about 33 GB. See [Models](
 - **Two engines for qwen21.** mflux is faster and quantizes, but it has no port of the Qwen3-VL vision tower that instruction editing needs. So editing runs on diffusers, in a child process.
 - **The edit VAE encoder runs on the CPU.** MPS computes it wrong, and every reference image comes out washed out. [MPS-VAE-ENCODE.md](studio/l3_interface_adapters/gateways/qwen21/MPS-VAE-ENCODE.md) holds the measurements.
 - **A batch is images in a row, not a real batch.** On this machine a batched flux2 run was 2 to 8% slower per image than one at a time, and it used more memory. One at a time also shows each image as soon as it is done.
-- **The server writes nothing to disk.** It keeps neither the prompt nor the image, and it binds 127.0.0.1. The browser's store belongs to the address and port, so a server on another port shows an empty strip.
+- **One run at a time.** The GPU is full with one run, and two only slow each other. A run from a second tab gets a message to wait, not a place in a queue.
+- **The server writes nothing to disk.** It keeps neither the prompt nor the image, and it binds 127.0.0.1. The browser keeps the images in its own storage, which belongs to the address and port. So a server on another port shows an empty strip.
 
 ## Licenses
 
