@@ -1,4 +1,4 @@
-# image-gen
+<h1 align="center"><img src="docs/images/logo.svg" width="120" alt=""><br>image-gen</h1>
 
 A local image generation page for Apple Silicon. Write a prompt, get an image, then say what to change. One page, one adapter per model. The server saves no image or prompt. Your browser keeps the images, with their prompts, until you clear them.
 
