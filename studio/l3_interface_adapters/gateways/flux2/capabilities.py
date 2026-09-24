@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
-from studio.l3_interface_adapters.gateways.prompt_aids import EDIT_TEMPLATES, GENERATE_TEMPLATES, pick_looks
+from studio.l3_interface_adapters.gateways.prompt_aids import pick_looks, pick_templates
 
 MATCH = "match"
 MAX_BATCH = 4
@@ -41,8 +41,8 @@ SIZES = (
 # on top of the output, so it grows slower with the output size, and each
 # reference adds cost this curve does not see. The page corrects the rate from
 # the live steps. The first image took 2.6s beyond its steps.
-GENERATE_ESTIMATE = Estimate(step_cost=8.3, exponent=1.0, overhead=3, overhead_per_image=True)
-EDIT_ESTIMATE = Estimate(step_cost=9.4, exponent=0.7, overhead=3, overhead_per_image=True)
+GENERATE_ESTIMATE = Estimate(step_cost=8.3, exponent=1.0, overhead=3, overhead_per_image=True, two_pass=True)
+EDIT_ESTIMATE = Estimate(step_cost=9.4, exponent=0.7, overhead=3, overhead_per_image=True, two_pass=True)
 
 SIZE = ParamSpec(
     id="size",
@@ -61,18 +61,21 @@ GUIDANCE = ParamSpec(id="guidance", kind="number", default=4.0, minimum=1, maxim
 # strength is the share of the schedule skipped, so higher stays closer.
 STRENGTH = ParamSpec(id="strength", kind="number", default=0.4, minimum=0.05, maximum=1, step=0.05)
 
-# Only the Look options that passed the flux2 test in PROMPTS.md. flux2 draws
+# Only the Look options and templates that passed the flux2 test in PROMPTS.md. flux2 draws
 # text it is given, so a named film stock came out printed on a film frame.
 LOOKS = pick_looks(
     {
-        "Medium": ("Film photo", "Watercolor", "3D render"),
+        "Medium": ("Watercolor", "3D render"),
+        "Film": ("Portra 400", "Black and white"),
+        "Color": ("Vivid",),
         "Light": ("Studio", "Night with neon"),
         "Camera": ("Wide 24mm", "Top-down"),
-        "Color": ("Vivid", "Black and white"),
         "Room for text": ("Left", "Top"),
     },
     sentences={"Black and white": "Black and white film photograph, strong grain, high contrast."},
 )
+TEMPLATES = pick_templates(("Portrait photo", "Product shot", "Landscape", "Poster with text", "Illustration"))
+EDIT_TEMPLATES = pick_templates(("Change a color or material", "Replace the background", "Add text"))
 
 GENERATE = ModeSpec(
     id="generate",
@@ -82,7 +85,7 @@ GENERATE = ModeSpec(
     prompt_hint="Describe the image. Say what to show, not what to leave out.",
     estimate=GENERATE_ESTIMATE,
     looks=LOOKS,
-    templates=GENERATE_TEMPLATES,
+    templates=TEMPLATES,
 )
 EDIT = ModeSpec(
     id="edit",

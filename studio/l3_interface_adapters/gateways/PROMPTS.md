@@ -20,7 +20,7 @@ In the page, open **Templates** above the prompt. Pick one, then press Tab to ju
 ## What to leave out
 
 - **Quality suffixes** such as "Ultra HD, 4K, cinematic composition". They do not add quality. They make the image darker and more dramatic, and they change the framing.
-- **A negative prompt.** It needs guidance above 1, which doubles the time per step. In the test, it gave little or no visible gain.
+- **A negative prompt.** It needs guidance above 1, which doubles the time per step. In the test, it gave little or no visible gain. The one exception is the Realism avoid part: see "The avoid-part test".
 
 ## Look
 
@@ -28,13 +28,18 @@ In the page, **Look** adds one sentence after your prompt when you press Generat
 
 | Row | Options | What it adds |
 |---|---|---|
-| Medium | Film photo, Documentary, Phone snapshot, Watercolor, Ink drawing, 3D render | A film stock, a camera habit, or a drawn or rendered style |
+| Medium | Documentary, Phone snapshot, Watercolor, Ink drawing, 3D render | A camera habit, or a drawn or rendered style |
+| Film | Portra 400, Fuji 400H, Ektachrome, Black and white | A film stock and its color |
+| Color | Warm, Cool, Muted, Vivid | A palette |
 | Light | Soft window light, Golden hour, Studio, Overcast, Night with neon | Where the light comes from and how hard it is |
-| Camera | Close-up 85mm, Wide 24mm, Top-down, Low angle | A lens and a viewpoint |
-| Color | Warm, Cool, Muted, Vivid, Black and white | A palette |
+| Camera | Close-up 85mm, Wide 24mm, Top-down, Low angle, Telephoto, Deep focus | A lens and a viewpoint |
 | Room for text | Left, Right, Top | Where the subject sits, and which side stays empty |
+| Realism | Real person | An everyday, unretouched person, plus an avoid part for the negative prompt |
+| Portrait | Over the shoulder, Candid glance | A pose and a gaze |
 
-Each option names what to show, never what to leave out. Edit mode has no Look, because the edit model already keeps the rest of the image.
+The rows go from the style (Medium, Film, Color) to the shot (Light, Camera, Room for text) to the subject (Realism, Portrait). Every film stock sits in the Film row, so one pick per row keeps two stocks from fighting. Portra 400 was "Film photo" in Medium, and Black and white was in Color; their sentences did not change.
+
+Each option names what to show, never what to leave out. The exception is Real person: its avoid part goes to the negative prompt, which raises guidance to 2.5 and doubles the time of each image. Realism fights Watercolor, Ink drawing and 3D render, because its avoid part names CGI and 3D render. Real person is for people. For an animal, Documentary is enough: see "The avoid-part test". Edit mode has no Look, because the edit model already keeps the rest of the image.
 
 ## Generate templates
 
@@ -68,6 +73,20 @@ Minimalist poster for [what]. At the top, a [lettering style] title "[title text
 [Medium, e.g. watercolor] illustration of [subject doing what] in [setting]. Palette of [3 or 4 colors], [line or brush quality], [light]. [Where the subject sits in the frame], [mood] mood, no text.
 ```
 
+**Deadpan absurdity** (qwen21 only)
+
+```
+A realistic candid photograph of a completely ordinary [place] on [a weekday and time], except [one absurd thing] is calmly [doing what] beside [where]. The people carry on as if nothing unusual is happening. [3 or 4 everyday details], [ordinary light]. Shot with a 28mm lens at eye level, natural perspective, documentary photojournalism.
+```
+
+**Banner** (qwen21 only)
+
+```
+A 16:9 [kind, e.g. video thumbnail or ad banner] on [background and colors]. [Person or product: who, clothing, pose] on the [side]. On the [other side], huge [color] [letter style, e.g. extra-bold gothic] text reads "[headline]", and below it, smaller text reads "[second line]". [A button, badge or band] reads "[short label]". [Mood].
+```
+
+Keep each line short, and check every character. One dropped or swapped kanji is common, most often in the smaller lines. A batch of several seeds gives you a clean one to pick.
+
 ## Edit templates
 
 The edit model keeps the rest of the image by itself. The prompt only has to name the exact target and the exact result.
@@ -88,6 +107,18 @@ Replace only the background with [new place, time, weather, 2 or 3 details]. Kee
 
 ```
 Add [a sign, label or banner] at [position] with the text "[exact text]" in [color, letter style, size], spelled exactly. Match the scene's lighting and perspective, and keep everything else unchanged.
+```
+
+**Alternate reality** (qwen21 only)
+
+```
+Keep the camera position, the composition, the people and their poses exactly unchanged. Change only [which part of the world]: [the new reality, with 1 or 2 visible details]. Preserve the lighting, the lens and the photographic texture.
+```
+
+**Add an object** (qwen21 only)
+
+```
+Add [object or animal] [where, and how it touches the scene], [one person reacting to it]. Give it correct scale, shadows and floor contact. Do not change [what must stay], the lighting or the camera position.
 ```
 
 ## How these were tested
@@ -121,20 +152,56 @@ Every Look option was added to "a cat wearing a suit" at 768 x 768, 20 steps, gu
 | Light options widen the shot | Most Light options pulled the camera back from a close-up to a full body. Add a Camera option to hold the framing. |
 | Kodak film stocks land | "Kodak Portra 400" gave warm color and fine grain. "Kodak Tri-X 400" gave a grainy, high-contrast black and white. |
 
+### The avoid-part test
+
+An avoid part is a list for the negative prompt that comes with a Look option. The test asked whether the avoid text itself helps, apart from the second pass it turns on. On qwen21, guidance 2.5 with a blank negative gives the same image and time as guidance 1: true CFG runs only for a set negative. So each option ran twice at guidance 2.5, with the neutral negative "low quality" and with its avoid part. The subject was "a woman in her thirties reading at a cafe window", at 768 x 768 and 20 steps. Options without an avoid part ran at guidance 1 next to the bare prompt. The candidates came from the image-prompt-curator skill.
+
+| Option | Result |
+|---|---|
+| Realism, Medium tier ("Real person") | Works on seeds 1234, 5678 and 9012. With the neutral negative, each image was a posed, smooth beauty portrait. With the avoid part, each was a plain, candid person. |
+| Realism, Light and Full tiers | Cut. Light gained little: both images stayed polished. Full looked more real but put a glass artifact in the foreground. |
+| Studio, avoiding light stands | Cut. The neutral negative and the avoid part gave nearly the same image. |
+| Room for text Top, avoiding the top edge | Cut. The avoid part made the head bigger and higher. |
+| Candid glance | Kept without an avoid part. The gaze was off camera with either negative. |
+| Deep focus | Kept without an avoid part. The avoid part was a little crisper, not enough to double the time. |
+| Three-quarter | Kept as "Over the shoulder", which is what the sentence gave: the person turned away and looked back. |
+| Telephoto, Fuji 400H, Ektachrome | Kept. Each changed the image as its name says. |
+
+These ran on one seed each, except Real person. They were not tested on flux2.
+
+A Real animal option was tested and not added. Its sentence asked for uneven fur, a wet nose, dust and a natural, unposed posture, with the eyes off the camera. It ran after Documentary on a dog and a horse, on seeds 1234 and 5678, at guidance 1. Documentary alone already gave four believable phone photos. The sentence made the coats a little rougher, but the animals mostly still looked at the camera, and it changed the dog's bowl on one seed.
+
+### The template test
+
+Each template ran once with its first fill-in, at 768 x 768, 20 steps and seed 1234. The edit templates changed a generated source image. The banner test ran 8 prompts from a Japanese banner gallery at 1280 x 720, 40 steps, guidance 1 and seed 1234, each next to the gallery's own image.
+
+| Template | Result |
+|---|---|
+| Deadpan absurdity | Works: a horse stands in an ordinary office, and nobody reacts. |
+| Alternate reality | Works: the office windows show Earth from a space station, and the people and the light stay the same. |
+| Add an object | Works: a cow stands at the second desk with a shadow and floor contact, and the rest is unchanged. |
+| Relighting (turn the rain into a downpour) | Cut. It added only rain streaks: the mean pixel change was 12.6 out of 255. |
+| Era swap (1980s street to today) | Cut. The image came back almost unchanged. |
+| Banner, the gallery's prompts word for word | Fails. The prompts are forms with labels such as "Main:" and hex colors, and the model drew the labels and the colors as text. Small, dense lines were garbled. No banner came out clean. |
+| Banner, rewritten as prose | Works with short copy. At most 3 quoted lines, each with its place and size: 14 of 21 lines came out exact, and 3 of 8 banners were fully clean. Each error was one dropped or swapped character. The layouts followed the brief. |
+
+In the prose banners, the quoted lines were Japanese and the rest of each prompt was English.
+
 ### The flux2 test
 
 A sample, not every option: the options most likely to behave differently on FLUX.2 klein-base-9B. The runs used "a cat wearing a suit" at 768 x 768, 20 steps, guidance 4, int8, seed 1234, next to the bare prompt. Each template ran with its first fill-in.
 
 | Option | Result on flux2 |
 |---|---|
-| Medium: Film photo, Watercolor, 3D render | All three work. 3D render turns the subject into a vinyl toy, which is still a 3D render. |
+| Medium: Film photo (now Film: Portra 400), Watercolor, 3D render | All three work. 3D render turns the subject into a vinyl toy, which is still a 3D render. |
 | Light: Studio | Works: a plain white studio. |
 | Light: Night with neon | Works, but dark: the subject is hard to see. |
 | Camera: Wide 24mm, Top-down | Both work. |
 | Color: Vivid | Works. |
-| Color: Black and white | The shared sentence names "Kodak Tri-X 400", and flux2 printed that name on a film frame. The flux2 sentence, "Black and white film photograph, strong grain, high contrast.", names no film. On the same seed it kept the grain and the contrast, with no frame and no text. |
+| Color: Black and white (now in the Film row) | The shared sentence names "Kodak Tri-X 400", and flux2 printed that name on a film frame. The flux2 sentence, "Black and white film photograph, strong grain, high contrast.", names no film. On the same seed it kept the grain and the contrast, with no frame and no text. |
 | Room for text: Left, Top | Both work. Top is stronger than on qwen21. |
 | The 5 generate templates | All work. The poster text came out exact. |
 | The 3 edit templates | All work: the recolor, the new background and the added sign. |
+| Deadpan absurdity, Banner, Alternate reality, Add an object | Not tested on flux2, so flux2 does not offer them. |
 
-The other 13 Look options were not tested on flux2, so flux2 does not offer them.
+The other 19 Look options were not tested on flux2, so flux2 does not offer them.

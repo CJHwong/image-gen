@@ -6,7 +6,7 @@ from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l3_interface_adapters.gateways.flux2.capabilities import flux2_capabilities
 from studio.l3_interface_adapters.gateways.flux2.flux2_backend_gateway import Flux2BackendGateway
 from studio.l3_interface_adapters.gateways.flux2.klein_models import KleinModels, edit_kwargs, generate_kwargs
-from studio.l3_interface_adapters.gateways.prompt_aids import pick_looks
+from studio.l3_interface_adapters.gateways.prompt_aids import pick_looks, pick_templates
 from tests.gateways.images import png
 
 
@@ -103,15 +103,27 @@ def test_flux2_offers_only_the_prompt_aids_it_passed():
     generate, edit = flux2_capabilities("int8").modes
     offered = {row.name: [name for name, _ in row.options] for row in generate.looks}
     assert offered == {
-        "Medium": ["Film photo", "Watercolor", "3D render"],
+        "Medium": ["Watercolor", "3D render"],
+        "Film": ["Portra 400", "Black and white"],
+        "Color": ["Vivid"],
         "Light": ["Studio", "Night with neon"],
         "Camera": ["Wide 24mm", "Top-down"],
-        "Color": ["Vivid", "Black and white"],
         "Room for text": ["Left", "Top"],
     }
-    black_and_white = dict(generate.looks[3].options)["Black and white"]
+    black_and_white = dict(generate.looks[1].options)["Black and white"]
     assert "Kodak" not in black_and_white  # flux2 prints a named film stock on the frame
-    assert len(generate.templates) == 5 and len(edit.templates) == 3
+    assert [template.name for template in generate.templates] == [
+        "Portrait photo",
+        "Product shot",
+        "Landscape",
+        "Poster with text",
+        "Illustration",
+    ]
+    assert [template.name for template in edit.templates] == [
+        "Change a color or material",
+        "Replace the background",
+        "Add text",
+    ]
 
 
 def test_a_look_that_does_not_exist_is_refused():
@@ -119,3 +131,18 @@ def test_a_look_that_does_not_exist_is_refused():
         pick_looks({"Colour": ("Vivid",)})
     with pytest.raises(ValueError, match="Sepia"):
         pick_looks({"Color": ("Sepia",)})
+
+
+def test_a_template_that_does_not_exist_is_refused():
+    with pytest.raises(ValueError, match="Poster"):
+        pick_templates(("Poster",))
+
+
+def test_the_estimate_says_it_was_measured_with_two_passes():
+    caps = Flux2BackendGateway(None, badge="int8").capabilities()
+    assert all(mode.estimate.two_pass for mode in caps.modes)  # measured at guidance 4
+
+
+def test_a_picked_option_keeps_its_avoid_part():
+    light, realism = pick_looks({"Realism": ("Real person",), "Light": ("Studio",)})
+    assert [name for name, _ in realism.avoids] == ["Real person"] and light.avoids == ()

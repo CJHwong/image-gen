@@ -30,6 +30,9 @@ class ParamSpec:
     integer: bool = False
     step: float | None = None  # the input's increment on the page
     choices: tuple[Choice, ...] = ()
+    # A guidance scale that a negative prompt depends on: the value the page
+    # raises it to while a negative prompt is set. None means no dependence.
+    with_negative: float | None = None
 
     def parse(self, raw: str | None) -> OptionValue:
         """A raw form value as this setting's value. A blank value takes the default."""
@@ -70,10 +73,17 @@ class ParamSpec:
 
 @dataclass(frozen=True)
 class LookRow:
-    """A row of Look choices. A row takes one choice, and it adds one sentence after the prompt."""
+    """A row of Look choices. A row takes one choice, and it adds one sentence after the prompt.
+
+    `avoids` gives an option, by name, a part for the negative prompt. It is
+    for a backend with a negative prompt, and only where a test showed that
+    the avoid part adds what the sentence alone cannot, since it doubles the
+    time of each image.
+    """
 
     name: str
     options: tuple[tuple[str, str], ...]
+    avoids: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -90,6 +100,8 @@ class Estimate:
     Seconds per step at one megapixel, how that grows with the pixel count, and
     the fixed cost of a run, paid once per image or once per batch.
     `match_cap` bounds the side of an output sized from its reference.
+    `two_pass` says the step cost was measured with guidance above 1, which
+    runs two passes per step. The page halves or doubles it from there.
     """
 
     step_cost: float
@@ -97,6 +109,7 @@ class Estimate:
     overhead: float
     overhead_per_image: bool
     match_cap: int | None = None
+    two_pass: bool = False
 
 
 @dataclass(frozen=True)

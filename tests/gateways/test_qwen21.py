@@ -98,3 +98,40 @@ def test_every_size_keeps_its_named_ratio_on_the_16_pixel_grid(sizes):
         across, down = (int(named[1]), int(named[2])) if named else (1, 1)
         assert width % 16 == 0 and height % 16 == 0, label
         assert abs(width / height - across / down) <= 0.01 * across / down, label
+
+
+def test_a_negative_prompt_names_the_guidance_it_needs():
+    caps = Qwen21BackendGateway(None, None, badge="bf16").capabilities()
+    for mode_id, scale_id in (("generate", "guidance"), ("edit", "cfg")):
+        params = {param.id: param for param in caps.mode(mode_id).params}
+        assert "negative" in params
+        scale = params[scale_id]
+        assert scale.with_negative == 2.5 and scale.maximum == 10, mode_id
+
+
+def test_only_real_person_carries_an_avoid_part():
+    looks = Qwen21BackendGateway(None, None, badge="bf16").capabilities().mode("generate").looks
+    avoids = {row.name: dict(row.avoids) for row in looks if row.avoids}
+    assert list(avoids) == ["Realism"] and list(avoids["Realism"]) == ["Real person"]
+    assert "airbrushed skin" in avoids["Realism"]["Real person"]
+
+
+def test_qwen21_offers_the_templates_it_passed():
+    caps = Qwen21BackendGateway(None, None, badge="bf16").capabilities()
+    generate = [template.name for template in caps.mode("generate").templates]
+    edit = [template.name for template in caps.mode("edit").templates]
+    assert generate[-2:] == ["Deadpan absurdity", "Banner"] and len(generate) == 7
+    assert edit[-2:] == ["Alternate reality", "Add an object"] and len(edit) == 5
+
+
+def test_the_look_rows_go_style_then_shot_then_subject():
+    looks = Qwen21BackendGateway(None, None, badge="bf16").capabilities().mode("generate").looks
+    assert [row.name for row in looks] == [
+        "Medium", "Film", "Color", "Light", "Camera", "Room for text", "Realism", "Portrait",
+    ]  # fmt: skip
+    film = dict(looks[1].options)
+    assert list(film) == ["Portra 400", "Fuji 400H", "Ektachrome", "Black and white"]
+    # Each film stock lives in the Film row only, so one pick per row keeps two stocks apart.
+    for row in looks[:1] + looks[2:]:
+        for _, sentence in row.options:
+            assert not any(stock in sentence for stock in ("Portra", "Tri-X", "Fuji", "Ektachrome")), row.name

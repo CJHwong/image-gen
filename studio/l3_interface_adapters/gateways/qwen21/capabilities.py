@@ -74,7 +74,9 @@ SIZE = ParamSpec(
         Choice(MATCH, "Match reference (about 1 MP)"),
     ),
 )
-GUIDANCE = ParamSpec(id="guidance", kind="number", default=1.0, minimum=0, step=0.5)
+# A negative prompt works only through true CFG, which needs guidance above 1
+# and runs two passes per step. 2.5 is the value PROMPTS.md tested it at.
+GUIDANCE = ParamSpec(id="guidance", kind="number", default=1.0, minimum=0, maximum=10, step=0.5, with_negative=2.5)
 # mflux skips this share of the schedule: init_time_step = max(1, int(steps *
 # strength)). RMS distance from the reference, one pear at 8 steps: 17.1 at
 # 0.15, 4.0 at 0.55, 2.5 at 0.85, and 74.5 with no reference. Every strength
@@ -89,7 +91,7 @@ RESOLUTION = ParamSpec(
         *(Choice(str(side), f"about {side} x {side}") for side in EDIT_RESOLUTIONS),
     ),
 )
-CFG = ParamSpec(id="cfg", kind="number", default=1.0, minimum=1, maximum=10, step=0.5)
+CFG = ParamSpec(id="cfg", kind="number", default=1.0, minimum=1, maximum=10, step=0.5, with_negative=2.5)
 
 GENERATE = ModeSpec(
     id="generate",
