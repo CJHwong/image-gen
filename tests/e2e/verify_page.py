@@ -252,6 +252,7 @@ with sync_playwright() as playwright:
         f"bottom {go_box['y'] + go_box['height']:.0f}",
     )
     check("no leave warning while the browser keeps the images", not leave_blocked(page))
+    check("a plain run says Generated", page.inner_text(".facts .made") == "Generated", page.inner_text(".facts .made"))
     learned = page.evaluate("learnedCost[STUDIO.backend.id + ' generate'] || 0")
     check("a run teaches the step rate", 0.3 < learned < 20, f"{learned:.2f} s per step at 1 MP")
     check(
@@ -340,6 +341,7 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Use as reference").click()
     check("Use as reference adds a second", page.locator("#thumbs .thumb").count() == 2)
+    source = page.inner_text(".shot .edge span:last-child")
     button(page, "Edit this").click()
     check("Edit this resets to one", page.locator("#thumbs .thumb").count() == 1)
 
@@ -360,6 +362,11 @@ with sync_playwright() as playwright:
     )
     page.click("#go")
     wait_idle(page)
+    made = page.inner_text(".facts .made")
+    check("an edit names its source frame", made == f"Edited from {source}", made)
+    page.get_by_role("button", name=f"Show frame {source}").click()
+    check("the source link shows that frame", page.inner_text(".shot .edge span:last-child") == source)
+    page.locator("#strip .frame:not(.pending) >> nth=0").click()
     check(
         "compare slider on the edit",
         page.locator(".compare-range").count() == 1 and page.locator("img.before").count() == 1,
@@ -503,18 +510,33 @@ with sync_playwright() as playwright:
     seed = next(index for index, (text, _) in enumerate(rows) if text.startswith("Seed"))
     check(
         "a phone puts the facts on two lines: which image, then how",
-        rows[0][1] == rows[seed][1] and rows[seed + 1][1] == rows[-1][1] > rows[seed][1],
+        # The badge's border and padding lift its top a few pixels on the same line.
+        abs(rows[0][1] - rows[seed][1]) <= 4 and rows[seed + 1][1] == rows[-1][1] > rows[seed][1] + 8,
         str(rows),
     )
     caption = page.locator(".prompt-line")
     check("a caption the phone cuts becomes a toggle", caption.get_attribute("aria-expanded") == "false")
+    print_box = page.locator(".pic").bounding_box()
     caption.click()
-    opened = page.evaluate(
-        "(line => line.scrollHeight <= line.clientHeight + 1)(document.querySelector('.prompt-line'))"
+    check(
+        "a click opens the whole prompt over the print",
+        caption.get_attribute("aria-expanded") == "true"
+        and page.inner_text(".sheet dd").startswith("A ceramic teapot")
+        and "Overcast sky" in page.inner_text(".sheet"),
+        page.inner_text(".sheet"),
     )
-    check("a click shows the whole caption", caption.get_attribute("aria-expanded") == "true" and opened)
+    check("the print does not move", page.locator(".pic").bounding_box() == print_box)
+    check("focus goes to Close", page.evaluate("document.activeElement.getAttribute('aria-label')") == "Close")
+    page.keyboard.press("Escape")
+    check(
+        "Escape closes it and gives focus back to the label",
+        page.locator(".sheet").count() == 0
+        and caption.get_attribute("aria-expanded") == "false"
+        and page.evaluate("document.activeElement.classList.contains('prompt-line')"),
+    )
     caption.press("Enter")
-    check("Enter cuts it again", caption.get_attribute("aria-expanded") == "false")
+    check("Enter opens it", page.locator(".sheet").count() == 1)
+    page.get_by_role("button", name="Close").click()
     page.screenshot(path=OUT + "5-phone.png")
     page.evaluate("window.scrollTo(0, 560)")
     page.screenshot(path=OUT + "6-phone-form.png")
