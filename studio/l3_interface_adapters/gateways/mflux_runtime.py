@@ -49,9 +49,14 @@ class StepHook:
         on_step, should_stop = self._on_step, self._should_stop
         if on_step is None or should_stop is None:
             return
+        # With a starting image, mflux runs only range(init_time_step, steps):
+        # the strength skips the start of the schedule. Count the steps that
+        # run, or the first one shows as 42% at strength 0.4.
+        start = config.init_time_step if config is not None else 0
+        total = config.num_inference_steps if config is not None else self._total
         if should_stop():
-            raise Cancelled(f"stopped at step {t + 1}")
-        on_step(t + 1, self._total)
+            raise Cancelled(f"stopped at step {t + 1 - start}")
+        on_step(t + 1 - start, total - start)
 
 
 def release_mlx_buffers() -> None:

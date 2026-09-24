@@ -90,6 +90,27 @@ def test_the_step_hook_reports_and_cancels():
     hook.call_in_loop(3, None, None, None, None, None)  # no run watched: nothing happens
 
 
+def test_the_step_hook_counts_only_the_steps_that_run():
+    """With a starting image, mflux skips the start of the schedule. 40 steps at strength 0.4
+    run steps 16 to 39, so the first to arrive is step 1 of 24, not step 17 of 40."""
+
+    class Img2ImgConfig:
+        init_time_step = 16
+        num_inference_steps = 40
+
+    hook = StepHook()
+    steps = []
+    with hook.watch(lambda step, total: steps.append((step, total)), lambda: False, total=40):
+        for t in range(16, 40):
+            hook.call_in_loop(t, None, None, None, Img2ImgConfig(), None)
+    assert steps[0] == (1, 24) and steps[-1] == (24, 24)
+    with (
+        hook.watch(lambda step, total: None, lambda: True, total=40),
+        pytest.raises(Cancelled, match=r"stopped at step 5$"),
+    ):
+        hook.call_in_loop(20, None, None, None, Img2ImgConfig(), None)
+
+
 @pytest.mark.parametrize("sizes", [qwen21_sizes, flux2_sizes], ids=["qwen21", "flux2"])
 def test_every_size_keeps_its_named_ratio_on_the_16_pixel_grid(sizes):
     """Within 1%, because the largest tier keeps the model's own sizes: 1664 x 928 is not quite 16:9."""
