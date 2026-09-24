@@ -21,6 +21,7 @@ from studio.l3_interface_adapters.gateways.qwen21.edit import Qwen21Edit
 from studio.l3_interface_adapters.gateways.qwen21.generator import Qwen21Generator
 from studio.l3_interface_adapters.gateways.qwen21.qwen21_backend_gateway import Qwen21BackendGateway
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
+from studio.l3_interface_adapters.gateways.stub_backend_gateway import StubBackendGateway
 from studio.l3_interface_adapters.gateways.thread_confined_backend_gateway import ThreadConfinedBackendGateway
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
@@ -80,8 +81,12 @@ def build_backends(config: Config) -> dict:
     return {backend_id: BACKENDS[backend_id](config) for backend_id in config.visible_backends}
 
 
-def create_studio(config: Config) -> Studio:
-    return assemble_studio(build_backends(config), config.default_backend, config.visible_backends)
+def create_studio(config: Config, stub: bool = False) -> Studio:
+    """With `stub`, each backend keeps its form and fakes its engine: for work on the page."""
+    backends = build_backends(config)
+    if stub:
+        backends = {backend_id: StubBackendGateway(backend.capabilities()) for backend_id, backend in backends.items()}
+    return assemble_studio(backends, config.default_backend, config.visible_backends)
 
 
 def assemble_studio(backends: dict, default_id: str, visible_ids: tuple[str, ...]) -> Studio:

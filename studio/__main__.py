@@ -10,6 +10,7 @@ USAGE:
     uv run studio                      # http://127.0.0.1:8765, the default backend
     uv run studio --port 9000
     uv run studio --backend qwen21 -q 8
+    uv run studio --stub --port 8832   # the page on fake engines, for page work
 """
 
 import argparse
@@ -36,13 +37,18 @@ def parse_args():
         choices=[3, 4, 5, 6, 8],
         help="quantize the weights of the backend the page opens with; omit for the studio.toml setting",
     )
+    parser.add_argument(
+        "--stub",
+        action="store_true",
+        help="fake every engine: timed steps and placeholder images, no weights, no GPU. For work on the page",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     try:
-        studio = create_studio(load_config(args.config, backend=args.backend, quantize=args.quantize))
+        studio = create_studio(load_config(args.config, backend=args.backend, quantize=args.quantize), stub=args.stub)
     except ConfigError as error:
         sys.exit(f"Bad settings in {args.config}: {error}")
     # Bind before loading. The weights take a minute, and a busy port found

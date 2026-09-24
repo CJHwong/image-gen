@@ -19,6 +19,7 @@ The first start downloads the Qwen-Image-2.1 weights, about 33 GB. See [Models](
 ## How to
 
 - **Use another port:** `uv run studio --port 9000`.
+- **Work on the page without a model:** `uv run studio --stub`. Each backend keeps its form, but a run shows fake steps and returns a placeholder image. It uses no GPU.
 - **Save memory on qwen21:** `uv run studio -q 8` loads the weights as int8.
 - **Use FLUX.2:** set up its weights (see [Models](#models)), then `uv run studio --backend flux2`. The title of the page becomes a menu that switches between the models. To offer both every time, add `"flux2"` to `visible_backends` in [studio.toml](studio.toml).
 - **Write a prompt the model follows:** use the Templates menu and the Look section in the page. Each model offers only the Look options that passed a test on it. [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) has the tests.
