@@ -3,3 +3,6 @@
 
 # Python
 __pycache__/
+
+# Third-party prompts kept for reference, not ours to publish
+collected/
