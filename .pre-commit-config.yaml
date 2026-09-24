@@ -1,0 +1,66 @@
+# Run with `prek run`. Adapted from tool-rhapsody's setup.
+
+# `prek install` installs only the pre-commit hook type by default, which would
+# leave the commit-msg guard below installed but never run.
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: debug-statements
+      - id: detect-private-key
+
+  # The flux2 weight setup needs an HF token, and the README shows it as a
+  # variable. This catches a real one pasted in its place.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      # Scans the staged index, so a secret is caught on the commit that adds it.
+      - id: gitleaks
+
+  # Conventional Commits, checked by commitlint itself with .commitlintrc.yaml.
+  # Pinned to a commit, not a tag: a tag can move, and this hook runs on every
+  # `git commit` with the developer's credentials.
+  - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
+    rev: 25d0a52aa8bc0fc242613346792dc8d726c13347  # v9.26.0
+    hooks:
+      - id: commitlint
+        stages: [commit-msg]
+        # @commitlint/cli@21 needs node >= 22.12.0. Without a pin the hook
+        # builds against whatever node is on PATH.
+        language_version: '22.20.0'
+        # Both pinned. The hook's own package.json floats the CLI on a caret range.
+        additional_dependencies:
+          - '@commitlint/cli@21.2.2'
+          - '@commitlint/config-conventional@21.2.2'
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.0
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: import-linter (CA layers)
+        entry: uv run --frozen lint-imports
+        language: system
+        pass_filenames: false
+        files: ^studio/.*\.py$
+      - id: ty
+        name: ty (type check)
+        entry: uv run --frozen ty check
+        language: system
+        pass_filenames: false
+        files: \.py$
