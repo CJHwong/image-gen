@@ -20,7 +20,7 @@ def test_the_stub_reports_every_step_and_makes_the_asked_size():
     steps = []
     job = ImageJob("generate", "a cat", 7, {"size": "1024x576", "steps": 4})
     result = stub().run(job, lambda step, total: steps.append((step, total)), lambda: False)
-    assert steps == [(1, 4), (2, 4), (3, 4), (4, 4)]
+    assert steps == [(0, 4), (1, 4), (2, 4), (3, 4), (4, 4)]
     assert (result.width, result.height, result.seed, result.steps) == (1024, 576, 7, 4)
     assert to_pil(result.png).size == (1024, 576)
 
@@ -29,7 +29,7 @@ def test_the_stub_runs_only_the_steps_a_starting_image_leaves():
     steps = []
     job = ImageJob("generate", "a cat", 7, {"size": "match", "steps": 10, "strength": 0.4}, (png(640, 480),))
     result = stub().run(job, lambda step, total: steps.append((step, total)), lambda: False)
-    assert steps[0] == (1, 6) and steps[-1] == (6, 6)
+    assert steps[1] == (1, 6) and steps[-1] == (6, 6)
     assert result.width / result.height == pytest.approx(640 / 480, rel=0.02)
 
 

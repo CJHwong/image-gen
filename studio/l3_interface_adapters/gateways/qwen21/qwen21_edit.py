@@ -280,7 +280,8 @@ def run_stdio(args):
     The prompt would sit in the process arguments, where any `ps` shows it.
 
     A pipe solves both. Images arrive as base64 PNG and leave the same way.
-    Progress lines go to stderr as "step N/M" so the caller can report them;
+    Progress lines go to stderr as "step N/M" so the caller can report them,
+    "step 0/M" once the pipeline is ready;
     stdout carries one JSON result per job and nothing else.
 
     This loops until stdin closes, and builds the pipeline once, from the
@@ -317,6 +318,9 @@ def run_stdio(args):
             log(f"{'Loaded':<12}: {time.time() - start:.1f}s")
         else:
             log("ready")
+        # Step 0 tells the caller the pipeline is ready, as the mflux engines do.
+        # The page shows the load until it, and the prompt reading after it.
+        on_step(0, job["steps"])
 
         try:
             image, seed, elapsed = run_edit(pipe, job, log, on_step)

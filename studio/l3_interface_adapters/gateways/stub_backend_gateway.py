@@ -70,6 +70,7 @@ class StubBackendGateway(ImageBackendGateway):
 
     def run(self, job, on_step, should_stop) -> ImageResult:
         total = steps_to_run(job)
+        on_step(0, total)  # the engine started, as the real backends report it
         for step in range(1, total + 1):
             time.sleep(self._seconds_per_step)
             if should_stop():

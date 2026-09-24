@@ -12,7 +12,7 @@ import time
 print(f"pid {os.getpid()}", file=sys.stderr, flush=True)
 for line in sys.stdin:
     job = json.loads(line)
-    for step in range(1, job.get("steps", 2) + 1):
+    for step in range(job.get("steps", 2) + 1):  # step 0 first, as the real child
         time.sleep(job.get("pause", 0))
         print(f"step {step}/{job.get('steps', 2)}", file=sys.stderr, flush=True)
     if job.get("crash"):

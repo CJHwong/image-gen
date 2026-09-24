@@ -29,7 +29,7 @@ def test_a_job_comes_back_with_its_steps(child):
     reply = child.request({"echo": "hi", "steps": 3}, lambda step, total: steps.append((step, total)), never)
     assert reply["echo"] == "hi"
     time.sleep(0.1)
-    assert steps == [(1, 3), (2, 3), (3, 3)]
+    assert steps == [(0, 3), (1, 3), (2, 3), (3, 3)]
 
 
 def test_the_child_stays_up_between_jobs(child):

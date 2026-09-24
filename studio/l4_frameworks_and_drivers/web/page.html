@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__NAME__</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128"> <rect x="18" y="8" width="92" height="112" rx="12" fill="%234d3e3b"/> <rect x="23" y="13" width="82" height="102" rx="8" fill="%23d2cbc4"/> <rect x="30" y="20" width="68" height="88" fill="%23f7e7d7"/> <rect x="35" y="25" width="58" height="42" fill="%23c80600"/> <rect x="35" y="67" width="58" height="20" fill="%236b0100"/> <circle cx="64" cy="44" r="8" fill="%23fd3800"/> </svg>'>
 <script>
   // The saved theme applies before the first paint, so the page never flashes the default.
   // Kodak is the default. Darkroom saves an empty name, so a pick of it stays.
@@ -760,7 +761,7 @@
             <span class="caption num" id="strength-value"></span>
           </div>
           <input id="strength" name="strength" type="range">
-          <span class="caption">Higher stays closer to the starting image.</span>
+          <span class="caption" id="strength-hint"></span>
         </div>
 
         <div class="field" id="size-field">
@@ -1276,6 +1277,16 @@
     document.getElementById('cfg-value').textContent = document.getElementById('cfg').value;
     document.getElementById('strength-value').textContent =
       Number(document.getElementById('strength').value).toFixed(2);
+    document.getElementById('strength-hint').textContent = 'Runs ' + stepsToRun() + ' of ' + steps +
+      ' steps. Higher stays closer to the starting image.';
+  }
+
+  // mflux skips the start of the schedule for a starting image:
+  // init_time_step = max(1, int(steps * strength)). Only the rest runs.
+  function stepsToRun() {
+    const steps = Number(document.getElementById('steps').value) || 0;
+    const strength = Number(document.getElementById('strength').value) || 0;
+    return steps - Math.max(1, Math.floor(steps * strength));
   }
 
   // ---- Estimate and the run button -----------------------------------------
@@ -2723,14 +2734,15 @@
     const now = progressNow();
     const running = now.running;
     let stepText = 'Starting';
-    // The weights load once, not per run. Before step 1 a run encodes its
-    // prompt, and its images if it has any, so the status names that.
-    if (state && state.stage === 'preparing') {
+    // Before step 0 the backend sets up its model: a rebuild, a switch between
+    // generate and edit, or the edit engine's first load. Step 0 is its notice
+    // that the engine started, which first encodes the prompt and images. The
+    // engine may then run fewer steps (a starting image skips part of the
+    // schedule), so the count shows from the first real step.
+    if (state && state.stage === 'preparing') stepText = 'Loading the model';
+    if (running && state.stage === 'running' && state.step === 0) {
       stepText = runSources.length ? 'Reading the prompt and images' : 'Reading the prompt';
     }
-    // Step 0 is the backend's notice before the engine starts. The engine may
-    // then run fewer steps (a starting image skips part of the schedule), so
-    // the count shows from the first real step.
     if (running && state.step > 0) stepText = 'Step ' + state.step + ' of ' + state.total;
     if (stopping) stepText = 'Stopping at the end of this step';
 
