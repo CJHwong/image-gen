@@ -427,6 +427,7 @@
   .strip-wrap[hidden] { display: none; }
   .strip-head { display: flex; justify-content: space-between; align-items: center;
     padding: 0 2px 2px; color: var(--text-3); font-size: 12px; }
+  .strip-actions { display: flex; gap: 14px; }
   .strip { display: flex; gap: 16px; overflow-x: auto; padding: 20px 10px 18px;
     scrollbar-width: thin; scrollbar-color: #2e2e2e transparent;
     --holes: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5'%3E%3Crect x='2.2' y='.5' width='5.6' height='4' rx='1' fill='%23262626'/%3E%3C/svg%3E");
@@ -708,7 +709,10 @@
     <section class="strip-wrap" id="strip-wrap" hidden>
       <div class="strip-head">
         <span id="strip-note"></span>
-        <button type="button" class="text-btn" id="clear-gallery">Clear all</button>
+        <span class="strip-actions">
+          <button type="button" class="text-btn" id="download-gallery">Download all</button>
+          <button type="button" class="text-btn" id="clear-gallery">Clear all</button>
+        </span>
       </div>
       <div class="strip" id="strip"></div>
     </section>
@@ -1867,6 +1871,7 @@
       : (count ? images + ' in this tab.<span class="wide-only"> Download the ones you want to keep.</span>'
         : 'Images stay in this tab only.');
     document.getElementById('clear-gallery').hidden = !count;
+    document.getElementById('download-gallery').hidden = !count;
     renderProgress();
   }
 
@@ -2125,7 +2130,7 @@
     const download = document.createElement('a');
     download.className = 'icon-btn';
     download.href = entry.src;
-    download.download = STUDIO.backend.id + '-' + entry.mode + '-' + entry.seed + '.png';
+    download.download = fileName(entry);
     download.title = 'Download';
     download.setAttribute('aria-label', 'Download');
     download.innerHTML = icon('download');
@@ -2396,6 +2401,53 @@
     renderStrip();
     renderStage();
   }
+
+  function fileName(entry) {
+    return STUDIO.backend.id + '-' + entry.mode + '-' + entry.seed + '.png';
+  }
+
+  function saveFile(url, name) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    link.click();
+  }
+
+  // Every image on the strip, oldest first, then one file with their prompts,
+  // since an image file holds no prompt. Each name starts with the frame number:
+  // two images can share a seed, and the browser would rename the second one.
+  // The files leave one at a time, because a browser drops downloads that come
+  // too close together. A batch of edits shares one source, saved once.
+  document.getElementById('download-gallery').addEventListener('click', function () {
+    const befores = new Map();
+    const facts = [];
+    const pause = function () { return new Promise(function (resolve) { setTimeout(resolve, 300); }); };
+    const saving = gallery.slice().reverse().reduce(function (previous, entry) {
+      return previous.then(function () {
+        const file = frameNumber(entry.id) + '-' + fileName(entry);
+        saveFile(entry.src, file);
+        const fact = { file: file, before: null };
+        KEPT_FIELDS.forEach(function (field) { fact[field] = entry[field]; });
+        facts.push(fact);
+        if (!entry.before) return pause();
+        const known = befores.has(entry.before);
+        if (!known) befores.set(entry.before, file.replace(/\.png$/, '-before.png'));
+        fact.before = befores.get(entry.before);
+        if (known) return pause();
+        return pause().then(function () {
+          saveFile(entry.before, fact.before);
+          return pause();
+        });
+      });
+    }, Promise.resolve());
+    saving.then(function () {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(facts, null, 2)], { type: 'application/json' }));
+      saveFile(url, 'studio-prompts.json');
+      setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+    }).catch(function (error) {
+      showToast('error', 'Download all stopped: ' + error.message);
+    });
+  });
 
   document.getElementById('clear-gallery').addEventListener('click', function () {
     const question = keeping

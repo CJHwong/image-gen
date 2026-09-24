@@ -6,7 +6,11 @@ Then:
     uv run --with playwright python tests/e2e/verify_storage.py <port>
 """
 
+import json
+import re
 import sys
+import tempfile
+from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
@@ -50,7 +54,7 @@ def set_keep(page, on):
 
 with sync_playwright() as playwright:
     browser = playwright.chromium.launch()
-    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    context = browser.new_context(viewport={"width": 1440, "height": 900}, accept_downloads=True)
     first = context.new_page()
     first.on("dialog", lambda dialog: dialog.accept())
     errors = []
@@ -81,6 +85,34 @@ with sync_playwright() as playwright:
     check("the facts come back", "Seed " in first.inner_text(".facts") and "Took " in first.inner_text(".facts"))
     numbers = first.locator("#strip .frame .no").all_inner_texts()
     check("the frame numbers come back", numbers == ["02", "01"], str(numbers))
+
+    saved = []
+    first.on("download", lambda download: saved.append(download))
+    first.click("#download-gallery")
+    deadline = 20
+    while len(saved) < 3 and deadline:
+        first.wait_for_timeout(500)
+        deadline -= 1
+    folder = Path(tempfile.mkdtemp(prefix="studio-download-"))
+    names = [download.suggested_filename for download in saved]
+    for download in saved:
+        download.save_as(folder / download.suggested_filename)
+    images = [name for name in names if name.endswith(".png")]
+    check(
+        "Download all saves each image and the prompts",
+        len(images) == 2
+        and all(re.fullmatch(r"\d{2}-[a-z0-9]+-generate-\d+\.png", name) for name in images)
+        and all((folder / name).read_bytes()[:4] == b"\x89PNG" for name in images)
+        and names[-1] == "studio-prompts.json",
+        str(names),
+    )
+    facts = json.loads((folder / "studio-prompts.json").read_text()) if "studio-prompts.json" in names else []
+    check(
+        "the prompts come oldest first, each with its file",
+        [fact["prompt"] for fact in facts] == ["A red apple on a wooden table.", "A green pear on a plate."]
+        and [fact["file"] for fact in facts] == images,
+        str(facts)[:300],
+    )
 
     first.get_by_role("button", name="Edit this", exact=True).click()
     first.wait_for_selector("#refs img", timeout=10000)
@@ -114,6 +146,7 @@ with sync_playwright() as playwright:
     third.reload()
     third.wait_for_timeout(1000)
     check("Clear all empties the browser", frames(third) == 0)
+    check("an empty strip offers no Download all", first.is_hidden("#download-gallery"))
     check("no page errors", not errors, str(errors))
     browser.close()
 
