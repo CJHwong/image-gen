@@ -1,0 +1,59 @@
+[importlinter]
+root_package = studio
+include_external_packages = True
+
+[importlinter:contract:layers]
+name = Clean architecture layers
+type = layers
+layers =
+    studio.l4_frameworks_and_drivers
+    studio.l3_interface_adapters
+    studio.l2_use_cases
+    studio.l1_entities
+
+[importlinter:contract:gateways-isolation]
+name = Gateways do not depend on controllers or presenters
+type = forbidden
+source_modules =
+    studio.l3_interface_adapters.gateways
+forbidden_modules =
+    studio.l3_interface_adapters.controllers
+    studio.l3_interface_adapters.presenters
+
+[importlinter:contract:presenters-isolation]
+name = Presenters do not depend on controllers or gateways
+type = forbidden
+source_modules =
+    studio.l3_interface_adapters.presenters
+forbidden_modules =
+    studio.l3_interface_adapters.controllers
+    studio.l3_interface_adapters.gateways
+
+[importlinter:contract:controllers-isolation]
+name = Controllers do not depend on gateways or presenters
+type = forbidden
+source_modules =
+    studio.l3_interface_adapters.controllers
+forbidden_modules =
+    studio.l3_interface_adapters.gateways
+    studio.l3_interface_adapters.presenters
+
+[importlinter:contract:no-engines-in-core]
+name = The core touches no engine, image library, HTTP or process
+type = forbidden
+source_modules =
+    studio.l1_entities
+    studio.l2_use_cases
+forbidden_modules =
+    mlx
+    mflux
+    PIL
+    http
+    subprocess
+
+[importlinter:contract:backends-independent]
+name = Each backend adapter stands alone; shared helpers sit next to them
+type = independence
+modules =
+    studio.l3_interface_adapters.gateways.qwen21
+    studio.l3_interface_adapters.gateways.flux2

@@ -1,6 +1,3 @@
-# Rust (krea-harness build output)
-**/target/
-
 # macOS
 .DS_Store
 

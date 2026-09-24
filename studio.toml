@@ -1,0 +1,13 @@
+# The backend the page opens with, and the backends it may offer. The page
+# shows a backend picker only when it may offer more than one. `--backend`
+# on the command line opens on another one and adds it to the list.
+default_backend = "qwen21"
+visible_backends = ["qwen21"]
+
+[qwen21]
+quantize = 0                              # 0 is bf16; -q on the command line overrides it
+edit_script = "studio/l3_interface_adapters/gateways/qwen21/qwen21_edit.py"   # the diffusers child that runs edits
+
+[flux2]
+quantize = 8
+model_dir = "~/Library/Caches/models/mflux-klein-base-9b-uncensored"   # the README has the download

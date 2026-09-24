@@ -1,6 +1,6 @@
 # image-gen
 
-Local image generation on Apple Silicon. Each backend is one directory with one wrapper script.
+A local image generation page for Apple Silicon. One page, one adapter per model. Nothing is saved to disk.
 
 ## Quick start
 
@@ -8,44 +8,65 @@ Local image generation on Apple Silicon. Each backend is one directory with one 
 
        git clone git@github.com:CJHwong/image-gen.git
 
-2. Pick a backend and read its setup. Each `help` lists the weights to download and, for krea2, the build step.
+2. Start the page.
 
-       qwen21/qwen21 help
+       uv run studio
 
-3. Generate an image.
+3. Open http://127.0.0.1:8765.
 
-       qwen21/qwen21 --prompt "a red apple" --output apple.png
+The first start downloads the Qwen-Image-2.1 weights, about 33 GB. See [Models](#models).
 
 ## How to
 
-- **Make an image from text:** `flux2/flux2 --prompt "..." --output out.png`, or the same flags on `qwen21/qwen21`.
-- **Change an existing image:** add `--input ref.png` to `flux2`, or `--image ref.png 0.6` to `qwen21`.
-- **Edit an image by instruction:** `qwen21/qwen21 edit --prompt "make it night" --image room.png`, or `krea2/krea2 edit --prompt "..." --source src.png -o out.png`.
-- **Control the pose:** `krea2/krea2 control --prompt "..." --pose pose.png -o out.png`.
-- **Use a web page instead of the command line:** `qwen21/qwen21 server`, then open http://127.0.0.1:8765.
-- **Write a prompt that qwen21 follows:** start from a template in [qwen21/PROMPTS.md](qwen21/PROMPTS.md), or from the Templates menu in the page.
-- **Run a wrapper from anywhere:** symlink the wrapper into your `PATH`, for example `ln -s "$PWD/qwen21/qwen21" ~/.local/bin/qwen21`. `qwen21`, `flux2` and `flux2-gen` follow the symlink back to the repo. `krea2` does not, so call it by its path.
+- **Use another port:** `uv run studio --port 9000`.
+- **Save memory on qwen21:** `uv run studio -q 8` loads the weights as int8.
+- **Use FLUX.2:** set up its weights (see [Models](#models)), then `uv run studio --backend flux2`. The title of the page becomes a menu that switches between the models. To offer both every time, add `"flux2"` to `visible_backends` in [studio.toml](studio.toml).
+- **Write a prompt the model follows:** use the Templates menu and the Look section in the page. Each model offers only the Look options that passed a test on it. [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) has the tests.
+- **Keep an image:** use the download button. The page keeps images in tab memory only, so a reload clears them.
 
-## Backends
+## Models
 
-| Backend | Model | Engine | Modes | Build |
-|---|---|---|---|---|
-| `flux2/flux2` | FLUX.2 klein-base-9B, uncensored | mflux (Python/MLX) | txt2img, img2img | none |
-| `flux2/flux2-gen` | same as `flux2` | same as `flux2` | reads a multi-line prompt, then calls `flux2` | none |
-| `krea2/krea2` | Krea 2 | mlx-gen (Rust/MLX) | txt2img, img2img, edit, control | `cargo build --release` |
-| `qwen21/qwen21` | Qwen-Image-2.1 | mflux (MLX) | txt2img, img2img | none |
-| `qwen21/qwen21 edit` | Qwen-Image-2.1 | diffusers (PyTorch/MPS) | instruction edit | none |
-| `qwen21/qwen21 server` | Qwen-Image-2.1 | both of the above | a local web page for all modes | none |
+| Model | Adapter | Modes | Weights |
+|---|---|---|---|
+| Qwen-Image-2.1 (default) | `gateways/qwen21` | generate and img2img through mflux (MLX); instruction edit with up to 10 images through diffusers (MPS) | downloads itself |
+| FLUX.2 klein-base-9B, uncensored | `gateways/flux2` | generate and img2img, edit with up to 4 images, all through mflux (MLX) | manual setup below |
 
-Every wrapper prints its flags, defaults and environment variables with `help`.
+**Qwen-Image-2.1.** The weights are `Qwen/Qwen-Image-2.1` on HuggingFace. They are not gated, about 33 GB in bf16. They download into `~/.cache/huggingface` on the first run (`HF_HOME` moves the cache).
+
+**FLUX.2 klein-base-9B.** mflux reads one diffusers-layout folder, and its name must contain `klein-base-9b`. The default is `~/Library/Caches/models/mflux-klein-base-9b-uncensored`; `model_dir` in `studio.toml` moves it. It takes about 33 GB.
+
+1. Everything except the encoder weights comes from the uncensored transformer repo. It is not gated.
+
+       M=~/Library/Caches/models/mflux-klein-base-9b-uncensored
+       SRC=https://huggingface.co/darknight9121/FLUX.2-klein-base-9B-bucket-uncensored/resolve/main
+       for f in model_index.json scheduler/scheduler_config.json \
+                text_encoder/config.json text_encoder/generation_config.json \
+                tokenizer/{added_tokens.json,chat_template.jinja,merges.txt} \
+                tokenizer/{special_tokens_map.json,tokenizer.json,tokenizer_config.json,vocab.json} \
+                transformer/config.json transformer/diffusion_pytorch_model.safetensors.index.json \
+                transformer/diffusion_pytorch_model-0000{1,2}-of-00002.safetensors \
+                vae/config.json vae/diffusion_pytorch_model.safetensors; do
+         curl -L -C - --create-dirs "$SRC/$f" -o "$M/$f"
+       done
+
+2. The encoder weights come from the uncensored encoder repo. It is gated: accept its conditions on the HuggingFace page, then pass your token.
+
+       E=~/Library/Caches/models/ponpoke-uncensored-qwen3-8b
+       curl -L -C - --create-dirs -H "Authorization: Bearer $HF_TOKEN" \
+         https://huggingface.co/ponpoke/flux2-klein-9b-uncensored-text-encoder/resolve/main/model.safetensors \
+         -o "$E/model.safetensors"
+       ln -s "$E/model.safetensors" "$M/text_encoder/model.safetensors"
+
+   Fetch only `model.safetensors`. The `.gguf` files there are for llama.cpp.
 
 ## Why it looks like this
 
-- **No shared runtime.** The engines come from unrelated projects in Python, Rust and PyTorch. A shared layer would couple their upgrades, so every backend stands alone.
-- **Two engines for qwen21.** mflux is faster and quantizes, but it has no port of the Qwen3-VL vision tower that instruction editing needs. So editing runs on diffusers.
-- **The edit VAE encoder runs on the CPU.** MPS computes it wrong, and every reference image comes out washed out. [qwen21/MPS-VAE-ENCODE.md](qwen21/MPS-VAE-ENCODE.md) holds the measurements.
-- **The qwen21 server writes nothing to disk.** It keeps neither the prompt nor the image.
+- **One page, one adapter per model.** The page asks the model what it supports and hides the rest. A new model is one adapter in `studio/`, and the page does not change. [studio/ARCHITECTURE.md](studio/ARCHITECTURE.md) has the layers and how to add a model.
+- **Two engines for qwen21.** mflux is faster and quantizes, but it has no port of the Qwen3-VL vision tower that instruction editing needs. So editing runs on diffusers, in a child process.
+- **The edit VAE encoder runs on the CPU.** MPS computes it wrong, and every reference image comes out washed out. [MPS-VAE-ENCODE.md](studio/l3_interface_adapters/gateways/qwen21/MPS-VAE-ENCODE.md) holds the measurements.
+- **A batch is images in a row, not a real batch.** On this machine a batched flux2 run was 2 to 8% slower per image than one at a time, and it used more memory. One at a time also shows each image as soon as it is done.
+- **Nothing is written to disk.** The server keeps neither the prompt nor the image, and it binds 127.0.0.1.
 
 ## Licenses
 
-The weights keep their own licenses. Qwen-Image-2.1 is under the Qwen Research License, which allows research use only. Krea 2 is under the Krea 2 Community License.
+The weights keep their own licenses. Qwen-Image-2.1 is under the Qwen Research License, which allows research use only. FLUX.2 klein-base-9B is under the FLUX Non-Commercial License. Check them before you use any output commercially.

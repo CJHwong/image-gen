@@ -1,0 +1,46 @@
+[project]
+name = "studio"
+version = "0.1.0"
+description = "A local web page for image generation. The model backends plug in as adapters."
+requires-python = ">=3.11"
+dependencies = [
+    # The same commit the qwen21 CLI pins. It carries the qwen21, flux2 and krea2 ports.
+    "mflux @ git+https://github.com/mflux-community/mflux@8c00dab2505a96019df9d30bc9c223bf20d733c4",
+    "pillow",
+]
+
+[project.scripts]
+studio = "studio.__main__:main"
+
+[dependency-groups]
+dev = ["pytest", "import-linter", "ruff>=0.16", "ty"]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["E501"]
+
+# These scripts run in their own environments: the PEP 723 ones on diffusers and
+# torch, the browser checks through `uv run --with playwright`. Their imports
+# cannot resolve in this venv, and adding them here would pull torch into it.
+[tool.ty.src]
+exclude = [
+    "studio/l3_interface_adapters/gateways/qwen21/qwen21_edit.py",
+    "studio/l3_interface_adapters/gateways/qwen21/vae_device_sweep.py",
+    "tests/e2e/verify_*.py",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: needs the real model weights and the GPU"]
+addopts = "-m 'not live'"

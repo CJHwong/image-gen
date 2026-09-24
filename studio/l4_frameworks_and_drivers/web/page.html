@@ -1,0 +1,2135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__NAME__</title>
+<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<style>
+  /* A silver gelatin print. The interface is greyscale, so the image is the
+     only colour on the screen. The stage is a light box, each image sits in a
+     frame of film with its number on the edge, and the strip below is a
+     contact sheet where a yellow china marker circles the pick. */
+  :root {
+    color-scheme: dark;
+    --chrome: #121212; --chrome-2: #1a1a1a; --chrome-3: #232323;
+    --line: #262626; --line-strong: #383838;
+    --text: #ededed; --text-2: #a3a3a3; --text-3: #8a8a8a;
+    --accent: #ffffff; --accent-fill: #f2f2f2; --on-accent: #111111;
+    --accent-soft: rgba(255, 255, 255, .08);
+    --danger: #ff7b72; --danger-fill: #c9372a;
+    --shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .04);
+    --film: #0b0b0b; --edge-ink: #8c8c8c; --plate: #151515; --marker: #f2d14b;
+    --serif: ui-serif, "New York", Georgia, serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: ui-sans-serif, -apple-system, system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --chrome: #f5f5f5; --chrome-2: #ebebeb; --chrome-3: #e1e1e1;
+      --line: #dddddd; --line-strong: #c6c6c6;
+      --text: #111111; --text-2: #4d4d4d; --text-3: #666666;
+      --accent: #111111; --accent-fill: #111111; --on-accent: #ffffff;
+      --accent-soft: rgba(0, 0, 0, .06);
+      --danger: #b3261e; --danger-fill: #c9372a;
+      --shadow: 0 12px 32px rgba(0, 0, 0, .14), 0 0 0 1px rgba(0, 0, 0, .05);
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--chrome); color: var(--text);
+    font: 13px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
+  .num { font-variant-numeric: tabular-nums; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }
+  /* Controls are clicked, often twice in a row; a double click must not paint
+     a text selection over them. */
+  .refs, .chip, .seg, .stepper, .modes, .frame, .icon-btn, .btn, #go { user-select: none; -webkit-user-select: none; }
+  .icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
+    stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* The row is capped at the window, so no content can make the page taller
+     and push the pinned run button out of view. */
+  .app { display: grid; grid-template-columns: minmax(0, 1fr) 372px; grid-template-rows: minmax(0, 1fr);
+    height: 100vh; }
+
+  /* Left: top bar, stage, contact sheet. Nothing here scrolls but the sheet. */
+  .work { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
+  .topbar { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 22px;
+    background: var(--chrome); border-bottom: 1px solid var(--line); }
+  .topbar h1 { margin: 0; font: 600 16px/1 var(--serif); letter-spacing: -.01em; }
+  .badge { padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 4px;
+    color: var(--text-3); font: 10px/1.2 var(--mono); letter-spacing: .04em; }
+  /* The title is the backend switch when there is more than one backend. */
+  #backend-toggle { display: flex; align-items: center; gap: 4px; margin: 0 -6px; padding: 5px 6px;
+    border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; letter-spacing: inherit;
+    cursor: pointer; }
+  #backend-toggle .icon { width: 14px; height: 14px; color: var(--text-3); transition: transform .15s; }
+  #backend-toggle:hover:not(:disabled), #backend-toggle[aria-expanded=true] { background: var(--chrome-3); }
+  #backend-toggle[aria-expanded=true] .icon { transform: rotate(180deg); }
+  #backend-toggle:focus-visible { outline: 1.5px solid var(--accent); }
+  #backend-toggle:disabled { cursor: default; }
+  #backend-toggle:disabled .icon { display: none; }
+  #backend-menu { left: 0; right: auto; }
+  #backend-menu [aria-checked=false] .icon { visibility: hidden; }
+  .privacy { margin-left: auto; display: flex; align-items: center; gap: 6px;
+    color: var(--text-3); font-size: 12px; }
+  .privacy .icon { width: 14px; height: 14px; }
+
+  /* The light box is lit in both themes, so everything on it takes light
+     colours from these local tokens, whatever the rest of the page uses. */
+  .stage { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0;
+    color-scheme: light; color: var(--text);
+    --chrome: #fafafa; --chrome-2: #f0f0f0; --chrome-3: #e6e6e6;
+    --line: #d9d9d9; --line-strong: #c2c2c2;
+    --text: #111111; --text-2: #4d4d4d; --text-3: #666666;
+    --accent: #111111; --accent-fill: #111111; --on-accent: #ffffff; --accent-soft: rgba(0, 0, 0, .06);
+    --shadow: 0 12px 32px rgba(0, 0, 0, .14), 0 0 0 1px rgba(0, 0, 0, .05);
+    background: #efefef radial-gradient(ellipse 75% 65% at 50% 45%, #f6f6f6 0%, #efefef 60%, #e7e7e7 100%); }
+  .canvas { position: relative; min-height: 0; display: flex; align-items: center;
+    justify-content: center; padding: 28px; overflow: hidden; }
+
+  /* A frame of film: the image, a black rebate, and the edge print below it.
+     A percentage max-height does not bound an image inside a grid-sized flex
+     box, and a tall image pushed the sheet off the screen, so the picture is
+     sized in pixels to its own shape instead (fitStage). */
+  .shot { position: relative; flex: none; padding: 9px 9px 25px; background: var(--film);
+    border-radius: 1px;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, .12), 0 14px 30px -16px rgba(0, 0, 0, .45); }
+  .pic { position: relative; }
+  .pic img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .edge { position: absolute; left: 11px; right: 11px; bottom: 7px; display: flex;
+    justify-content: space-between; color: var(--edge-ink);
+    font: 9px/12px var(--mono); letter-spacing: .16em; pointer-events: none; }
+  /* Before and after: the source image lies over the edit, clipped at the
+     slider. The range input covers the image, so a drag anywhere moves it.
+     The source is stretched to the picture, because the edit resized the whole
+     source; cropping it would shift every point it is compared against. */
+  .pic img.before { object-fit: fill; clip-path: inset(0 calc(100% - var(--split)) 0 0); }
+  .compare-range { position: absolute; inset: 0; width: 100%; height: 100%;
+    margin: 0; opacity: 0; cursor: ew-resize; z-index: 2; }
+  .divider { position: absolute; top: 0; bottom: 0; left: var(--split); width: 1px; margin-left: -.5px;
+    background: rgba(255, 255, 255, .95); box-shadow: 0 0 0 .5px rgba(0, 0, 0, .25);
+    pointer-events: none; z-index: 1; }
+  .divider::after { content: ""; position: absolute; top: 50%; left: 50%; width: 28px; height: 28px;
+    margin: -14px 0 0 -14px; border-radius: 50%; background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 4px 12px rgba(0, 0, 0, .18); }
+  .divider .icon { position: absolute; top: 50%; left: 50%; z-index: 1; width: 14px; height: 14px;
+    margin: -7px 0 0 -7px; color: #222; }
+  .compare-range:focus-visible ~ .divider::after { box-shadow: 0 0 0 2px #111, 0 4px 12px rgba(0, 0, 0, .18); }
+  .compare-tag { position: absolute; top: 10px; z-index: 1; padding: 3px 7px; border-radius: 3px;
+    background: rgba(0, 0, 0, .55); color: #f2f2f2; font: 10px/1.2 var(--mono); letter-spacing: .08em;
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); pointer-events: none; }
+  .compare-tag.left { left: 10px; }
+  .compare-tag.right { right: 10px; }
+
+  /* Motion. Each one answers something that happened: a print develops when
+     it arrives, a frame joins the sheet, the marker circles a pick. */
+  .arrive { animation: arrive .2s ease-out; }
+  @keyframes arrive { from { opacity: 0; transform: translateY(2px); } }
+  .shot.arrive { animation: none; }
+  .shot.arrive .pic > img:first-child { animation: develop 1.4s cubic-bezier(.35, .05, .25, 1); }
+  @keyframes develop {
+    from { filter: grayscale(1) brightness(.04) contrast(1.8); }
+    40% { filter: grayscale(.85) brightness(.45) contrast(1.35); }
+    to { filter: none; }
+  }
+  .frame.arrive { animation: join .4s cubic-bezier(.2, .7, .2, 1); }
+  @keyframes join { from { opacity: 0; transform: translateX(-10px); } }
+
+  .empty { max-width: 300px; text-align: center; color: var(--text-2); }
+  .empty strong { display: block; color: var(--text); font: 500 22px/1.25 var(--serif); letter-spacing: -.01em; }
+  .empty p { margin: 8px 0 18px; line-height: 1.5; }
+
+  /* A run in progress is an unexposed frame. The plate lightens behind a thin
+     line as the steps come in, like paper under the enlarger. Before the
+     first step the line waits at the left edge, where the exposure starts. */
+  .card { position: relative; flex: none; padding: 9px 9px 25px; background: var(--film); border-radius: 1px;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, .12), 0 14px 30px -16px rgba(0, 0, 0, .45); }
+  .plate { position: relative; overflow: hidden; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px; min-width: 220px; min-height: 180px;
+    background: var(--plate); color: #8a8a8a; text-align: center; }
+  .exposure { position: absolute; inset: 0 auto 0 0; width: var(--exposed, 0%);
+    background: linear-gradient(90deg, rgba(255, 255, 255, .015), rgba(255, 255, 255, .07));
+    transition: width .6s linear; pointer-events: none; }
+  .exposure::after { content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 1px;
+    background: rgba(255, 255, 255, .6); box-shadow: 0 0 10px rgba(255, 255, 255, .25); }
+  .waiting .exposure::after { animation: blink 1.4s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: .15; } }
+  /* The next image of a batch starts from the left at once, not by a sweep back. */
+  .rewind .exposure { transition: none; }
+  .card .lines { position: relative; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+  .card .percent { color: #f2f2f2; font: 300 28px/1.1 var(--mono); letter-spacing: -.02em; margin-bottom: 6px; }
+  .card .lines strong { color: #d4d4d4; font-weight: 500; font-size: 13px; }
+  .card .btn { position: relative; height: 28px; padding: 0 12px;
+    --chrome: transparent; --chrome-3: rgba(255, 255, 255, .08); --line-strong: #3a3a3a; --text: #d4d4d4; }
+
+  /* Under the frame: the prompt as its caption, then one quiet line of facts. */
+  .stage-bar { display: flex; align-items: center; gap: 24px; padding: 0 28px 18px; min-width: 0; }
+  .stage-bar[hidden] { display: none; }
+  .about { flex: 1; min-width: 0; }
+  .prompt-line { margin: 0; color: var(--text); font: 15px/1.4 var(--serif); overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; margin-top: 4px;
+    color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .facts .mode { color: var(--text-2); font-weight: 500; }
+  .actions { display: flex; align-items: center; gap: 2px; flex: none; }
+  .actions .rule { width: 1px; height: 18px; background: var(--line-strong); margin: 0 6px; }
+
+  .icon-btn { width: 32px; height: 32px; display: inline-flex; align-items: center;
+    justify-content: center; border: 1px solid transparent; border-radius: 6px;
+    background: none; color: var(--text-2); cursor: pointer; padding: 0; transition: background-color .12s, color .12s; }
+  .icon-btn:hover { background: var(--chrome-3); color: var(--text); }
+  .icon-btn.danger:hover { background: var(--danger-fill); color: #fff; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px;
+    border: 1px solid var(--line-strong); border-radius: 6px; background: var(--chrome);
+    color: var(--text); cursor: pointer; text-decoration: none; font-size: 12px; font-weight: 500;
+    transition: background-color .12s, border-color .12s; }
+  .btn:hover { background: var(--chrome-3); }
+  .btn.quiet { border-color: transparent; background: none; color: var(--text-2); }
+  .btn.quiet:hover { background: var(--chrome-3); color: var(--text); }
+  /* Menus open from a button and float over the page. */
+  .menu-anchor { position: relative; }
+  .menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; min-width: 220px;
+    padding: 4px; background: var(--chrome); border-radius: 9px; box-shadow: var(--shadow);
+    animation: arrive .12s ease-out; }
+  .menu.up { top: auto; bottom: calc(100% + 6px); }
+  #templates { top: 30px; width: min(310px, 100%); }
+  .menu button { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 7px 10px;
+    border: 0; border-radius: 6px; background: none; color: var(--text); text-align: left;
+    cursor: pointer; font-size: 13px; }
+  .menu button .icon { margin-top: 1px; color: var(--text-2); }
+  .menu button:hover, .menu button:focus-visible { background: var(--chrome-3); outline: none; }
+  .item-note { display: block; margin-top: 1px; color: var(--text-3); font-size: 12px; }
+  .menu-head, .menu-foot { padding: 7px 10px; color: var(--text-3); font-size: 12px; }
+  .menu-head { color: var(--text-2); font-weight: 500; }
+  .menu-foot { border-top: 1px solid var(--line); margin-top: 4px; }
+  .text-btn { border: 0; background: none; padding: 0; color: var(--text-2); cursor: pointer; white-space: nowrap;
+    font-size: 12px; text-decoration: underline; text-decoration-color: var(--line-strong);
+    text-underline-offset: 3px; }
+  .text-btn:hover { color: var(--text); text-decoration-color: currentColor; }
+
+  .toasts { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 4;
+    width: min(480px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 8px; }
+  .toast { display: flex; gap: 10px; align-items: center; padding: 9px 8px 9px 12px;
+    background: var(--chrome); border-radius: 9px; box-shadow: var(--shadow); animation: arrive .18s ease-out; }
+  .toast .icon { color: var(--text-2); }
+  .toast.error .icon:first-child { color: var(--danger); }
+  .toast p { margin: 0; flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .toast .icon-btn { width: 24px; height: 24px; }
+
+  /* The contact sheet: a strip of film in both themes. The sprocket holes are
+     35 mm proportions and scroll with the frames. */
+  .strip-wrap { background: var(--film); padding: 8px 18px 6px; --text-2: #a3a3a3; --text-3: #7a7a7a;
+    --line-strong: #3a3a3a; --accent: #ededed; }
+  .strip-wrap[hidden] { display: none; }
+  .strip-head { display: flex; justify-content: space-between; align-items: center;
+    padding: 0 2px 2px; color: var(--text-3); font-size: 12px; }
+  .strip { display: flex; gap: 16px; overflow-x: auto; padding: 20px 10px 18px;
+    scrollbar-width: thin; scrollbar-color: #2e2e2e transparent;
+    --holes: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5'%3E%3Crect x='2.2' y='.5' width='5.6' height='4' rx='1' fill='%23262626'/%3E%3C/svg%3E");
+    background: var(--holes) left 4px / 10px 5px repeat-x local,
+      var(--holes) left bottom 3px / 10px 5px repeat-x local; }
+  .frame { position: relative; flex: none; display: flex; flex-direction: column; align-items: center;
+    gap: 8px; padding: 0; border: 0; background: none; cursor: pointer; }
+  .frame .still { position: relative; height: 60px; overflow: hidden; background: var(--plate);
+    opacity: .7; transition: opacity .2s; }
+  .frame img { height: 100%; width: auto; display: block; }
+  .frame:hover .still, .frame.selected .still { opacity: 1; }
+  .frame .no { font: 9px/11px var(--mono); letter-spacing: .14em; color: #6e6e6e; }
+  .frame.selected .no { color: #d4d4d4; }
+  .frame:focus-visible { outline: none; }
+  .frame:focus-visible .still { outline: 1.5px solid #ededed; outline-offset: 3px; }
+  /* The marker loop circles the picture, clear of the number, and is drawn
+     once, when a frame is picked, not on every redraw. */
+  .mark { position: absolute; top: -6px; left: -9px; width: calc(100% + 18px); height: 71px;
+    overflow: visible; pointer-events: none; }
+  .mark path { fill: none; stroke: var(--marker); stroke-width: 1.8; stroke-linecap: round;
+    stroke-linejoin: round; vector-effect: non-scaling-stroke; opacity: .95; }
+  .mark.draw path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: marker .45s cubic-bezier(.5, 0, .3, 1) forwards; }
+  @keyframes marker { to { stroke-dashoffset: 0; } }
+  .frame .corner { position: absolute; right: 3px; bottom: 3px; width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center; border-radius: 3px;
+    background: rgba(0, 0, 0, .6); color: #fff; }
+  .frame .corner .icon { width: 11px; height: 11px; }
+  .frame.pending .still { display: block; opacity: 1; }
+
+  /* Right: the controls. Only this column's middle scrolls; the run button stays put. */
+  aside { background: var(--chrome); border-left: 1px solid var(--line); min-height: 0; }
+  form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .controls { flex: 1; overflow-y: auto; padding: 18px 22px 28px; display: flex;
+    flex-direction: column; gap: 22px; }
+  .field { display: flex; flex-direction: column; gap: 8px; }
+  .field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; min-height: 18px; }
+  label, .label { color: var(--text-2); font-size: 12px; font-weight: 500; }
+  .prompt-field { position: relative; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px 0 7px;
+    border: 1px solid var(--line-strong); border-radius: 6px; background: none;
+    color: var(--text-2); cursor: pointer; font-size: 12px; transition: color .12s, border-color .12s; }
+  .pill .icon { width: 14px; height: 14px; }
+  .pill:hover, .pill[aria-expanded=true] { border-color: var(--text-3); color: var(--text); }
+  .field-head:has(.pill) { align-items: center; }
+  .caption { color: var(--text-3); font-size: 12px; }
+  textarea, input[type=text], input[type=number], select { width: 100%; background: var(--chrome-2);
+    border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
+    transition: border-color .12s, box-shadow .12s; }
+  textarea:focus, input:focus, select:focus { outline: none; border-color: var(--line-strong);
+    box-shadow: 0 0 0 3px var(--accent-soft); }
+  /* The prompt is the one thing written here in full sentences, so it is set
+     in the serif, like the caption it becomes under the frame. */
+  textarea { min-height: 104px; max-height: 320px; resize: none; padding: 10px 12px;
+    font: 15px/1.5 var(--serif); }
+  input[type=range] { width: 100%; margin: 0; accent-color: var(--accent-fill); }
+  ::placeholder { color: var(--text-3); }
+
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 2px; position: relative;
+    background: var(--chrome-2); border: 1px solid var(--line); border-radius: 8px; }
+  .modes input { position: absolute; opacity: 0; pointer-events: none; }
+  .modes label { display: flex; align-items: center; justify-content: center; gap: 7px; height: 32px;
+    border-radius: 6px; cursor: pointer; color: var(--text-3); font-size: 13px;
+    transition: background-color .15s, color .15s; }
+  .modes label:hover { color: var(--text); }
+  .modes input:checked + label { background: var(--chrome-3); color: var(--text); }
+  .modes input:focus-visible + label { outline: 1.5px solid var(--accent); }
+
+  .refs { border: 1px dashed var(--line-strong); border-radius: 8px; background: none;
+    cursor: pointer; padding: 12px; transition: border-color .15s, background-color .15s; }
+  .refs:hover { border-color: var(--text-3); }
+  .refs.over { border-color: var(--accent); background: var(--accent-soft); }
+  .refs-empty { display: flex; align-items: center; gap: 12px; color: var(--text-3); font-size: 12px; }
+  .refs-empty .icon { width: 20px; height: 20px; }
+  .refs-empty strong { display: block; color: var(--text); font-size: 13px; font-weight: 500; }
+  form.mode-edit .refs-empty { flex-direction: column; text-align: center; padding: 16px 8px; gap: 8px; }
+  .thumbs { display: flex; flex-wrap: wrap; gap: 10px; }
+  .thumb { position: relative; width: 60px; height: 60px; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block;
+    border: 3px solid var(--film); border-radius: 1px; }
+  .thumb .remove { position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; padding: 0;
+    display: flex; align-items: center; justify-content: center; border-radius: 50%;
+    border: 1px solid var(--line-strong); background: var(--chrome); color: var(--text-2); cursor: pointer; }
+  .thumb .remove .icon { width: 11px; height: 11px; }
+  .thumb .remove:hover { background: var(--danger-fill); border-color: var(--danger-fill); color: #fff; }
+  .add-tile { width: 60px; height: 60px; display: flex; align-items: center; justify-content: center;
+    border: 1px dashed var(--line-strong); border-radius: 2px; color: var(--text-3); }
+  .refs-note { margin-top: 10px; color: var(--text-3); font-size: 12px; }
+
+  .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .chip { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px;
+    border: 1px solid var(--line); border-radius: 7px; background: none;
+    color: var(--text-2); cursor: pointer; font-size: 12px; transition: border-color .12s, color .12s, background-color .12s; }
+  .chip:hover { border-color: var(--line-strong); color: var(--text); }
+  .chip[aria-pressed=true] { border-color: var(--text); background: var(--accent-soft); color: var(--text); }
+  .glyph { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .glyph i { display: block; border: 1.25px solid currentColor; border-radius: 1.5px; }
+  .glyph i.dashed { border-style: dashed; }
+  .seg { display: flex; padding: 2px; gap: 2px; background: var(--chrome-2);
+    border: 1px solid var(--line); border-radius: 7px; }
+  .seg button { flex: 1; height: 28px; border: 0; border-radius: 5px; background: none;
+    color: var(--text-3); cursor: pointer; font-size: 12px; font-variant-numeric: tabular-nums;
+    transition: background-color .12s, color .12s; }
+  .seg button:hover { color: var(--text); }
+  .seg button[aria-pressed=true] { background: var(--chrome-3); color: var(--text); }
+
+  .stepper { display: inline-grid; grid-template-columns: 34px 44px 34px; height: 34px; width: max-content;
+    border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+  .stepper button { border: 0; background: none; color: var(--text-2); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; }
+  .stepper button:hover:not(:disabled) { background: var(--chrome-3); color: var(--text); }
+  .stepper button:disabled { color: var(--line-strong); cursor: default; }
+  .stepper input { border: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+    border-radius: 0; background: none; text-align: center; padding: 0; }
+  .stepper input:focus { box-shadow: none; background: var(--chrome-2); }
+
+  form.mode-generate .edit-only, form.mode-edit .generate-only { display: none; }
+  /* Strength means something only when there is a reference to be strong about. */
+  .strength-field { display: none; }
+  form.has-ref .strength-field { display: flex; }
+  .modes input:disabled + label { opacity: .4; cursor: not-allowed; }
+
+  details { border-top: 1px solid var(--line); padding-top: 16px; }
+  summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
+    color: var(--text-2); font-size: 12px; font-weight: 500; }
+  summary:hover { color: var(--text); }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: ""; width: 5px; height: 5px; margin: 0 3px 0 1px;
+    border-right: 1.25px solid currentColor; border-bottom: 1.25px solid currentColor;
+    transform: rotate(-45deg); transition: transform .15s; }
+  details[open] summary::before { transform: rotate(45deg); }
+  summary .values { margin-left: auto; color: var(--text-3); font-weight: 400; overflow: hidden;
+    white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  details[open] summary .values { visibility: hidden; }
+  .advanced { display: flex; flex-direction: column; gap: 18px; margin-top: 18px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .look { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
+  .look-row { display: flex; flex-direction: column; gap: 7px; }
+  .look-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .look-chips .chip { height: 28px; padding: 0 10px; }
+  .look-adds { margin: 16px 0 0; color: var(--text-3); font-size: 12px; line-height: 1.5; }
+  .look-adds q { color: var(--text-2); font-family: var(--serif); font-size: 13px; }
+
+  /* The count sits beside the run button because it belongs to the run. It
+     stays unfilled, so the button is still the one thing to press. */
+  .footer { display: flex; gap: 10px; padding: 14px 22px 18px; border-top: 1px solid var(--line);
+    background: var(--chrome); }
+  .run { display: flex; flex: 1; min-width: 0; }
+  .run #go { border-radius: 9px 0 0 9px; }
+  #count-toggle { display: flex; align-items: center; gap: 3px; padding: 0 10px 0 13px;
+    border: 1px solid transparent; border-left-color: rgba(128, 128, 128, .4); border-radius: 0 9px 9px 0;
+    background: var(--accent-fill); color: var(--on-accent); cursor: pointer; font-size: 13px; font-weight: 600;
+    transition: opacity .15s, background-color .15s; }
+  #count-toggle:hover:not(:disabled) { opacity: .9; }
+  #count-toggle .icon { width: 14px; height: 14px; opacity: .7; }
+  /* The count can be set before the prompt is written, so it stays live while
+     the run button is off; it only takes the button's grey. */
+  #go:disabled + #count-toggle { background: var(--chrome-3); color: var(--text-2); }
+  body.busy #count-toggle { background: var(--chrome-2); border-color: var(--line); color: var(--text-3); cursor: progress; }
+  #count-menu { min-width: 150px; }
+  #count-menu [aria-checked=false] .icon { visibility: hidden; }
+  /* The run button only starts a run. While one is in flight it is disabled
+     and reads Generating or Editing, with the step count below; Cancel sits on
+     the progress card. The second line carries the estimate when idle. */
+  #go { position: relative; overflow: hidden; flex: 1; min-width: 0; min-height: 50px; border: 1px solid transparent;
+    border-radius: 9px; background: var(--accent-fill); color: var(--on-accent); cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+    transition: opacity .15s, transform .08s, background-color .15s; }
+  #go:hover:not(:disabled) { opacity: .9; }
+  #go:active:not(:disabled) { transform: scale(.995); }
+  #go:disabled { background: var(--chrome-3); color: var(--text-3); cursor: not-allowed; }
+  #go .main { font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
+  #go .sub { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .7; }
+  #go .busy-label, #go .stopping-label { display: none; }
+  body.busy #go { background: var(--chrome-2); border-color: var(--line); color: var(--text);
+    opacity: 1; cursor: progress; }
+  body.busy #go .idle-label { display: none; }
+  body.busy #go .busy-label { display: inline; }
+  body.stopping #go .busy-label { display: none; }
+  body.stopping #go .stopping-label { display: inline; }
+  body.stopping #go { color: var(--text-3); cursor: progress; }
+  #go .fill { position: absolute; left: 0; bottom: 0; height: 2px; width: 0; background: var(--text);
+    transition: width .6s linear; display: none; }
+  body.busy #go .fill { display: block; }
+  #go .sub { color: inherit; }
+  body.busy #go .sub { color: var(--text-2); opacity: 1; }
+
+  #progress, #incoming { display: none; }
+
+  /* Full screen shows the light box and the sheet, with no top bar. */
+  .work:fullscreen { grid-template-rows: minmax(0, 1fr) auto; background: var(--chrome); }
+  .work:fullscreen .topbar { display: none; }
+
+  /* On a phone the image leads, and the run button sits at the bottom of the
+     screen so it is reachable from anywhere in the form. */
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
+    .work { grid-template-rows: auto 62vh auto; }
+    .privacy span { display: none; }
+    .canvas { padding: 18px; }
+    .stage-bar { flex-wrap: wrap; gap: 10px; padding: 0 18px 14px; }
+    .about { flex-basis: 100%; }
+    .actions { flex: 1 1 100%; flex-wrap: wrap; min-width: 0; margin-left: -8px; }
+    .actions .rule { display: none; }
+    .wide-only { display: none; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+    form { height: auto; }
+    .controls { overflow: visible; padding-bottom: 104px; }
+    .footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .mark.draw path { stroke-dashoffset: 0; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1-5.1-1.9 5.1-1.9z"/><path d="M19 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></symbol>
+  <symbol id="i-brush" viewBox="0 0 24 24"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-9 9"/></symbol>
+  <symbol id="i-image-in" viewBox="0 0 24 24"><path d="M20 11v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7"/><path d="M4 16l4-4 4 4 3-3 5 5"/><path d="M18 3v6M15 6h6"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16"/></symbol>
+  <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 6h14M5 11h14M5 16h9"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="18" cy="12" r="1.4" fill="currentColor"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/></symbol>
+  <symbol id="i-layout" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9.5h16M10 9.5V20"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+  <symbol id="i-shrink" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></symbol>
+  <symbol id="i-caret" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/></symbol>
+</svg>
+
+<div class="app">
+  <div class="work">
+    <header class="topbar">
+      <div class="menu-anchor">
+        <h1><button type="button" id="backend-toggle" aria-haspopup="menu" aria-expanded="false"
+          aria-controls="backend-menu" disabled>__NAME__<svg class="icon"><use href="#i-caret"/></svg></button></h1>
+        <div class="menu" id="backend-menu" role="menu" hidden></div>
+      </div>
+      <span class="badge">__BADGE__</span>
+      <span class="privacy"><svg class="icon"><use href="#i-lock"/></svg><span>Nothing is saved to disk</span></span>
+    </header>
+
+    <section class="stage">
+      <div class="canvas" id="canvas"></div>
+      <div class="stage-bar" id="stage-bar" hidden></div>
+      <div class="toasts" id="toasts" aria-live="polite"></div>
+    </section>
+
+    <section class="strip-wrap" id="strip-wrap" hidden>
+      <div class="strip-head">
+        <span id="strip-note"></span>
+        <button type="button" class="text-btn" id="clear-gallery">Clear all</button>
+      </div>
+      <div class="strip" id="strip"></div>
+    </section>
+
+    <!-- Server answers land here and move into the gallery. The batch chain
+         placeholders wait here too, so the next request stays in the DOM. -->
+    <div id="incoming"></div>
+    <div id="progress"></div>
+  </div>
+
+  <aside>
+    <form id="form" class="mode-generate" hx-post="/generate" hx-target="#incoming" hx-swap="beforeend">
+      <input type="hidden" name="backend" value="__BACKEND__">
+      <div class="controls">
+        <div class="modes" role="radiogroup" aria-label="Mode">
+          <input type="radio" name="mode" id="mode-generate" value="generate" checked>
+          <label for="mode-generate"><svg class="icon"><use href="#i-sparkle"/></svg>Generate</label>
+          <input type="radio" name="mode" id="mode-edit" value="edit">
+          <label for="mode-edit"><svg class="icon"><use href="#i-brush"/></svg>Edit</label>
+        </div>
+
+        <div class="field prompt-field">
+          <div class="field-head">
+            <label for="prompt"><span class="generate-only">Prompt</span><span class="edit-only">What to change</span></label>
+            <button type="button" class="pill" id="templates-toggle" aria-expanded="false"
+              aria-controls="templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
+          </div>
+          <div class="menu" id="templates" role="menu" hidden></div>
+          <textarea id="prompt" name="prompt" autofocus rows="4"></textarea>
+        </div>
+
+        <div class="field">
+          <div class="field-head">
+            <span class="label"><span class="generate-only">Starting image</span><span class="edit-only">Images to edit</span></span>
+            <button type="button" class="text-btn" id="clear-reference" hidden>Remove all</button>
+          </div>
+          <div class="refs" id="refs" tabindex="0" role="button" aria-label="Add reference images">
+            <div class="refs-empty" id="refs-empty">
+              <svg class="icon"><use href="#i-image"/></svg>
+              <div>
+                <strong id="refs-title"></strong>
+                <span id="refs-sub"></span>
+              </div>
+            </div>
+            <div class="thumbs" id="thumbs"></div>
+            <div class="refs-note" id="refs-note"></div>
+          </div>
+          <input id="reference" type="file" accept="image/*" hidden>
+        </div>
+
+        <div class="field strength-field" data-param="strength">
+          <div class="field-head">
+            <label for="strength">Reference strength</label>
+            <span class="caption num" id="strength-value"></span>
+          </div>
+          <input id="strength" name="strength" type="range">
+          <span class="caption">Higher stays closer to the starting image.</span>
+        </div>
+
+        <div class="field" id="size-field">
+          <div class="field-head">
+            <span class="label">Size</span>
+            <span class="caption num" id="size-caption"></span>
+          </div>
+          <div data-param="size">
+            <div class="chips" id="size-chips"></div>
+            <div class="seg" id="tier-sizes" style="margin-top: 6px"></div>
+          </div>
+          <div class="seg" id="edit-sizes" data-param="resolution"></div>
+          <select id="size" name="size" hidden></select>
+          <select id="resolution" name="resolution" hidden></select>
+        </div>
+
+        <details id="look">
+          <summary>Look <span class="values" id="look-values"></span></summary>
+          <div class="look" id="look-rows"></div>
+          <p class="look-adds" id="look-adds"></p>
+        </details>
+
+        <details id="advanced">
+          <summary>Advanced <span class="values num" id="advanced-values"></span></summary>
+          <div class="advanced">
+            <div class="field" data-param="steps">
+              <div class="field-head">
+                <label for="steps">Steps</label>
+                <span class="caption num" id="steps-value"></span>
+              </div>
+              <input id="steps" name="steps" type="range">
+            </div>
+            <div class="pair">
+              <div class="field" data-param="guidance">
+                <label for="guidance">Guidance</label>
+                <input id="guidance" name="guidance" type="number" class="num">
+              </div>
+              <div class="field" data-param="cfg">
+                <label for="cfg">True CFG</label>
+                <input id="cfg" name="cfg" type="number" class="num">
+              </div>
+              <div class="field">
+                <div class="field-head">
+                  <label for="seed">Seed</label>
+                  <button type="button" class="text-btn" id="random-seed">Random</button>
+                </div>
+                <input id="seed" name="seed" type="text" inputmode="numeric" placeholder="Random" class="num">
+              </div>
+            </div>
+            <span class="caption" data-param="cfg">Raise True CFG if the edit is ignored.</span>
+            <div class="field" data-param="negative">
+              <label for="negative">Negative prompt</label>
+              <input id="negative" name="negative" type="text" placeholder="Optional">
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="footer">
+        <div class="run menu-anchor">
+        <button id="go" type="submit">
+          <span class="main">
+            <span class="idle-label"><span class="generate-only">Generate</span><span class="edit-only">Edit</span></span>
+            <span class="busy-label" id="go-busy">Generating</span>
+            <span class="stopping-label">Stopping&hellip;</span>
+          </span>
+          <span class="sub num" id="go-sub" aria-live="polite"></span>
+          <span class="fill" id="go-fill"></span>
+        </button>
+        <button type="button" id="count-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="count-menu"
+                title="Images to make. Each one uses the next seed.">
+          <span class="num" id="count-shown">&times;1</span><svg class="icon"><use href="#i-caret"/></svg>
+        </button>
+        <div class="menu up" id="count-menu" role="menu" hidden></div>
+        </div>
+        <input type="hidden" id="count" name="count" value="1">
+      </div>
+    </form>
+  </aside>
+</div>
+
+<script>
+  // What the backend offers. The page reads every mode, param, limit, Look,
+  // template and estimate from here, and hides or disables what is missing.
+  const STUDIO = __STUDIO__;
+  const MAX_BATCH = STUDIO.backend.max_batch;
+  const MODES = {};
+  STUDIO.modes.forEach(function (mode) { MODES[mode.id] = mode; });
+  // The film edge prints the model name, the way a film stock prints its own.
+  const EDGE_NAME = STUDIO.backend.name.toUpperCase().replace(/-/g, ' ')
+    .replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+
+  const form = document.getElementById('form');
+  const go = document.getElementById('go');
+  const goSub = document.getElementById('go-sub');
+  const goFill = document.getElementById('go-fill');
+  const promptInput = document.getElementById('prompt');
+  const countInput = document.getElementById('count');
+  const sizeSelect = document.getElementById('size');
+  const resolutionSelect = document.getElementById('resolution');
+  const progressSlot = document.getElementById('progress');
+  const incoming = document.getElementById('incoming');
+
+  function icon(name) {
+    return '<svg class="icon" aria-hidden="true"><use href="#i-' + name + '"/></svg>';
+  }
+
+  function editing() {
+    return document.getElementById('mode-edit').checked;
+  }
+
+  function currentMode() {
+    return MODES[editing() ? 'edit' : 'generate'];
+  }
+
+  function paramSpec(id) {
+    return currentMode().params.find(function (param) { return param.id === id; });
+  }
+
+  function maxReferences() {
+    return currentMode().max_references;
+  }
+
+  // A choice param fills its hidden select, so the request stays a plain form.
+  function fillSelect(select, id) {
+    const spec = STUDIO.modes.map(function (mode) {
+      return mode.params.find(function (param) { return param.id === id; });
+    }).find(Boolean);
+    if (!spec) return;
+    spec.choices.forEach(function (choice) { select.add(new Option(choice.label, choice.value)); });
+    select.value = spec.default;
+  }
+  fillSelect(document.getElementById('size'), 'size');
+  fillSelect(document.getElementById('resolution'), 'resolution');
+
+  // A number param takes its range from the spec of the mode in use. The value
+  // carries over a mode switch when it still fits the new range. The first call
+  // sets every default, because an empty range input reads as its midpoint. A
+  // choice param takes the mode's default on every switch, because a mode
+  // switch starts over: an edit keeps the image's shape, a generate is square.
+  let paramsSet = false;
+  function applyParams() {
+    form.querySelectorAll('[data-param]').forEach(function (node) {
+      node.hidden = !paramSpec(node.dataset.param);
+    });
+    document.getElementById('size-field').hidden = !paramSpec('size') && !paramSpec('resolution');
+    currentMode().params.filter(function (param) { return param.kind === 'number'; }).forEach(function (param) {
+      const input = document.getElementById(param.id);
+      if (!input) return;
+      input.min = param.minimum === null ? '' : param.minimum;
+      input.max = param.maximum === null ? '' : param.maximum;
+      input.step = param.step === null ? 'any' : param.step;
+      const value = Number(input.value);
+      const fits = input.value !== '' && (param.minimum === null || value >= param.minimum)
+        && (param.maximum === null || value <= param.maximum);
+      if (!fits || !paramsSet) input.value = param.default;
+    });
+    currentMode().params.filter(function (param) { return param.kind === 'choice'; }).forEach(function (param) {
+      const select = document.getElementById(param.id);
+      if (select) select.value = param.default;
+    });
+    paramsSet = true;
+  }
+
+  function busy() {
+    return document.body.classList.contains('busy');
+  }
+
+  function spell(seconds) {
+    if (seconds < 90) return Math.max(5, Math.round(seconds / 5) * 5) + 's';
+    const minutes = Math.floor(seconds / 60);
+    const rest = Math.round((seconds % 60) / 15) * 15;
+    if (rest && rest < 60) return minutes + ' min ' + rest + 's';
+    return (minutes + (rest ? 1 : 0)) + ' min';
+  }
+
+  // ---- References ---------------------------------------------------------
+  // References live in one array, whatever put them there: the picker, a drop,
+  // a paste, or "Use as reference" on a result. Each mode sets how many it
+  // takes. When a mode takes one, a new one replaces the old. Files are read here and posted as base64 in a normal
+  // form field, which keeps the server off multipart parsing that the standard
+  // library no longer ships.
+  const referenceInput = document.getElementById('reference');
+  const refsZone = document.getElementById('refs');
+  const thumbs = document.getElementById('thumbs');
+  let references = [];
+
+  function referenceLimit() {
+    return maxReferences();
+  }
+
+  function lastReference() {
+    return references[references.length - 1];
+  }
+
+  function renderReferences() {
+    const count = references.length;
+    form.classList.toggle('has-ref', count > 0);
+    referenceInput.multiple = editing();
+    document.getElementById('refs-empty').hidden = count > 0;
+    document.getElementById('clear-reference').hidden = count < 2;
+    document.getElementById('refs-title').textContent = editing()
+      ? 'Add the image to edit' : 'Start from an image';
+    document.getElementById('refs-sub').textContent = editing()
+      ? 'Drop, paste or choose up to ' + maxReferences() + '.'
+      : 'Optional. Drop, paste or choose one.';
+
+    thumbs.innerHTML = '';
+    references.forEach(function (reference, index) {
+      const thumb = document.createElement('div');
+      thumb.className = 'thumb';
+      thumb.title = reference.name;
+      const image = document.createElement('img');
+      image.src = 'data:image/png;base64,' + reference.b64;
+      image.alt = reference.name;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'remove';
+      remove.innerHTML = icon('x');
+      remove.setAttribute('aria-label', 'Remove ' + reference.name);
+      remove.addEventListener('click', function (event) {
+        event.stopPropagation();  // the zone opens the picker on click
+        references.splice(index, 1);
+        renderReferences();
+      });
+      thumb.append(image, remove);
+      thumbs.append(thumb);
+    });
+    if (editing() && count && count < maxReferences()) {
+      const add = document.createElement('div');
+      add.className = 'add-tile';
+      add.innerHTML = icon('plus');
+      thumbs.append(add);
+    }
+
+    const note = document.getElementById('refs-note');
+    note.hidden = count === 0;
+    if (editing() && count) {
+      const last = lastReference();
+      note.textContent = count + ' of ' + maxReferences() + ' images. The result takes the shape of the last one'
+        + (last.width ? ', ' + last.width + ' × ' + last.height + '.' : '.');
+    } else if (count) {
+      note.textContent = 'Drop or paste another image to replace it.';
+    }
+    refreshForm();
+    // An empty stage says what to do next, and that depends on the references.
+    if (view === null) renderStage();
+  }
+
+  function addReference(b64, name) {
+    if (referenceLimit() === 1) references = [];
+    if (references.length >= referenceLimit()) {
+      showToast('info', 'Edit takes at most ' + maxReferences() + ' images.');
+      return;
+    }
+    const entry = { b64: b64, name: name, width: 0, height: 0 };
+    references.push(entry);
+    // The estimate, the "Match" size and the progress card's shape all need the
+    // pixel size, so it is read once here.
+    const probe = new Image();
+    probe.onload = function () {
+      entry.width = probe.naturalWidth;
+      entry.height = probe.naturalHeight;
+      renderReferences();
+    };
+    probe.src = 'data:image/png;base64,' + b64;
+    renderReferences();
+  }
+
+  function addFiles(files) {
+    Array.from(files).filter(function (file) {
+      return file.type.startsWith('image/');
+    }).forEach(function (file) {
+      const reader = new FileReader();
+      reader.onload = function () {
+        addReference(reader.result.split(',')[1], file.name);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  referenceInput.addEventListener('change', function () {
+    addFiles(referenceInput.files);
+    referenceInput.value = '';
+  });
+  refsZone.addEventListener('click', function () { referenceInput.click(); });
+  refsZone.addEventListener('keydown', function (event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    referenceInput.click();
+  });
+  refsZone.addEventListener('dragover', function (event) {
+    event.preventDefault();
+    refsZone.classList.add('over');
+  });
+  refsZone.addEventListener('dragleave', function () { refsZone.classList.remove('over'); });
+  refsZone.addEventListener('drop', function (event) {
+    event.preventDefault();
+    refsZone.classList.remove('over');
+    addFiles(event.dataTransfer.files);
+  });
+  document.addEventListener('paste', function (event) {
+    const files = event.clipboardData ? event.clipboardData.files : [];
+    if (!files.length) return;  // a text paste goes to the field as usual
+    event.preventDefault();
+    addFiles(files);
+  });
+  document.getElementById('clear-reference').addEventListener('click', function () {
+    references = [];
+    renderReferences();
+  });
+
+  // ---- Size -----------------------------------------------------------------
+  // The hidden selects stay the form fields, filled by the server as before.
+  // The chips only drive them, so the request is exactly what it was.
+  const sizeOptions = Array.from(sizeSelect.options).filter(function (option) {
+    return option.value !== 'match';
+  }).map(function (option) {
+    const parts = option.value.split('x').map(Number);
+    const named = option.textContent.match(/\((\d+:\d+)\)/);
+    return { value: option.value, width: parts[0], height: parts[1],
+             ratio: parts[0] === parts[1] ? '1:1' : (named ? named[1] : parts[0] + ':' + parts[1]) };
+  });
+  const ratios = [];
+  sizeOptions.forEach(function (option) {
+    if (ratios.indexOf(option.ratio) < 0) ratios.push(option.ratio);
+  });
+
+  function glyph(ratio) {
+    if (ratio === 'match') return '<span class="glyph"><i class="dashed" style="width:13px;height:13px"></i></span>';
+    const parts = ratio.split(':').map(Number);
+    const wide = parts[0] >= parts[1];
+    const width = wide ? 16 : Math.round(16 * parts[0] / parts[1]);
+    const height = wide ? Math.round(16 * parts[1] / parts[0]) : 16;
+    return '<span class="glyph"><i style="width:' + width + 'px;height:' + height + 'px"></i></span>';
+  }
+
+  function currentOption() {
+    return sizeOptions.find(function (option) { return option.value === sizeSelect.value; });
+  }
+
+  function setSelect(select, value) {
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function pickRatio(ratio) {
+    if (ratio === 'match') return setSelect(sizeSelect, 'match');
+    const current = currentOption();
+    if (current && current.ratio === ratio) return;
+    // A new shape starts at the tier nearest 1 MP, where the model was trained.
+    const group = sizeOptions.filter(function (option) { return option.ratio === ratio; });
+    const preferred = group.slice().sort(function (a, b) {
+      return Math.abs(a.width * a.height - 1048576) - Math.abs(b.width * b.height - 1048576);
+    })[0];
+    setSelect(sizeSelect, preferred.value);
+  }
+
+  function buildSizeControls() {
+    const chips = document.getElementById('size-chips');
+    ratios.concat(['match']).forEach(function (ratio) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip';
+      chip.dataset.ratio = ratio;
+      chip.innerHTML = glyph(ratio) + '<span>' + (ratio === 'match' ? 'Match' : ratio) + '</span>';
+      chip.addEventListener('click', function () { pickRatio(ratio); });
+      chips.append(chip);
+    });
+    const edits = document.getElementById('edit-sizes');
+    Array.from(resolutionSelect.options).sort(function (a, b) {
+      return (a.value === 'match' ? 0 : Number(a.value)) - (b.value === 'match' ? 0 : Number(b.value));
+    }).forEach(function (option) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'num';
+      button.dataset.value = option.value;
+      button.textContent = option.value === 'match' ? 'Match' : option.value;
+      button.addEventListener('click', function () { setSelect(resolutionSelect, option.value); });
+      edits.append(button);
+    });
+  }
+
+  // The sizes of the chosen shape, smallest first, labelled by their pixels.
+  function renderTiers(ratio) {
+    const tiers = document.getElementById('tier-sizes');
+    tiers.hidden = ratio === 'match';
+    tiers.innerHTML = '';
+    sizeOptions.filter(function (option) { return option.ratio === ratio; })
+      .sort(function (a, b) { return a.width * a.height - b.width * b.height; })
+      .forEach(function (option) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'num';
+        button.textContent = option.width + '\u00d7' + option.height;
+        button.setAttribute('aria-pressed', String(option.value === sizeSelect.value));
+        button.addEventListener('click', function () { setSelect(sizeSelect, option.value); });
+        tiers.append(button);
+      });
+  }
+
+  // A resolution param sets pixels only, and the shape follows the reference.
+  // A size param sets both. Which one a mode has decides the size, not the mode.
+  function followsReference() {
+    return Boolean(paramSpec('resolution'));
+  }
+
+  function editResolution() {
+    const chosen = resolutionSelect.value;
+    if (chosen !== 'match') return Number(chosen);
+    const reference = lastReference();
+    if (!reference || !reference.width) return 1024;
+    const side = Math.round(Math.sqrt(reference.width * reference.height));
+    const cap = currentMode().estimate && currentMode().estimate.match_cap;
+    return cap ? Math.min(side, cap) : side;
+  }
+
+  function renderSize() {
+    const current = currentOption();
+    const ratio = current ? current.ratio : 'match';
+    document.querySelectorAll('#size-chips .chip').forEach(function (chip) {
+      chip.setAttribute('aria-pressed', String(chip.dataset.ratio === ratio));
+    });
+    renderTiers(ratio);
+    document.querySelectorAll('#edit-sizes button').forEach(function (button) {
+      button.setAttribute('aria-pressed', String(button.dataset.value === resolutionSelect.value));
+    });
+    const caption = document.getElementById('size-caption');
+    const reference = lastReference();
+    if (followsReference()) {
+      caption.textContent = reference && reference.width
+        ? 'about ' + editResolution() + ' px, shape follows the image'
+        : 'shape follows the image';
+    } else if (current) {
+      caption.textContent = current.width + ' × ' + current.height;
+    } else {
+      caption.textContent = reference ? 'reference shape, about 1 MP' : '1024 × 1024 until you add an image';
+    }
+  }
+
+  // The shape the next image will have, for the progress card and its frame.
+  function targetRatio() {
+    const reference = lastReference();
+    const referenceRatio = reference && reference.width ? reference.width / reference.height : 1;
+    if (followsReference()) return referenceRatio;
+    const current = currentOption();
+    return current ? current.width / current.height : referenceRatio;
+  }
+
+  // ---- Count, steps, seed ------------------------------------------------------
+  const countToggle = document.getElementById('count-toggle');
+  const countMenu = document.getElementById('count-menu');
+
+  function clampCount() {
+    const value = Math.min(MAX_BATCH, Math.max(1, parseInt(countInput.value, 10) || 1));
+    countInput.value = value;
+    document.getElementById('count-shown').textContent = '×' + value;
+    countToggle.setAttribute('aria-label', value + (value === 1 ? ' image' : ' images') + ', change the count');
+    return value;
+  }
+
+  // The count is part of the run button, so it reads as "Generate ×2". The menu
+  // opens on the current count, marked with a check.
+  function openCount() {
+    const current = clampCount();
+    countMenu.replaceChildren();
+    for (let count = 1; count <= MAX_BATCH; count++) {
+      const option = menuItem('check', count + (count === 1 ? ' image' : ' images'), function () {
+        countInput.value = count;
+        clampCount();
+        refreshForm();
+        countToggle.focus();
+      });
+      option.setAttribute('role', 'menuitemradio');
+      option.setAttribute('aria-checked', String(count === current));
+      countMenu.append(option);
+    }
+    toggleMenu(countMenu);
+    if (!countMenu.hidden) countMenu.querySelector('[aria-checked=true]').focus();
+  }
+  countToggle.addEventListener('click', openCount);
+
+  document.getElementById('random-seed').addEventListener('click', function () {
+    document.getElementById('seed').value = '';
+    refreshForm();
+  });
+
+  function renderAdvancedValues() {
+    const steps = document.getElementById('steps').value;
+    const seed = document.getElementById('seed').value.trim();
+    const scale = editing()
+      ? 'CFG ' + document.getElementById('cfg').value
+      : 'guidance ' + document.getElementById('guidance').value;
+    const negative = document.getElementById('negative').value.trim() ? ', negative prompt' : '';
+    document.getElementById('advanced-values').textContent =
+      steps + ' steps, ' + scale + ', ' + (seed ? 'seed ' + seed : 'random seed') + negative;
+    document.getElementById('steps-value').textContent = steps;
+    document.getElementById('strength-value').textContent =
+      Number(document.getElementById('strength').value).toFixed(2);
+  }
+
+  // ---- Estimate and the run button -----------------------------------------
+  // Cost, before you spend it. The backend gives seconds per step at one
+  // megapixel and how that grows with size; its adapter holds the measurements.
+  // A mode without an estimate shows no time.
+
+  // The backend's constants fit one machine. Once a run shows its real step
+  // rate, that rate, brought back to one megapixel, replaces the constant for
+  // the next estimate on this device. It comes from the live steps, not from
+  // the time an image took, which also holds one-off loads. Guidance above 1
+  // runs two passes per step, so those runs learn apart. Tab memory only.
+  const learnedCost = {};
+  let runKey = null;
+  let runPixels = 0;
+  let runEstimate = null;   // the estimate model of the mode in flight
+  let runStepSeconds = 0;   // the pre-run guess per step, until real steps arrive
+  let runRatio = 1;         // the shape of the image in flight, whatever the form says now
+
+  function costKey() {
+    const scaleParam = paramSpec('cfg') ? 'cfg' : paramSpec('guidance') ? 'guidance' : '';
+    const scale = scaleParam ? Number(document.getElementById(scaleParam).value) : 1;
+    return STUDIO.backend.id + ' ' + currentMode().id + (scale > 1 ? ' two-pass' : '');
+  }
+
+  function targetPixels() {
+    if (followsReference()) return Math.pow(editResolution(), 2);
+    const current = currentOption();
+    return current ? current.width * current.height : 1024 * 1024;
+  }
+
+  // Seconds per step for the form as it stands, from what this device has
+  // shown so far or else from the backend's constants.
+  function stepSeconds() {
+    const model = currentMode().estimate;
+    if (!model) return 0;
+    const cost = learnedCost[costKey()] || model.step_cost;
+    return cost * Math.pow(targetPixels() / 1e6, model.exponent);
+  }
+
+  function estimate() {
+    const count = clampCount();
+    const images = count > 1 ? count + ' images' : '';
+    const model = currentMode().estimate;
+    if (!model || !paramSpec('steps')) return images;
+    const steps = Number(document.getElementById('steps').value) || 0;
+    const perStep = stepSeconds();
+    const overhead = model.overhead_per_image ? count * model.overhead : model.overhead;
+    const time = 'about ' + spell(count * steps * perStep + overhead);
+    return images ? images + ', ' + time : time;
+  }
+
+  // What stops a run, said on the button itself rather than as an error after.
+  function blocker() {
+    if (editing() && !references.length) return 'Add an image to edit';
+    if (!promptInput.value.trim()) return editing() ? 'Describe the change' : 'Write a prompt';
+    if (PLACEHOLDER.test(promptInput.value)) return 'Fill in the [brackets]';
+    return '';
+  }
+
+  function renderRunButton() {
+    if (busy()) return;
+    const reason = blocker();
+    go.disabled = Boolean(reason);
+    goSub.textContent = reason || estimate();
+  }
+
+  function refreshForm() {
+    renderSize();
+    renderAdvancedValues();
+    renderRunButton();
+  }
+
+  function growPrompt() {
+    promptInput.style.height = 'auto';
+    promptInput.style.height = Math.min(promptInput.scrollHeight + 2, 320) + 'px';
+  }
+  promptInput.addEventListener('input', growPrompt);
+
+  // Templates come from the backend, tuned on its model.
+  const PLACEHOLDER = /\[[^\]\n]+\]/;
+  const templatesToggle = document.getElementById('templates-toggle');
+  const templatesMenu = document.getElementById('templates');
+
+  // The list is rebuilt on each open, because it follows the current mode. The
+  // header and the hint are not items, so arrow keys and Tab skip them.
+  function openTemplates() {
+    templatesMenu.replaceChildren();
+    const head = document.createElement('div');
+    head.className = 'menu-head';
+    head.textContent = editing() ? 'Start an edit from a template' : 'Start from a template';
+    templatesMenu.append(head);
+    currentMode().templates.forEach(function (template) {
+      const option = menuItem('', template.name, function () { useTemplate(template.text); });
+      const note = document.createElement('span');
+      note.className = 'item-note';
+      note.textContent = template.hint;
+      option.querySelector('.item-text').append(note);
+      templatesMenu.append(option);
+    });
+    const foot = document.createElement('div');
+    foot.className = 'menu-foot';
+    foot.textContent = 'Press Tab to jump to the next [bracket].';
+    templatesMenu.append(foot);
+    toggleMenu(templatesMenu);
+  }
+
+  function useTemplate(text) {
+    promptInput.value = text;
+    growPrompt();
+    refreshForm();
+    promptInput.focus();
+    selectPlaceholder(0);
+  }
+
+  // Selects the next [placeholder] at or after a position, so typing replaces
+  // it. Returns false when none is left, and Tab then moves focus as usual.
+  function selectPlaceholder(from) {
+    const found = PLACEHOLDER.exec(promptInput.value.slice(from));
+    if (!found) return false;
+    promptInput.setSelectionRange(from + found.index, from + found.index + found[0].length);
+    return true;
+  }
+
+  templatesToggle.addEventListener('click', function () {
+    if (templatesMenu.hidden) openTemplates(); else closeMenus();
+  });
+  promptInput.addEventListener('keydown', function (event) {
+    if (event.key !== 'Tab' || event.shiftKey) return;
+    if (selectPlaceholder(promptInput.selectionEnd)) event.preventDefault();
+  });
+  form.addEventListener('input', refreshForm);
+  form.addEventListener('change', refreshForm);
+
+  // The mode only changes what the form looks like. The route stays /generate,
+  // which dispatches on the mode field. Swapping hx-post here does not work:
+  // htmx resolves the route when it first processes the element, so a later
+  // setAttribute is ignored and every edit went to the generate engine.
+  // The references are cleared, because the two modes read them differently:
+  // a list built for an edit would silently shrink to its first image. The
+  // prompt is cleared too: a scene description is not an edit instruction.
+  // ---- Look -------------------------------------------------------------------
+  // Each choice adds one sentence after the prompt, at run time only, so the
+  // prompt field, the caption and Reuse prompt keep the user's own text. The
+  // rows and their wording come from the backend, tuned on its model.
+  let look = {};            // row name to the labels picked in it
+
+  function lookRows() {
+    return currentMode().looks;
+  }
+
+  function lookText() {
+    return lookRows().map(function (row) {
+      const picked = row.options.find(function (option) { return (look[row.name] || []).includes(option[0]); });
+      return picked ? picked[1] : '';
+    }).filter(Boolean).join(' ');
+  }
+
+  function lookLabels() {
+    return lookRows().flatMap(function (row) { return look[row.name] || []; });
+  }
+
+  function pickLook(row, label) {
+    const had = (look[row.name] || []).includes(label);
+    look[row.name] = had ? [] : [label];
+    renderLook();
+  }
+
+  function renderLook() {
+    const rows = document.getElementById('look-rows');
+    rows.replaceChildren();
+    lookRows().forEach(function (row) {
+      const line = document.createElement('div');
+      line.className = 'look-row';
+      const name = document.createElement('span');
+      name.className = 'label';
+      name.textContent = row.name;
+      const chips = document.createElement('div');
+      chips.className = 'look-chips';
+      row.options.forEach(function ([label]) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip';
+        chip.textContent = label;
+        chip.setAttribute('aria-pressed', String((look[row.name] || []).includes(label)));
+        chip.addEventListener('click', function () { pickLook(row, label); });
+        chips.append(chip);
+      });
+      line.append(name, chips);
+      rows.append(line);
+    });
+    const labels = lookLabels();
+    document.getElementById('look-values').textContent = labels.length ? labels.join(', ') : 'none';
+    const adds = document.getElementById('look-adds');
+    const added = lookText();
+    adds.replaceChildren(added ? 'Adds after your prompt: ' : 'Pick any to add a line after your prompt.');
+    if (added) {
+      const quote = document.createElement('q');
+      quote.textContent = added;
+      adds.append(quote);
+    }
+  }
+
+  // The prompt as the model gets it: the user's text, closed as a sentence,
+  // then the look.
+  function withLook(prompt) {
+    const added = lookText();
+    if (!added) return prompt;
+    return (/[.!?。！？]$/.test(prompt) ? prompt : prompt + '.') + ' ' + added;
+  }
+
+  function applyMode() {
+    form.classList.toggle('mode-edit', editing());
+    form.classList.toggle('mode-generate', !editing());
+    promptInput.placeholder = currentMode().prompt_hint;
+    document.getElementById('templates-toggle').hidden = !currentMode().templates.length;
+    document.getElementById('look').hidden = !currentMode().looks.length;
+    applyParams();
+  }
+  form.querySelectorAll('input[name=mode]').forEach(function (radio) {
+    radio.addEventListener('change', function () {
+      applyMode();
+      closeMenus();
+      references = [];
+      promptInput.value = '';
+      look = {};
+      renderLook();
+      growPrompt();
+      renderReferences();
+      // The run in flight is not this form's, so its frame stays as it is.
+      if (view !== 'progress') renderStage();
+    });
+  });
+
+  // ---- Gallery ----------------------------------------------------------------
+  // The gallery lives in this tab only. The server keeps no image after it
+  // answers and the page keeps them in memory, so a reload clears them and
+  // nothing reaches disk. Download is the way to keep one.
+  const canvas = document.getElementById('canvas');
+  const stageBar = document.getElementById('stage-bar');
+  const strip = document.getElementById('strip');
+  let gallery = [];
+  let view = null;          // an image id, or 'progress' while a run is shown
+  let arrivedId = null;     // the image to fade in once, on arrival
+  let nextId = 1;
+  let batchSource = null;   // the source of a one-image edit, for before and after
+  let runLook = null;       // the run's own prompt and look, apart from what the model got
+
+  // Each image is shown by a blob URL. As a data URL, every img that showed it
+  // made the browser parse megabytes of base64 text again. The base64 stays on
+  // the entry for the moment the image goes back to the server as a reference.
+  function blobUrl(dataUrl) {
+    const comma = dataUrl.indexOf(',');
+    const binary = atob(dataUrl.slice(comma + 1));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+    const type = dataUrl.slice(5, dataUrl.indexOf(';'));
+    return URL.createObjectURL(new Blob([bytes], { type: type }));
+  }
+
+  // A batch of edits shares one source, so it is freed with the last of them.
+  function release(entry) {
+    URL.revokeObjectURL(entry.src);
+    const shared = entry.before === batchSource || gallery.some(function (other) {
+      return other.before === entry.before;
+    });
+    if (entry.before && !shared) URL.revokeObjectURL(entry.before);
+  }
+
+  function harvest() {
+    incoming.querySelectorAll('.item').forEach(function (node) {
+      const data = node.dataset;
+      const source = node.querySelector('img').src;
+      const entry = {
+        id: nextId++, src: blobUrl(source), b64: source.split(',')[1], seed: data.seed,
+        width: data.width, height: data.height, steps: data.steps, elapsed: data.elapsed,
+        position: data.position, mode: data.mode, prompt: data.prompt, look: null,
+        before: data.mode === 'edit' ? batchSource : null,
+      };
+      if (runLook && data.prompt === runLook.sent) {
+        entry.prompt = runLook.prompt;
+        if (runLook.labels.length) entry.look = runLook;
+      }
+      gallery.unshift(entry);
+      arrivedId = entry.id;
+      if (view !== 'progress') view = entry.id;
+      node.remove();
+    });
+    incoming.querySelectorAll(':scope > .err, :scope > .hint').forEach(function (node) {
+      showToast(node.classList.contains('err') ? 'error' : 'info', node.textContent);
+      node.remove();
+    });
+    // The last image of a batch arrives by a chain placeholder, and removing it
+    // here detaches the node htmx then fires afterSettle on, so that event never
+    // reaches the body. The run ends here instead, once no link is left.
+    // stopWork renders, and a second render would restart the arrival fade.
+    if (busy() && !incoming.querySelector('.chain')) return stopWork();
+    renderStrip();
+    renderStage();
+  }
+
+  // Answers arrive by several routes: the form's own request, and each chain
+  // placeholder replacing itself. Watching the container catches all of them.
+  new MutationObserver(function (records) {
+    if (records.some(function (record) { return record.addedNodes.length; })) harvest();
+  }).observe(incoming, { childList: true, subtree: true });
+
+  function selected() {
+    return gallery.find(function (entry) { return entry.id === view; });
+  }
+
+  // A frame's number, as printed on the film's edge.
+  function frameNumber(id) {
+    return String(id).padStart(2, '0');
+  }
+
+  // The pencil loop, one hand-drawn stroke that overlaps where it closes.
+  const MARK = '<svg class="mark" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">'
+    + '<path pathLength="1" d="M58 5 C80 5 97 16 98 44 C99 74 84 95 52 96 C20 97 3 80 2 52'
+    + ' C1 24 18 7 44 4 C52 3 62 4 70 7"/></svg>';
+  let markedId = null;      // the frame the loop was last drawn on, so it draws once
+  const frames = new Map(); // image id to its frame, built once so no redraw reloads an image
+  let pendingFrame = null;
+
+  function show(id) {
+    view = id;
+    renderStrip();
+    renderStage();
+  }
+
+  function pendingNode() {
+    if (!pendingFrame) {
+      pendingFrame = document.createElement('button');
+      pendingFrame.type = 'button';
+      pendingFrame.className = 'frame pending';
+      pendingFrame.setAttribute('aria-label', 'Show the image in progress');
+      pendingFrame.innerHTML = '<span class="still waiting"><span class="exposure"></span></span><span class="no"></span>';
+      pendingFrame.addEventListener('click', function () { show('progress'); });
+    }
+    pendingFrame.querySelector('.still').style.width = Math.round(64 * Math.min(2, Math.max(0.5, runRatio))) + 'px';
+    pendingFrame.querySelector('.no').textContent = frameNumber(nextId);
+    return pendingFrame;
+  }
+
+  function frameNode(entry) {
+    if (frames.has(entry.id)) return frames.get(entry.id);
+    const frame = document.createElement('button');
+    frame.type = 'button';
+    frame.className = 'frame' + (entry.id === arrivedId ? ' arrive' : '');
+    frame.title = 'Seed ' + entry.seed;
+    frame.setAttribute('aria-label', entry.mode + ', seed ' + entry.seed);
+    frame.innerHTML = '<span class="still"><img alt="" src="' + entry.src + '">'
+      + (entry.mode === 'edit' ? '<span class="corner">' + icon('brush') + '</span>' : '')
+      + '</span><span class="no">' + frameNumber(entry.id) + '</span>';
+    frame.addEventListener('click', function () { show(entry.id); });
+    frames.set(entry.id, frame);
+    return frame;
+  }
+
+  // Frames never change order, so the ones kept are already in place. Only a
+  // gone frame comes out and only a new one goes in. A moved node would restart
+  // its entrance and reload its image.
+  function placeFrames(wanted) {
+    Array.from(strip.children).forEach(function (frame) {
+      if (!wanted.includes(frame)) frame.remove();
+    });
+    let cursor = strip.firstElementChild;
+    wanted.forEach(function (frame) {
+      if (frame === cursor) cursor = cursor.nextElementSibling;
+      else strip.insertBefore(frame, cursor);
+    });
+  }
+
+  function markSelected() {
+    strip.querySelectorAll('.mark').forEach(function (mark) { mark.remove(); });
+    strip.querySelectorAll('.selected').forEach(function (frame) { frame.classList.remove('selected'); });
+    const chosen = view === 'progress' ? pendingFrame : frames.get(view);
+    if (chosen && chosen.isConnected) {
+      chosen.classList.add('selected');
+      chosen.insertAdjacentHTML('beforeend', MARK);
+      chosen.querySelector('.mark').classList.toggle('draw', view !== 'progress' && markedId !== view);
+    }
+    markedId = view;
+  }
+
+  function renderStrip() {
+    const wrap = document.getElementById('strip-wrap');
+    wrap.hidden = !gallery.length && !busy();
+    const wanted = gallery.map(frameNode);
+    if (busy()) wanted.unshift(pendingNode());
+    placeFrames(wanted);
+    frames.forEach(function (frame, id) {
+      if (!frame.isConnected) frames.delete(id);
+    });
+    markSelected();
+    const count = gallery.length;
+    document.getElementById('strip-note').innerHTML = count
+      ? count + (count === 1 ? ' image' : ' images') + ' in this tab.'
+        + '<span class="wide-only"> Download the ones you want to keep.</span>'
+      : 'Images stay in this tab only.';
+    document.getElementById('clear-gallery').hidden = !count;
+    renderProgress();
+  }
+
+  function renderStage() {
+    canvas.innerHTML = '';
+    stageBar.hidden = true;
+    if (view === 'progress' && busy()) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      const now = progressNow();
+      paintPlate(card, now.running, now.percent);
+      card.innerHTML = '<div class="plate"><div class="exposure"></div>'
+        + '<div class="lines"><span class="percent num"></span><strong class="num" data-slot="step"></strong>'
+        + '<span class="num" data-slot="image"></span><span class="num" data-slot="left"></span></div></div>'
+        + '<div class="edge"><span>' + EDGE_NAME + '</span><span>' + frameNumber(nextId) + '</span></div>';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'btn';
+      cancel.textContent = 'Cancel';
+      cancel.addEventListener('click', requestCancel);
+      card.querySelector('.plate').append(cancel);
+      canvas.append(card);
+      fitStage();
+      renderProgress();
+      return;
+    }
+    const entry = selected();
+    if (!entry) return renderEmpty();
+    const shot = document.createElement('div');
+    shot.className = 'shot' + (entry.id === arrivedId ? ' arrive' : '');
+    const pic = document.createElement('div');
+    pic.className = 'pic';
+    pic.dataset.ratio = entry.width / entry.height;
+    const image = document.createElement('img');
+    image.src = entry.src;
+    image.alt = entry.prompt;
+    pic.append(image);
+    if (entry.before) renderCompare(pic, entry);
+    const edge = document.createElement('div');
+    edge.className = 'edge';
+    edge.innerHTML = '<span>' + EDGE_NAME + '</span><span>' + frameNumber(entry.id) + '</span>';
+    shot.append(pic, edge);
+    canvas.append(shot);
+    arrivedId = null;
+    // The bar takes its height from the stage, so the shot is fitted after it.
+    renderStageBar(entry);
+    fitStage();
+  }
+
+  // An empty stage names the next step and offers it as a button.
+  function renderEmpty() {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    const title = document.createElement('strong');
+    const line = document.createElement('p');
+    const start = document.createElement('button');
+    start.type = 'button';
+    start.className = 'btn';
+    if (editing() && references.length) {
+      title.textContent = 'Ready to edit';
+      line.textContent = 'Say what to change, then press Edit.';
+      empty.append(title, line);
+      canvas.append(empty);
+      return;
+    }
+    if (editing()) {
+      title.textContent = 'Edit an image';
+      line.textContent = 'Add the image, then say what to change.';
+      start.innerHTML = icon('image-in') + 'Choose an image';
+      start.addEventListener('click', function () { referenceInput.click(); });
+    } else if (!currentMode().templates.length) {
+      title.textContent = 'Nothing here yet';
+      line.textContent = 'Write a prompt and press Generate.';
+      empty.append(title, line);
+      canvas.append(empty);
+      return;
+    } else {
+      title.textContent = 'Nothing here yet';
+      line.textContent = 'Write a prompt and press Generate, or start from a template.';
+      start.innerHTML = icon('layout') + 'Browse templates';
+      start.addEventListener('click', function (event) {
+        event.stopPropagation();  // the click would reach the document and close the menu
+        openTemplates();
+      });
+    }
+    empty.append(title, line, start);
+    canvas.append(empty);
+  }
+
+  // The first time an edit shows, the divider sweeps in from the left edge,
+  // which shows it can be dragged. After that it opens at the middle.
+  function renderCompare(pic, entry) {
+    const before = document.createElement('img');
+    before.className = 'before';
+    before.src = entry.before;
+    before.alt = 'The image before the edit';
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.className = 'compare-range';
+    range.min = '0';
+    range.max = '100';
+    range.setAttribute('aria-label', 'Compare before and after');
+    const divider = document.createElement('div');
+    divider.className = 'divider';
+    divider.innerHTML = icon('grip');
+    const left = document.createElement('span');
+    left.className = 'compare-tag left';
+    left.textContent = 'Before';
+    const right = document.createElement('span');
+    right.className = 'compare-tag right';
+    right.textContent = 'After';
+    function split() { pic.style.setProperty('--split', range.value + '%'); }
+    range.addEventListener('input', split);
+    pic.append(before, range, divider, left, right);
+    range.value = '50';
+    split();
+    if (entry.swept || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    entry.swept = true;
+    sweep(range, split);
+  }
+
+  function sweep(range, split) {
+    const delay = 900;      // after the print has mostly developed
+    const length = 650;
+    let start = null;
+    range.value = '0';
+    split();
+    requestAnimationFrame(function frame(now) {
+      if (!range.isConnected || range.dataset.touched) return;
+      if (start === null) start = now + delay;
+      const progress = Math.min(1, Math.max(0, (now - start) / length));
+      range.value = String(Math.round(50 * (1 - Math.pow(1 - progress, 3))));
+      split();
+      if (progress < 1) requestAnimationFrame(frame);
+    });
+    range.addEventListener('pointerdown', function () { range.dataset.touched = '1'; }, { once: true });
+    range.addEventListener('keydown', function () { range.dataset.touched = '1'; }, { once: true });
+  }
+
+  function renderStageBar(entry) {
+    stageBar.hidden = false;
+    stageBar.innerHTML = '';
+    const about = document.createElement('div');
+    about.className = 'about';
+    const facts = document.createElement('div');
+    facts.className = 'facts num';
+    const mode = document.createElement('span');
+    mode.className = 'mode';
+    mode.textContent = entry.mode === 'edit' ? 'Edit' : 'Generate';
+    facts.append(mode);
+    [entry.position === '1 image' ? '' : 'Image ' + entry.position,
+     'Seed ' + entry.seed, entry.width + ' × ' + entry.height,
+     entry.steps + ' steps', entry.elapsed + 's',
+     entry.look ? 'Look: ' + entry.look.labels.join(', ') : ''].forEach(function (text) {
+      if (!text) return;
+      const fact = document.createElement('span');
+      fact.textContent = text;
+      facts.append(fact);
+    });
+    // The prompt leads, as the frame's caption; the facts sit quietly under it.
+    const prompt = document.createElement('p');
+    prompt.className = 'prompt-line';
+    prompt.textContent = entry.prompt;
+    prompt.title = entry.prompt;
+    about.append(prompt, facts);
+
+    // Every action is page state only; nothing is sent until the next run.
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    // Edit this and Download are the two next steps people take; the reuse
+    // actions are rarer, so they wait behind More to keep the row short.
+    const more = document.createElement('div');
+    more.className = 'menu-anchor';
+    const moreToggle = iconButton('more', 'More actions', function () { toggleMenu(moreMenu); });
+    moreToggle.setAttribute('aria-controls', 'more-menu');
+    moreToggle.setAttribute('aria-expanded', 'false');
+    const moreMenu = document.createElement('div');
+    moreMenu.className = 'menu up';
+    moreMenu.id = 'more-menu';
+    moreMenu.setAttribute('role', 'menu');
+    moreMenu.hidden = true;
+    moreMenu.append(
+      menuItem('image-in', 'Use as reference', function () {
+        addReference(entry.b64, 'Seed ' + entry.seed);
+      }),
+      menuItem('hash', 'Reuse seed ' + entry.seed, function () {
+        document.getElementById('seed').value = entry.seed;
+        document.getElementById('advanced').open = true;
+        refreshForm();
+      }),
+      menuItem('text', 'Reuse prompt', function () {
+        promptInput.value = entry.prompt;
+        if (entry.mode === (editing() ? 'edit' : 'generate')) {
+          look = entry.look ? JSON.parse(JSON.stringify(entry.look.picks)) : {};
+          renderLook();
+        }
+        growPrompt();
+        refreshForm();
+        promptInput.focus();
+      })
+    );
+    more.append(moreToggle, moreMenu);
+    const download = document.createElement('a');
+    download.className = 'icon-btn';
+    download.href = entry.src;
+    download.download = STUDIO.backend.id + '-' + entry.mode + '-' + entry.seed + '.png';
+    download.title = 'Download';
+    download.setAttribute('aria-label', 'Download');
+    download.innerHTML = icon('download');
+    const rule = document.createElement('span');
+    rule.className = 'rule';
+    actions.append(textButton('brush', 'Edit this', function () { editThis(entry); }), more,
+      rule, download,
+      iconButton('trash', 'Remove from this tab', function () { removeEntry(entry.id); }, 'danger'));
+    if (document.fullscreenEnabled) {
+      actions.append(document.fullscreenElement
+        ? iconButton('shrink', 'Exit full screen (F)', toggleFullscreen)
+        : iconButton('expand', 'Full screen (F)', toggleFullscreen));
+    }
+    stageBar.append(about, actions);
+  }
+
+  // ---- Menus -----------------------------------------------------------------
+  // One menu is open at most. A click outside or Escape closes it, and Escape
+  // returns focus to the button that opened it.
+  function toggleMenu(menu) {
+    const opening = menu.hidden;
+    closeMenus();
+    if (!opening) return;
+    menu.hidden = false;
+    menuToggle(menu).setAttribute('aria-expanded', 'true');
+    menu.querySelector('button').focus();
+  }
+
+  function menuToggle(menu) {
+    return document.querySelector('[aria-controls="' + menu.id + '"]');
+  }
+
+  function closeMenus() {
+    document.querySelectorAll('.menu:not([hidden])').forEach(function (menu) {
+      menu.hidden = true;
+      const toggle = menuToggle(menu);
+      if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function menuItem(name, label, handler) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.setAttribute('role', 'menuitem');
+    item.innerHTML = (name ? icon(name) : '') + '<span class="item-text"></span>';
+    item.querySelector('.item-text').textContent = label;
+    item.addEventListener('click', function () {
+      closeMenus();
+      handler();
+    });
+    return item;
+  }
+
+  document.addEventListener('click', function (event) {
+    if (event.target.closest('.menu, [aria-controls]')) return;
+    closeMenus();
+  });
+  document.addEventListener('keydown', function (event) {
+    const open = document.querySelector('.menu:not([hidden])');
+    if (!open) return;
+    if (event.key === 'Escape') {
+      closeMenus();
+      menuToggle(open).focus();
+      return;
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    const items = Array.from(open.querySelectorAll('button'));
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    const index = items.indexOf(document.activeElement);
+    items[(index + step + items.length) % items.length].focus();
+  });
+
+  // Edit mode with this image as the only reference, an empty prompt, and the
+  // image's own seed, so a rerun of the same edit gives the same result.
+  function editThis(entry) {
+    const editRadio = document.getElementById('mode-edit');
+    if (!editRadio.checked) {
+      editRadio.checked = true;
+      editRadio.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    references = [];
+    promptInput.value = '';
+    growPrompt();
+    document.getElementById('seed').value = entry.seed;
+    addReference(entry.b64, 'Seed ' + entry.seed);
+    view = entry.id;
+    renderStage();
+    promptInput.focus();
+  }
+
+  function textButton(name, label, handler) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn quiet';
+    button.innerHTML = icon(name) + label;
+    button.addEventListener('click', handler);
+    return button;
+  }
+
+  function iconButton(name, label, handler, extra) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'icon-btn' + (extra ? ' ' + extra : '');
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.innerHTML = icon(name);
+    button.addEventListener('click', handler);
+    return button;
+  }
+
+  // The card takes the shape of the coming image, fitted inside the stage the
+  // way the image itself will be.
+  const REBATE_WIDTH = 20;   // the film's left and right rebate together
+  const REBATE_HEIGHT = 34;  // top and bottom, the bottom holding the edge print
+
+  function fitBox(box, ratio, share) {
+    const width = Math.min((canvas.clientWidth - 48 - REBATE_WIDTH) * share,
+      (canvas.clientHeight - 48 - REBATE_HEIGHT) * share * ratio);
+    box.style.width = Math.round(width) + 'px';
+    box.style.height = Math.round(width / ratio) + 'px';
+  }
+
+  function fitStage() {
+    const plate = canvas.querySelector('.card .plate');
+    if (plate) fitBox(plate, runRatio, 0.9);
+    const pic = canvas.querySelector('.pic');
+    if (pic) fitBox(pic, Number(pic.dataset.ratio), 1);
+  }
+  window.addEventListener('resize', fitStage);
+
+  function removeEntry(id) {
+    const index = gallery.findIndex(function (entry) { return entry.id === id; });
+    release(gallery.splice(index, 1)[0]);
+    const neighbour = gallery[Math.min(index, gallery.length - 1)];
+    view = neighbour ? neighbour.id : null;
+    renderStrip();
+    renderStage();
+  }
+
+  document.getElementById('clear-gallery').addEventListener('click', function () {
+    if (!confirm('Remove all ' + gallery.length + ' images from this tab?')) return;
+    const cleared = gallery;
+    gallery = [];
+    cleared.forEach(release);
+    view = busy() ? 'progress' : null;
+    renderStrip();
+    renderStage();
+  });
+
+  // ---- Toasts -----------------------------------------------------------------
+  // Errors stay until closed, because they say what to fix. Anything else
+  // clears itself.
+  const toasts = document.getElementById('toasts');
+  function showToast(kind, text) {
+    const toast = document.createElement('div');
+    toast.className = 'toast ' + kind;
+    toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    const message = document.createElement('p');
+    message.textContent = text;
+    toast.innerHTML = icon(kind === 'error' ? 'alert' : 'info');
+    toast.append(message, iconButton('x', 'Dismiss', function () { toast.remove(); }));
+    toasts.append(toast);
+    if (kind !== 'error') setTimeout(function () { toast.remove(); }, 4000);
+  }
+
+  // ---- Run, progress, cancel --------------------------------------------------
+  // The poller clocks itself off its own response, and stops when the server
+  // says nothing is running. That gap happens between two images of a batch, so
+  // every request the page sends plants a fresh poller.
+  const POLLER = '<div hx-get="/progress" hx-trigger="load"'
+    + ' hx-target="#progress" hx-swap="innerHTML"></div>';
+  let progressState = null;
+  let pace = null;          // how fast this run's steps arrive, for the time left
+
+  function startWork(element) {
+    const fresh = element === form;
+    document.body.classList.add('busy');
+    go.disabled = true;
+    countToggle.disabled = true;
+    document.getElementById('go-busy').textContent = editing() ? 'Editing' : 'Generating';
+    progressSlot.innerHTML = POLLER;
+    htmx.process(progressSlot);
+    if (fresh) {
+      runKey = costKey();
+      runPixels = targetPixels();
+      runEstimate = currentMode().estimate;
+      runRatio = targetRatio();
+      runStepSeconds = stepSeconds();
+      view = 'progress';
+      progressState = null;
+      pace = null;
+      renderStrip();
+      renderStage();
+    }
+  }
+
+  // The tab title shows the progress, so a run can be watched from another tab.
+  // A run that ends in the background leaves "Done" until the tab is seen.
+  const BASE_TITLE = document.title;
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && !busy()) document.title = BASE_TITLE;
+  });
+
+  function stopWork() {
+    if (!busy()) return;
+    document.title = (document.hidden ? '(Done) ' : '') + BASE_TITLE;
+    document.body.classList.remove('busy', 'stopping');
+    progressSlot.innerHTML = '';
+    progressState = null;
+    goFill.style.width = '0';
+    countToggle.disabled = false;
+    if (view === 'progress') view = gallery.length ? gallery[0].id : null;
+    renderStrip();
+    renderStage();
+    renderRunButton();
+  }
+
+  function requestCancel() {
+    if (document.body.classList.contains('stopping')) return;
+    document.body.classList.add('stopping');
+    renderProgress();
+    htmx.ajax('POST', '/cancel', { swap: 'none' });
+  }
+
+  // ---- Full screen ------------------------------------------------------------
+  // The stage and the sheet fill the screen. F toggles it, the arrow keys walk
+  // the sheet, and Escape leaves by the browser's own rule.
+  const work = document.querySelector('.work');
+
+  function toggleFullscreen() {
+    const change = document.fullscreenElement ? document.exitFullscreen() : work.requestFullscreen();
+    change.catch(function (error) { showToast('error', 'Full screen failed: ' + error.message); });
+  }
+  document.addEventListener('fullscreenchange', renderStage);
+
+  function stepFrame(delta) {
+    const order = (busy() ? ['progress'] : []).concat(gallery.map(function (entry) { return entry.id; }));
+    const index = order.indexOf(view);
+    const next = order[index + delta];
+    if (next === undefined) return;
+    show(next);
+    strip.querySelector('.selected').scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  document.addEventListener('keydown', function (event) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.target.closest('input, textarea, select, [contenteditable]')) return;
+    if (document.querySelector('.menu:not([hidden])')) return;
+    if (event.key === 'f' && document.fullscreenEnabled && (gallery.length || busy())) {
+      event.preventDefault();
+      toggleFullscreen();
+    }
+    if (!document.fullscreenElement) return;
+    if (event.key === 'ArrowRight') stepFrame(1);
+    if (event.key === 'ArrowLeft') stepFrame(-1);
+  });
+
+  // Cmd+Enter (Ctrl+Enter off a Mac) runs from anywhere on the page. It obeys
+  // the same rule as a click: nothing happens while the button is disabled.
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return;
+    event.preventDefault();
+    if (!go.disabled) form.requestSubmit(go);
+  });
+
+  new MutationObserver(function () {
+    const node = progressSlot.querySelector('.progress-state');
+    progressState = node ? {
+      stage: node.dataset.stage, step: Number(node.dataset.step), total: Number(node.dataset.total),
+      label: node.dataset.label, stopping: node.dataset.stopping === '1',
+    } : null;
+    trackPace();
+    renderProgress();
+  }).observe(progressSlot, { childList: true, subtree: true });
+
+  // Time left comes from when steps arrive, never from the clock between them:
+  // dividing by "now" made the number climb during every step and drop at the
+  // next. The rate carries across the images of a batch. Until two steps have
+  // arrived, the pre-run guess stands in. An image also needs time after its
+  // last step, to decode and reach the page. That tail is measured on each
+  // finished image; before the first, the backend's overhead stands in.
+  function trackPace() {
+    const state = progressState;
+    if (!state) return;
+    const now = Date.now();
+    if (!pace) pace = { label: null, stepTime: 0, stepsTimed: 0, tail: null };
+    if (state.label !== pace.label) {
+      if (pace.label !== null && pace.lastStepAt) pace.tail = (now - pace.lastStepAt) / 1000;
+      pace.label = state.label;
+      pace.lastStep = 0;
+      pace.lastStepAt = 0;
+    }
+    if (state.stage !== 'running' || state.step <= pace.lastStep) return;
+    if (pace.lastStepAt) {
+      pace.stepTime += (now - pace.lastStepAt) / 1000;
+      pace.stepsTimed += state.step - pace.lastStep;
+    }
+    pace.lastStep = state.step;
+    pace.lastStepAt = now;
+    if (pace.stepsTimed >= 2 && runEstimate) {
+      learnedCost[runKey] = paceRate() / Math.pow(runPixels / 1e6, runEstimate.exponent);
+    }
+  }
+
+  function paceRate() {
+    return pace && pace.stepsTimed >= 2 ? pace.stepTime / pace.stepsTimed : runStepSeconds;
+  }
+
+  function timeLeft() {
+    const state = progressState;
+    const perStep = paceRate();
+    if (!state || !perStep) return '';
+    const tail = pace && pace.tail !== null ? pace.tail : (runEstimate ? runEstimate.overhead : 0);
+    const batch = (state.label || '').match(/(\d+) of (\d+)/);
+    const imagesAfter = batch ? Number(batch[2]) - Number(batch[1]) : 0;
+    const step = state.stage === 'running' ? state.step : 0;
+    const sinceStep = pace && pace.lastStepAt ? (Date.now() - pace.lastStepAt) / 1000 : 0;
+    const thisImage = Math.max(0, perStep * (state.total - step) + tail - sinceStep);
+    const seconds = thisImage + imagesAfter * (perStep * state.total + tail);
+    return seconds < 3 ? 'Almost done' : 'About ' + spell(seconds) + ' left';
+  }
+
+  function progressNow() {
+    const state = progressState;
+    const running = Boolean(state && state.stage === 'running' && state.total);
+    return { running: running, percent: running ? Math.round(state.step / state.total * 100) : 0 };
+  }
+
+  // Exposure only grows with a sweep. A drop, at the next image of a batch or a
+  // new run, jumps back to the left edge at once.
+  function paintPlate(plate, running, percent) {
+    const rewind = percent < (parseFloat(plate.style.getPropertyValue('--exposed')) || 0);
+    plate.classList.toggle('rewind', rewind);
+    plate.classList.toggle('waiting', !running);
+    plate.style.setProperty('--exposed', percent + '%');
+    if (!rewind) return;
+    void plate.offsetWidth;   // apply the drop while the sweep is off
+    plate.classList.remove('rewind');
+  }
+
+  function renderProgress() {
+    if (!busy()) return;
+    const state = progressState;
+    const stopping = document.body.classList.contains('stopping') || (state && state.stopping);
+    const now = progressNow();
+    const running = now.running;
+    let stepText = 'Starting';
+    if (state && state.stage === 'preparing') stepText = 'Preparing the model';
+    if (running) stepText = 'Step ' + state.step + ' of ' + state.total;
+    if (stopping) stepText = 'Stopping at the end of this step';
+
+    goSub.textContent = stopping ? '' : stepText;
+    document.title = (running ? '(' + now.percent + '%) ' : '') + BASE_TITLE;
+    goFill.style.width = now.percent + '%';
+    document.querySelectorAll('.card, .frame.pending .still').forEach(function (plate) {
+      paintPlate(plate, running, now.percent);
+      const percent = plate.querySelector('.percent');
+      if (percent) percent.textContent = running ? now.percent + '%' : '';
+    });
+    const slots = canvas.querySelectorAll('[data-slot]');
+    slots.forEach(function (slot) {
+      if (slot.dataset.slot === 'step') slot.textContent = stepText;
+      if (slot.dataset.slot === 'image') slot.textContent = state && state.label ? 'Image ' + state.label : '';
+      if (slot.dataset.slot === 'left') slot.textContent = running && !stopping ? timeLeft() : '';
+    });
+  }
+
+  function sideChannel(event) {
+    const config = event.detail.requestConfig || event.detail.pathInfo || {};
+    const path = config.path || config.requestPath || '';
+    return path === '/progress' || path === '/cancel';
+  }
+
+  // The references are an array, not a form field, so they are attached here.
+  // Only the form itself carries them: a chain request already has a token.
+  document.body.addEventListener('htmx:configRequest', function (event) {
+    if (event.detail.elt !== form) return;
+    // Only a one-image edit changes that image in place. An edit from several
+    // images composes them, so no single source lines up with the result and
+    // a wipe between them would mislead.
+    batchSource = editing() && references.length === 1
+      ? blobUrl('data:image/png;base64,' + references[0].b64) : null;
+    const own = promptInput.value.trim();
+    runLook = { prompt: own, sent: withLook(own), labels: lookLabels(), picks: JSON.parse(JSON.stringify(look)) };
+    event.detail.parameters.prompt = runLook.sent;
+    event.detail.parameters.references = JSON.stringify(references.map(function (r) {
+      return r.b64;
+    }));
+  });
+  document.body.addEventListener('htmx:beforeRequest', function (event) {
+    if (sideChannel(event)) return;
+    if (event.detail.elt === form) toasts.innerHTML = '';
+    startWork(event.detail.elt);
+  });
+  document.body.addEventListener('htmx:afterSettle', function (event) {
+    // A /progress response settles once a second. It is not the end of the run,
+    // and treating it as one used to clear the busy state mid-generation.
+    if (sideChannel(event)) return;
+    if (!document.querySelector('.chain')) stopWork();
+  });
+  document.body.addEventListener('htmx:responseError', stopWork);
+  document.body.addEventListener('htmx:sendError', function () {
+    stopWork();
+    showToast('error', 'The server did not answer. Check that the studio server is still running.');
+  });
+
+  // The images live only in this tab, so a reload or a close would lose them.
+  // Browsers show their own fixed text here; the page cannot set it.
+  window.addEventListener('beforeunload', function (event) {
+    if (!gallery.length && !busy()) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+
+  // A mode the backend lacks stays in view, disabled, so the page keeps its shape.
+  function setupModes() {
+    form.querySelectorAll('input[name=mode]').forEach(function (radio) {
+      const spec = MODES[radio.value];
+      const label = form.querySelector('label[for=' + radio.id + ']');
+      radio.disabled = !spec;
+      if (spec) label.lastChild.textContent = spec.label;
+      else label.title = STUDIO.backend.name + ' has no ' + label.textContent.trim().toLowerCase() + ' mode';
+    });
+    const first = form.querySelector('input[name=mode]:not(:disabled)');
+    if (form.querySelector('input[name=mode]:checked').disabled) first.checked = true;
+  }
+
+  // The title is the switch, and only when there is a choice. A switch frees
+  // the old backend and loads the new one, then the page reloads with its
+  // capabilities.
+  function setupBackends() {
+    const toggle = document.getElementById('backend-toggle');
+    const menu = document.getElementById('backend-menu');
+    if (STUDIO.backends.length < 2) return;
+    toggle.disabled = false;
+    toggle.title = 'Switch the model';
+    toggle.addEventListener('click', function () { toggleMenu(menu); });
+    const head = document.createElement('div');
+    head.className = 'menu-head';
+    head.textContent = 'Model';
+    menu.append(head);
+    STUDIO.backends.forEach(function ([id, name]) {
+      const item = menuItem('check', name, function () { switchBackend(id, name); });
+      item.setAttribute('role', 'menuitemradio');
+      item.setAttribute('aria-checked', String(id === STUDIO.backend.id));
+      menu.append(item);
+    });
+  }
+
+  function switchBackend(id, name) {
+    const toggle = document.getElementById('backend-toggle');
+    if (id === STUDIO.backend.id) return;
+    if (busy()) return showToast('info', 'Wait for the run to finish, then switch.');
+    if (gallery.length && !confirm('Switching the model reloads the page and clears the gallery.')) return;
+    toggle.disabled = true;
+    showToast('info', 'Loading ' + name + '. This can take a minute.');
+    fetch('/backend', { method: 'POST', body: new URLSearchParams({ backend: id }) })
+      .then(function (answer) { return answer.text(); })
+      .then(function (text) {
+        if (!text) { gallery.length = 0; location.reload(); return; }
+        toggle.disabled = false;
+        showToast('error', new DOMParser().parseFromString(text, 'text/html').body.textContent);
+      })
+      .catch(function (error) {
+        toggle.disabled = false;
+        showToast('error', 'The switch failed: ' + error.message);
+      });
+  }
+
+  setupModes();
+  setupBackends();
+  buildSizeControls();
+  applyMode();
+  renderLook();
+  renderReferences();
+  renderStrip();
+  renderStage();
+</script>
+</body>
+</html>
