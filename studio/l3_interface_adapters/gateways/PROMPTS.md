@@ -28,7 +28,7 @@ In the page, **Look** adds one sentence after your prompt when you press Generat
 
 | Row | Options | What it adds |
 |---|---|---|
-| Medium | Documentary, Phone snapshot, Watercolor, Ink drawing, 3D render | A camera habit, or a drawn or rendered style |
+| Medium | Documentary, Phone snapshot, Watercolor, Ink drawing, 3D render, Skeleton (qwen21 only) | A camera habit, or a drawn or rendered style |
 | Film | Portra 400, Fuji 400H, Ektachrome, Black and white | A film stock and its color |
 | Color | Warm, Cool, Muted, Vivid | A palette |
 | Light | Soft window light, Golden hour, Studio, Overcast, Night with neon | Where the light comes from and how hard it is |
@@ -39,7 +39,7 @@ In the page, **Look** adds one sentence after your prompt when you press Generat
 
 The rows go from the style (Medium, Film, Color) to the shot (Light, Camera, Room for text) to the subject (Realism, Portrait). Every film stock sits in the Film row, so one pick per row keeps two stocks from fighting. Portra 400 was "Film photo" in Medium, and Black and white was in Color; their sentences did not change.
 
-Each option names what to show, never what to leave out. The exception is Real person: its avoid part goes to the negative prompt, which raises guidance to 2.5 and doubles the time of each image. Realism fights Watercolor, Ink drawing and 3D render, because its avoid part names CGI and 3D render. Real person is for people. For an animal, Documentary is enough: see "The avoid-part test". Edit mode has no Look, because the edit model already keeps the rest of the image.
+Each option names what to show, never what to leave out. The exception is Real person: its avoid part goes to the negative prompt, which raises guidance to 2.5 and doubles the time of each image. Realism fights Watercolor, Ink drawing, 3D render and Skeleton, because its avoid part names CGI and 3D render. Real person is for people. For an animal, Documentary is enough: see "The avoid-part test". Edit mode has no Look, because the edit model already keeps the rest of the image.
 
 ## Generate templates
 
@@ -121,6 +121,20 @@ Keep the camera position, the composition, the people and their poses exactly un
 Add [object or animal] [where, and how it touches the scene], [one person reacting to it]. Give it correct scale, shadows and floor contact. Do not change [what must stay], the lighting or the camera position.
 ```
 
+**Turn into a skeleton** (qwen21 only)
+
+```
+Turn the [subject] into its 3D anatomical skeleton in exactly the same pose, position and camera angle: every bone in its true place and number, ivory bone. Replace the background with a plain dark studio backdrop and soft museum lighting.
+```
+
+**Turn into a pose figure** (qwen21 only)
+
+```
+Turn the [subject] into a 3D pose mannequin in exactly the same pose, position and camera angle: a smooth gray jointed figure with a ball joint at every joint, matching its body proportions. Replace the background with a plain light gray backdrop and even studio light.
+```
+
+On a person, both keep the face and hair. See "The skeleton test".
+
 ## How these were tested
 
 All runs used 20 steps and seeds 1234 and 5678. Generate ran at 1024 x 1024 with guidance 1.0. Edit ran at 768 with true CFG 1.0.
@@ -186,6 +200,21 @@ Each template ran once with its first fill-in, at 768 x 768, 20 steps and seed 1
 | Banner, rewritten as prose | Works with short copy. At most 3 quoted lines, each with its place and size: 14 of 21 lines came out exact, and 3 of 8 banners were fully clean. Each error was one dropped or swapped character. The layouts followed the brief. |
 
 In the prose banners, the quoted lines were Japanese and the rest of each prompt was English.
+
+### The skeleton test
+
+The Skeleton Look ran on three prompts: a woman jogging, a dog leaping for a frisbee, and a heron on one leg. Each ran at 768 x 768, 20 steps and guidance 1.0, on seeds 1234 and 5678, next to the bare prompt. The edit templates changed the seed 1234 images, plus a snake coiled on a rock, at 768 x 768, 20 steps and seed 1234. Two more wordings of each template ran to fix the person case.
+
+| Option | Result |
+|---|---|
+| Look, anatomical skeleton | Works, 6 of 6: a person, a dog and a heron, each a plausible skeleton. In generate the pose is new: the dogs rear up where the bare dogs leap. |
+| Look, pose mannequin | Cut, 2 of 6. It works on the person. On the dog and the heron it drew a human mannequin, once beside a real dog and once with a heron head. |
+| Template, skeleton | Works on the dog and the snake, in the same pose. The heron stands on two legs, not one. The person keeps her hair and a see-through outline of her body. |
+| Template, pose figure | Works on the dog, the heron and the snake, each a jointed figure in the same pose. The person keeps her real face, hair and shoes. |
+| "The whole body, head and face included" | Did nothing: the person kept her face and hair. |
+| "Replace the [subject] with a figure of its species" | Fixed the person, and broke the animals: the snake grew legs, and the pose figure became a human mannequin with a ball head on the dog and the heron. It was cut. |
+
+The edit model protects a person's identity. No wording that kept the animals right also changed the face.
 
 ### The flux2 test
 

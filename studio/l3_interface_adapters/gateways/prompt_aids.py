@@ -81,6 +81,19 @@ EDIT_TEMPLATES = (
         "Something new that touches the scene",
         "Add [object or animal] [where, and how it touches the scene], [one person reacting to it]. Give it correct scale, shadows and floor contact. Do not change [what must stay], the lighting or the camera position.",
     ),
+    # On a person both keep the face and hair: the edit model protects a
+    # person's identity. Asking for a figure "of its species" changed the
+    # person, but turned a snake into a lizard and animals into human mannequins.
+    Template(
+        "Turn into a skeleton",
+        "The bones of any person or animal, in its pose",
+        "Turn the [subject] into its 3D anatomical skeleton in exactly the same pose, position and camera angle: every bone in its true place and number, ivory bone. Replace the background with a plain dark studio backdrop and soft museum lighting.",
+    ),
+    Template(
+        "Turn into a pose figure",
+        "A jointed figure in the same pose, as a reference",
+        "Turn the [subject] into a 3D pose mannequin in exactly the same pose, position and camera angle: a smooth gray jointed figure with a ball joint at every joint, matching its body proportions. Replace the background with a plain light gray backdrop and even studio light.",
+    ),
 )
 
 GENERATE_LOOKS = (
@@ -98,6 +111,10 @@ GENERATE_LOOKS = (
             ("Watercolor", "Watercolor painting on textured paper, soft washes, visible brush edges."),
             ("Ink drawing", "Black ink drawing with fine linework and cross-hatching on white paper."),
             ("3D render", "Stylized 3D animated character, smooth rounded shapes, soft studio light."),
+            (
+                "Skeleton",
+                "Rendered as a 3D anatomical skeleton of the subject in the same pose: every bone in its true place and number, ivory bone on a plain dark studio backdrop, soft museum lighting.",
+            ),
         ),
     ),
     LookRow(

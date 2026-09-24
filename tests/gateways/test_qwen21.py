@@ -5,6 +5,8 @@ import pytest
 
 from studio.l1_entities.errors import Cancelled
 from studio.l1_entities.image_job import ImageJob, ImageResult
+from studio.l3_interface_adapters.gateways.flux2.capabilities import EDIT_TEMPLATES as flux2_edit_templates
+from studio.l3_interface_adapters.gateways.flux2.capabilities import LOOKS as flux2_looks
 from studio.l3_interface_adapters.gateways.flux2.capabilities import SIZES as flux2_sizes
 from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook
 from studio.l3_interface_adapters.gateways.qwen21.capabilities import SIZES as qwen21_sizes
@@ -142,7 +144,14 @@ def test_qwen21_offers_the_templates_it_passed():
     generate = [template.name for template in caps.mode("generate").templates]
     edit = [template.name for template in caps.mode("edit").templates]
     assert generate[-2:] == ["Deadpan absurdity", "Banner"] and len(generate) == 7
-    assert edit[-2:] == ["Alternate reality", "Add an object"] and len(edit) == 5
+    assert edit[-2:] == ["Turn into a skeleton", "Turn into a pose figure"] and len(edit) == 7
+
+
+def test_the_skeleton_is_a_medium_on_qwen21_only():
+    medium = dict(Qwen21BackendGateway(None, None, badge="bf16").capabilities().mode("generate").looks[0].options)
+    assert list(medium)[-1] == "Skeleton" and "anatomical skeleton" in medium["Skeleton"]
+    offered = [name for row in flux2_looks for name, _ in row.options]  # flux2 has not been tested with them
+    assert "Skeleton" not in offered and not any(t.name.startswith("Turn into") for t in flux2_edit_templates)
 
 
 def test_the_look_rows_go_style_then_shot_then_subject():
