@@ -2723,7 +2723,11 @@
     const now = progressNow();
     const running = now.running;
     let stepText = 'Starting';
-    if (state && state.stage === 'preparing') stepText = 'Preparing the model';
+    // The weights load once, not per run. Before step 1 a run encodes its
+    // prompt, and its images if it has any, so the status names that.
+    if (state && state.stage === 'preparing') {
+      stepText = runSources.length ? 'Reading the prompt and images' : 'Reading the prompt';
+    }
     // Step 0 is the backend's notice before the engine starts. The engine may
     // then run fewer steps (a starting image skips part of the schedule), so
     // the count shows from the first real step.
