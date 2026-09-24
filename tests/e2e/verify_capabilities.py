@@ -8,6 +8,7 @@ Usage: uv run --with playwright python tests/e2e/verify_capabilities.py
 """
 
 import io
+import re
 import sys
 import threading
 from http.server import ThreadingHTTPServer
@@ -58,6 +59,7 @@ class StubBackendGateway(ImageBackendGateway):
         pass
 
 
+TIMES = "\u00d7"  # the sign the page prints between width and height
 results = []
 
 
@@ -70,6 +72,13 @@ def visible(page, selector):
     return page.locator(selector).first.is_visible()
 
 
+def seconds(text):
+    """The seconds in an estimate such as "about 2 min 45s"."""
+    minutes = re.search(r"(\d+) min", text)
+    rest = re.search(r"(\d+)s", text)
+    return (int(minutes.group(1)) * 60 if minutes else 0) + (int(rest.group(1)) if rest else 0)
+
+
 def main():
     qwen, tiny = StubBackendGateway(qwen21_capabilities("bf16")), StubBackendGateway(TINY)
     studio = assemble_studio({"qwen21": qwen, "tiny": tiny}, "qwen21", ("qwen21", "tiny"))
@@ -80,14 +89,182 @@ def main():
     with sync_playwright() as playwright:
         page = playwright.chromium.launch().new_page(viewport={"width": 1440, "height": 900})
         page.on("pageerror", lambda error: errors.append(str(error)))
+        page.on("dialog", lambda dialog: dialog.accept())  # the switch warns about the stub run's image
         page.goto(url)
         check("the title is a switch with two backends", not page.is_disabled("#backend-toggle"))
         check("the qwen21 page has both modes", not page.is_disabled("#mode-edit"))
         page.click("#advanced summary")
         check("guidance shows in generate", visible(page, "#guidance"))
         check("steps start at the spec default", page.input_value("#steps") == "40", page.input_value("#steps"))
+        check("guidance is a slider", page.get_attribute("#guidance", "type") == "range")
+
+        page.fill("#prompt", "a lighthouse")
+        before = page.inner_text("#go-sub")
+        page.fill("#negative", "blur")
+        check(
+            "a negative prompt raises guidance to what the spec names",
+            page.input_value("#guidance") == "2.5",
+            page.input_value("#guidance"),
+        )
+        check(
+            "a note says why and what it costs",
+            visible(page, "#negative-note") and "twice" in page.inner_text("#negative-note"),
+            page.inner_text("#negative-note"),
+        )
+        after = page.inner_text("#go-sub")
+        check("the estimate counts the second pass", seconds(after) >= 1.8 * seconds(before), f"{before} -> {after}")
+        page.fill("#negative", "")
+        check("clearing it puts guidance back", page.input_value("#guidance") == "1", page.input_value("#guidance"))
+        page.fill("#negative", "blur")
+        page.evaluate(
+            "const g = document.getElementById('guidance'); g.value = 4;"
+            " g.dispatchEvent(new Event('input', { bubbles: true }))"
+        )
+        page.fill("#negative", "")
+        check("a guidance set by hand stays", page.input_value("#guidance") == "4", page.input_value("#guidance"))
+        blank = page.inner_text("#go-sub")
+        check("guidance without a negative runs one pass", seconds(blank) == seconds(before), f"{before} -> {blank}")
+        page.fill("#prompt", "")
+
+        check("no Clear without a seed", not visible(page, "#clear-seed"))
+        page.fill("#seed", "7")
+        check("Clear shows with a seed", visible(page, "#clear-seed"))
+        page.click("#clear-seed")
+        check("Clear empties the seed", page.input_value("#seed") == "" and not visible(page, "#clear-seed"))
+
+        tiers = page.locator("#tier-sizes button").all_inner_texts()
+        check("tiers are labeled by megapixels", tiers == ["0.3 MP", "0.6 MP", "1 MP", "1.8 MP"], str(tiers))
+        check(
+            "the pixel size shows once",
+            page.inner_text("#size-caption") == f"1024 {TIMES} 1024" and not any(TIMES in tier for tier in tiers),
+            page.inner_text("#size-caption"),
+        )
+
+        page.click("#look summary")
+        rows = page.locator("#look-rows .look-row-toggle")
+        check(
+            "Look rows start closed",
+            rows.count() == 8 and page.locator("#look-rows .chip:visible").count() == 0,
+            str(rows.count()),
+        )
+        rows.filter(has_text="Light").click()
+        open_chips = page.locator("#look-rows .chip:visible").all_inner_texts()
+        check(
+            "a row opens only its own chips",
+            open_chips[:1] == ["Soft window light"] and len(open_chips) == 5,
+            str(open_chips),
+        )
+        light_top = rows.filter(has_text="Light").bounding_box()["y"]
+        page.locator("#look-rows .chip", has_text="Overcast").click()
+        moved = rows.filter(has_text="Light").bounding_box()["y"] - light_top
+        check("a pick keeps its row under the pointer", abs(moved) <= 1, f"moved {moved:.0f}px")
+        check(
+            "a pick closes the row and shows in it",
+            page.locator("#look-rows .chip:visible").count() == 0
+            and "Overcast" in rows.filter(has_text="Light").inner_text(),
+        )
+        height = round(page.locator("#look").bounding_box()["height"])
+        check("closed rows keep Look short", height < 400, f"{height}px for 8 rows")
+        tail = page.locator("#look-adds")
+        prompt_box = page.locator("#prompt").bounding_box()
+        tail_box = tail.bounding_box()
+        check(
+            "the Look text sits right under the prompt",
+            visible(page, "#look-adds") and 0 <= tail_box["y"] - (prompt_box["y"] + prompt_box["height"]) < 20,
+            str(tail_box),
+        )
+        check(
+            "it names the pick and quotes the sentence",
+            tail.locator(".chip").all_inner_texts() == ["Overcast \u00d7"] and len(tail.locator("q").inner_text()) > 10,
+            tail.inner_text(),
+        )
+        tail.locator(".chip").click()
+        check(
+            "its chip unpicks",
+            not visible(page, "#look-adds") and "none" in rows.filter(has_text="Light").inner_text(),
+        )
+        page.evaluate(
+            "const g = document.getElementById('guidance'); g.value = 1;"
+            " g.dispatchEvent(new Event('input', { bubbles: true }))"
+        )
+        rows.filter(has_text="Realism").click()
+        page.locator("#look-rows .chip", has_text="Real person").click()
+        check(
+            "Real person raises guidance for its avoid part",
+            page.input_value("#guidance") == "2.5" and "airbrushed skin" in tail.locator(".look-avoids").inner_text(),
+            f"{page.input_value('#guidance')}, {tail.inner_text()!r}",
+        )
+        check(
+            "the negative field shows what the Look adds",
+            page.input_value("#negative") == "" and "airbrushed skin" in page.inner_text("#negative-look"),
+            page.inner_text("#negative-look"),
+        )
+        tail.locator(".chip").click()
+        check("unpicking it clears that line", not visible(page, "#negative-look"))
+        check("unpicking it puts guidance back", page.input_value("#guidance") == "1", page.input_value("#guidance"))
+
         page.click("label[for=mode-edit]")
         check("guidance hides in edit", not visible(page, "#guidance"))
+        check("edit guidance starts at the spec default", page.input_value("#cfg") == "1", page.input_value("#cfg"))
+        check(
+            "edit calls its scale Guidance too",
+            page.inner_text("label[for=cfg]") == "Guidance" and page.get_attribute("#cfg", "type") == "range",
+        )
+        check(
+            "the edit summary says guidance",
+            "guidance" in (page.text_content("#advanced-values") or ""),
+            page.text_content("#advanced-values"),
+        )
+        edits = page.locator("#edit-sizes button").all_inner_texts()
+        check("edit sizes use the same labels", edits == ["Match", "0.3 MP", "0.6 MP", "1 MP", "1.8 MP"], str(edits))
+        page.click("label[for=mode-generate]")
+
+        rows.filter(has_text="Light").click()
+        page.locator("#look-rows .chip", has_text="Overcast").click()
+        rows.filter(has_text="Realism").click()
+        page.locator("#look-rows .chip", has_text="Real person").click()
+        page.fill("#prompt", "a lighthouse")
+        page.fill("#negative", "blur")
+        page.click("#go")
+        page.wait_for_function("document.querySelectorAll('#strip .frame:not(.pending)').length === 1")
+        sent = qwen.jobs[-1]
+        check(
+            "the model gets the Look after the prompt",
+            sent.prompt.startswith("a lighthouse. Overcast sky") and "An everyday photo" in sent.prompt,
+            sent.prompt,
+        )
+        check(
+            "the negative is the typed one, then the Look's avoid part",
+            sent.options["negative"].startswith("blur, beauty filter") and sent.options["guidance"] == 2.5,
+            f"{sent.options['negative']!r}, {sent.options['guidance']}",
+        )
+        check(
+            "the caption shows what the model got, the Look muted",
+            page.inner_text(".prompt-line") == sent.prompt
+            and page.inner_text(".prompt-line .look-said").startswith("Overcast sky"),
+            f"{page.inner_text('.prompt-line')!r} vs {sent.prompt!r}",
+        )
+        tail.locator(".chip").first.click()
+        tail.locator(".chip").first.click()
+        page.fill("#prompt", "")
+        page.fill("#negative", "")
+        page.get_by_role("button", name="More actions").click()
+        page.get_by_role("menuitem", name="Reuse prompt").click()
+        check(
+            "Reuse prompt brings back the text, the Look and the negative",
+            page.input_value("#prompt") == "a lighthouse"
+            and tail.locator(".chip").all_inner_texts() == [f"Overcast {TIMES}", f"Real person {TIMES}"]
+            and page.input_value("#negative") == "blur",
+            f"{page.input_value('#prompt')!r}, {tail.inner_text()!r}, {page.input_value('#negative')!r}",
+        )
+        page.click("label[for=mode-edit]")
+        page.get_by_role("button", name="More actions").click()
+        page.get_by_role("menuitem", name="Reuse prompt").click()
+        check(
+            "in a mode without that Look, Reuse prompt brings it back as text",
+            page.input_value("#prompt") == sent.prompt and not visible(page, "#look-adds"),
+            page.input_value("#prompt"),
+        )
         page.click("label[for=mode-generate]")
 
         page.click("#backend-toggle")

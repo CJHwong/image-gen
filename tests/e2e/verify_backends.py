@@ -90,6 +90,8 @@ with sync_playwright() as playwright:
         page.inner_text("#refs"),
     )
     check("edit uses a size, not a resolution", page.is_visible("#size-chips") and not page.is_visible("#edit-sizes"))
+    summary = page.text_content("#advanced-values") or ""
+    check("the edit summary names guidance, not CFG", "guidance 4" in summary and "CFG" not in summary, summary)
     small_run(page, "Put a small yellow hat on the apple.")
     check("flux2 edits the image", frames(page) == 2)
 

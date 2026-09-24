@@ -1,6 +1,6 @@
 # image-gen
 
-A local image generation page for Apple Silicon. One page, one adapter per model. Nothing is saved to disk.
+A local image generation page for Apple Silicon. One page, one adapter per model. No image or prompt is saved to disk. The page keeps only your theme, in the browser.
 
 ## Quick start
 

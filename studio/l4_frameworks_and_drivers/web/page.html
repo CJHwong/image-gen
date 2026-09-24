@@ -4,22 +4,38 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__NAME__</title>
+<script>
+  // The saved theme applies before the first paint, so the page never flashes the default.
+  try {
+    const theme = localStorage.getItem('studio-theme');
+    if (theme) document.documentElement.dataset.theme = theme;
+  } catch (error) {
+    console.warn('The saved theme was not read:', error);
+  }
+</script>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <style>
-  /* A silver gelatin print. The interface is greyscale, so the image is the
-     only colour on the screen. The stage is a light box, each image sits in a
-     frame of film with its number on the edge, and the strip below is a
-     contact sheet where a yellow china marker circles the pick. */
+  /* Darkroom. With the lights off (dark scheme) the room is warm black paint
+     under a red safelight, and the run button is the safelight's colour. With
+     the lights on (light scheme) it is print paper. The stage is the easel
+     under the enlarger, each image sits in a frame of film with its number on
+     the edge, and the strip below is a contact sheet where a yellow china
+     marker circles the pick. */
   :root {
     color-scheme: dark;
-    --chrome: #121212; --chrome-2: #1a1a1a; --chrome-3: #232323;
-    --line: #262626; --line-strong: #383838;
-    --text: #ededed; --text-2: #a3a3a3; --text-3: #8a8a8a;
-    --accent: #ffffff; --accent-fill: #f2f2f2; --on-accent: #111111;
-    --accent-soft: rgba(255, 255, 255, .08);
+    --chrome: #141110; --chrome-2: #1b1715; --chrome-3: #26201d;
+    --line: #2c2522; --line-strong: #3f3530;
+    --text: #efe6e1; --text-2: #b4a59c; --text-3: #968479;
+    --accent: #ff7a57; --accent-fill: #b8321f; --on-accent: #ffffff;
+    --accent-soft: rgba(255, 90, 54, .12);
     --danger: #ff7b72; --danger-fill: #c9372a;
     --shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .04);
     --film: #0b0b0b; --edge-ink: #8c8c8c; --plate: #151515; --marker: #f2d14b;
+    /* Film grain. --grain is grey noise in both directions, for the overlay
+       blend on a print. --specks is light specks on clear film, for the dark
+       plate, where an overlay does nothing. */
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='1.8' intercept='-.4'/%3E%3CfeFuncG type='linear' slope='1.8' intercept='-.4'/%3E%3CfeFuncB type='linear' slope='1.8' intercept='-.4'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+    --specks: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 2.6 0 0 0 -1.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
     --serif: ui-serif, "New York", Georgia, serif;
     --mono: ui-monospace, "SF Mono", Menlo, monospace;
     --sans: ui-sans-serif, -apple-system, system-ui, sans-serif;
@@ -27,8 +43,8 @@
   @media (prefers-color-scheme: light) {
     :root {
       color-scheme: light;
-      --chrome: #f5f5f5; --chrome-2: #ebebeb; --chrome-3: #e1e1e1;
-      --line: #dddddd; --line-strong: #c6c6c6;
+      --chrome: #f6f4f1; --chrome-2: #edeae5; --chrome-3: #e3dfd9;
+      --line: #ddd8d1; --line-strong: #c7c1b8;
       --text: #111111; --text-2: #4d4d4d; --text-3: #666666;
       --accent: #111111; --accent-fill: #111111; --on-accent: #ffffff;
       --accent-soft: rgba(0, 0, 0, .06);
@@ -36,6 +52,63 @@
       --shadow: 0 12px 32px rgba(0, 0, 0, .14), 0 0 0 1px rgba(0, 0, 0, .05);
     }
   }
+  /* The camera themes. Each takes its colours from one camera body and keeps
+     them whatever the system scheme, so the accent sits where the camera puts
+     its colour: the red dot on the run button, the Kodak yellow, the Polaroid
+     stripe under the top bar. The image stays the largest area of colour. */
+  /* The camera bodies' surfaces: grey noise held near mid grey, laid over the
+     colour with soft-light, so a texture shifts no colour and barely moves the
+     contrast. */
+  :root {
+    --leather: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.55' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeDiffuseLighting surfaceScale='2.5' lighting-color='%23fff'%3E%3CfeDistantLight azimuth='235' elevation='50'/%3E%3C/feDiffuseLighting%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='.3' intercept='.27'/%3E%3CfeFuncG type='linear' slope='.3' intercept='.27'/%3E%3CfeFuncB type='linear' slope='.3' intercept='.27'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
+    --brushed: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .75' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='.45' intercept='.27'/%3E%3CfeFuncG type='linear' slope='.45' intercept='.27'/%3E%3CfeFuncB type='linear' slope='.45' intercept='.27'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
+    --satin: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='1' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='.3' intercept='.35'/%3E%3CfeFuncG type='linear' slope='.3' intercept='.35'/%3E%3CfeFuncB type='linear' slope='.3' intercept='.35'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
+    --paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .6' numOctaves='2' seed='11' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='.22' intercept='.39'/%3E%3CfeFuncG type='linear' slope='.22' intercept='.39'/%3E%3CfeFuncB type='linear' slope='.22' intercept='.39'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
+  }
+  :root[data-theme=leica] {
+    color-scheme: dark; --body: var(--leather); --face: var(--satin);
+    --chrome: #1b1a18; --chrome-2: #232220; --chrome-3: #2e2c29;
+    --line: #423f3a; --line-strong: #57544f;
+    --text: #f2f0ea; --text-2: #bdb9b0; --text-3: #9a968d;
+    --accent: #ef5350; --accent-fill: #c62828; --on-accent: #ffffff;
+    --accent-soft: rgba(210, 43, 43, .14);
+    --film: #0d0c0b; --plate: #161513; --marker: #e53935; --edge-ink: #8f8b83;
+  }
+  :root[data-theme=kodak] {
+    color-scheme: light; --body: var(--satin); --face: var(--leather);
+    --chrome: #f3e9d2; --chrome-2: #ebdec0; --chrome-3: #e2d2ae;
+    --line: #dccaa2; --line-strong: #c4a57a;
+    --text: #2b1d14; --text-2: #5a4331; --text-3: #6b5240;
+    --accent: #b8321a; --accent-fill: #f5b700; --on-accent: #2b1d14;
+    --accent-soft: rgba(224, 58, 30, .1);
+    --danger: #a8261b;
+    --shadow: 0 12px 32px rgba(59, 42, 32, .18), 0 0 0 1px rgba(59, 42, 32, .08);
+    --film: #1c130d; --plate: #231811; --marker: #e03a1e; --edge-ink: #f0a020;
+  }
+  :root[data-theme=polaroid] {
+    color-scheme: light; --body: var(--brushed); --face: var(--paper);
+    --chrome: #dcdad4; --chrome-2: #d2cfc8; --chrome-3: #c6c3bb;
+    --line: #c0bcb3; --line-strong: #a39f95;
+    --text: #151515; --text-2: #3a3833; --text-3: #4d4a44;
+    --accent: #151515; --accent-fill: #151515; --on-accent: #ffffff;
+    --accent-soft: rgba(0, 0, 0, .07);
+    --danger: #b3261e;
+    --shadow: 0 12px 32px rgba(0, 0, 0, .16), 0 0 0 1px rgba(0, 0, 0, .06);
+    --film: #141414; --plate: #1a1a1a; --marker: #f08a1c; --edge-ink: #9a968d;
+  }
+  .topbar, aside { background-image: var(--body, none); background-blend-mode: soft-light; }
+  :root:not([data-theme]) { --body: var(--satin); }
+  @media not (prefers-color-scheme: light) {
+    :root:not([data-theme]) .topbar {
+      background-image: radial-gradient(ellipse 45% 160% at 50% -70%, rgba(255, 58, 30, .28), transparent 70%),
+        var(--body);
+      background-blend-mode: normal, soft-light; }
+  }
+  [data-theme=polaroid] .topbar { border-bottom: 0;
+    background-image: linear-gradient(90deg, #e23b2e 0 20%, #f08a1c 0 40%, #f5c518 0 60%, #3aa655 0 80%, #2d7fc1 0),
+      var(--body);
+    background-size: 100% 3px, auto; background-position: bottom, 0 0; background-repeat: no-repeat, repeat;
+    background-blend-mode: normal, soft-light; }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   html, body { height: 100%; }
@@ -57,13 +130,24 @@
 
   /* Left: top bar, stage, contact sheet. Nothing here scrolls but the sheet. */
   .work { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
-  .topbar { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 22px;
-    background: var(--chrome); border-bottom: 1px solid var(--line); }
+  /* The camera's top plate: the model dial on the left, the status readout on
+     the right. The readout is the one place that says how a run is going. */
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 52px; min-width: 0;
+    padding: 0 16px 0 22px; background-color: var(--chrome); border-bottom: 1px solid var(--line); }
+  .dial { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .dial .menu-anchor, .dial h1 { min-width: 0; }
+  #backend-toggle .name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .readout { display: flex; align-items: center; justify-content: flex-end; gap: 12px; min-width: 0; flex: none; }
+  .status { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--text-2); font-size: 12px; }
+  #status-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .status .dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--text-3); }
+  .busy .status .dot { background: var(--marker); animation: pulse 1s ease-in-out infinite alternate; }
+  @keyframes pulse { to { opacity: .35; } }
   .topbar h1 { margin: 0; font: 600 16px/1 var(--serif); letter-spacing: -.01em; }
   .badge { padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 4px;
     color: var(--text-3); font: 10px/1.2 var(--mono); letter-spacing: .04em; }
   /* The title is the backend switch when there is more than one backend. */
-  #backend-toggle { display: flex; align-items: center; gap: 4px; margin: 0 -6px; padding: 5px 6px;
+  #backend-toggle { display: flex; align-items: center; gap: 4px; max-width: calc(100% + 12px); margin: 0 -6px; padding: 5px 6px;
     border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; letter-spacing: inherit;
     cursor: pointer; }
   #backend-toggle .icon { width: 14px; height: 14px; color: var(--text-3); transition: transform .15s; }
@@ -73,10 +157,7 @@
   #backend-toggle:disabled { cursor: default; }
   #backend-toggle:disabled .icon { display: none; }
   #backend-menu { left: 0; right: auto; }
-  #backend-menu [aria-checked=false] .icon { visibility: hidden; }
-  .privacy { margin-left: auto; display: flex; align-items: center; gap: 6px;
-    color: var(--text-3); font-size: 12px; }
-  .privacy .icon { width: 14px; height: 14px; }
+  #backend-menu [aria-checked=false] .icon, #theme-menu [aria-checked=false] .icon { visibility: hidden; }
 
   /* The light box is lit in both themes, so everything on it takes light
      colours from these local tokens, whatever the rest of the page uses. */
@@ -87,7 +168,33 @@
     --text: #111111; --text-2: #4d4d4d; --text-3: #666666;
     --accent: #111111; --accent-fill: #111111; --on-accent: #ffffff; --accent-soft: rgba(0, 0, 0, .06);
     --shadow: 0 12px 32px rgba(0, 0, 0, .14), 0 0 0 1px rgba(0, 0, 0, .05);
-    background: #efefef radial-gradient(ellipse 75% 65% at 50% 45%, #f6f6f6 0%, #efefef 60%, #e7e7e7 100%); }
+    --box: #eee8e1; --box-hi: #f5f1ec; --box-lo: #e4dcd3;
+    background-color: var(--box);
+    background-image: var(--face, none),
+      radial-gradient(ellipse 75% 65% at 50% 45%, var(--box-hi) 0%, var(--box) 60%, var(--box-lo) 100%);
+    background-blend-mode: soft-light, normal; }
+  /* Leica: satin chrome. */
+  [data-theme=leica] .stage {
+    --chrome: #d6d4ce; --chrome-2: #cdcbc5; --chrome-3: #c1bfb9;
+    --line: #b3b1ab; --line-strong: #9d9b95;
+    --text: #1b1a18; --text-2: #3b3935; --text-3: #4a4843;
+    --accent: #1b1a18; --accent-fill: #1b1a18; --on-accent: #f2f0ea;
+    --box: #c9c7c1; --box-hi: #d6d4ce; --box-lo: #bab8b2; }
+  /* Kodak: the brown leatherette of the body, under the cream controls. */
+  [data-theme=kodak] .stage { color-scheme: dark;
+    --chrome: #46332a; --chrome-2: #4f3a2f; --chrome-3: #5a4336;
+    --line: #5e4638; --line-strong: #75594a;
+    --text: #f3e9d2; --text-2: #d6c6a6; --text-3: #b8a482;
+    --accent: #f5b700; --accent-fill: #f5b700; --on-accent: #2b1d14;
+    --accent-soft: rgba(245, 183, 0, .12);
+    --shadow: 0 12px 32px rgba(0, 0, 0, .4), 0 0 0 1px rgba(255, 255, 255, .05);
+    --box: #3b2a20; --box-hi: #46332a; --box-lo: #30221a; }
+  /* Polaroid: the white of the print. */
+  [data-theme=polaroid] .stage {
+    --chrome: #f8f7f3; --chrome-2: #efede7; --chrome-3: #e6e3dc;
+    --line: #d9d6ce; --line-strong: #c2beb5;
+    --text: #151515; --text-2: #45423c; --text-3: #5a5750;
+    --box: #f1efe9; --box-hi: #f8f7f3; --box-lo: #e8e5dd; }
   .canvas { position: relative; min-height: 0; display: flex; align-items: center;
     justify-content: center; padding: 28px; overflow: hidden; }
 
@@ -130,12 +237,28 @@
   .arrive { animation: arrive .2s ease-out; }
   @keyframes arrive { from { opacity: 0; transform: translateY(2px); } }
   .shot.arrive { animation: none; }
-  .shot.arrive .pic > img:first-child { animation: develop 1.4s cubic-bezier(.35, .05, .25, 1); }
-  @keyframes develop {
-    from { filter: grayscale(1) brightness(.04) contrast(1.8); }
-    40% { filter: grayscale(.85) brightness(.45) contrast(1.35); }
-    to { filter: none; }
-  }
+  /* The print comes up out of the plate the run showed: it resolves from a
+     soft, colorless image into focus, and its grain settles a moment after.
+     The fast start and the long tail keep it from reading as a slow fade.
+     At the end nothing is left over it, so the image shows its own pixels.
+     Each animation has two keyframes only: CSS eases every keyframe segment
+     on its own, so a middle stop turns one smooth curve into visible steps. */
+  .shot.arrive .pic { overflow: hidden; background: var(--plate); }
+  .shot.arrive .pic > img:first-child {
+    animation: surface .3s ease-out both, focus 1.1s cubic-bezier(.16, .84, .3, 1) both; }
+  @keyframes surface { from { opacity: 0; } }
+  @keyframes focus { from { filter: blur(10px) saturate(0) contrast(.85); transform: scale(1.02); } }
+  .shot.arrive .pic::before, .shot.arrive .pic::after { content: ""; position: absolute; inset: 0;
+    z-index: 1; pointer-events: none; opacity: 0; }
+  .shot.arrive .pic::before { background: var(--grain); mix-blend-mode: overlay;
+    animation: grain-settle 1.5s cubic-bezier(.45, 0, .55, 1); }
+  .shot.arrive .pic::after { box-shadow: inset 0 0 90px rgba(0, 0, 0, .35);
+    animation: vignette-settle 1.2s cubic-bezier(.45, 0, .55, 1); }
+  @keyframes grain-settle { from { opacity: .35; } to { opacity: 0; } }
+  @keyframes vignette-settle { from { opacity: .7; } to { opacity: 0; } }
+  /* The slider and its tags wait for the sweep, which starts at 650ms (sweep
+     in the script), so they never sit over a print that is still developing. */
+  .shot.arrive .divider, .shot.arrive .compare-tag { animation: surface .3s ease-out .65s both; }
   .frame.arrive { animation: join .4s cubic-bezier(.2, .7, .2, 1); }
   @keyframes join { from { opacity: 0; transform: translateX(-10px); } }
 
@@ -143,16 +266,27 @@
   .empty strong { display: block; color: var(--text); font: 500 22px/1.25 var(--serif); letter-spacing: -.01em; }
   .empty p { margin: 8px 0 18px; line-height: 1.5; }
 
-  /* A run in progress is an unexposed frame. The plate lightens behind a thin
-     line as the steps come in, like paper under the enlarger. Before the
-     first step the line waits at the left edge, where the exposure starts. */
+  /* A run in progress is an unexposed frame. In Darkroom the plate lightens
+     behind a thin line as the steps come in, like paper under the enlarger.
+     Before the first step the line waits at the left edge, where the exposure
+     starts. The camera themes make the photo their own way, further down. */
   .card { position: relative; flex: none; padding: 9px 9px 25px; background: var(--film); border-radius: 1px;
     box-shadow: 0 1px 1px rgba(0, 0, 0, .12), 0 14px 30px -16px rgba(0, 0, 0, .45); }
   .plate { position: relative; overflow: hidden; display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 16px; min-width: 220px; min-height: 180px;
     background: var(--plate); color: #8a8a8a; text-align: center; }
+  /* The unexposed part is film: faint still specks. The exposed part behind
+     the line is lighter and clean, except for a band just behind the line,
+     where the paper is still developing. The band's grain stays put on the
+     page (fixed attachment), so the line uncovers it rather than drags it. */
+  .plate::before, .frame.pending .still::before { content: ""; position: absolute; inset: 0;
+    background: var(--specks); opacity: .15; pointer-events: none; }
+  .exposure::before { content: ""; position: absolute; top: 0; bottom: 0; right: 1px; width: 56px;
+    background: var(--specks) fixed; opacity: .4;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000);
+    mask-image: linear-gradient(90deg, transparent, #000); }
   .exposure { position: absolute; inset: 0 auto 0 0; width: var(--exposed, 0%);
-    background: linear-gradient(90deg, rgba(255, 255, 255, .015), rgba(255, 255, 255, .07));
+    background: linear-gradient(90deg, rgba(255, 255, 255, .03), rgba(255, 255, 255, .1)), var(--plate);
     transition: width .6s linear; pointer-events: none; }
   .exposure::after { content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 1px;
     background: rgba(255, 255, 255, .6); box-shadow: 0 0 10px rgba(255, 255, 255, .25); }
@@ -160,14 +294,32 @@
   @keyframes blink { 50% { opacity: .15; } }
   /* The next image of a batch starts from the left at once, not by a sweep back. */
   .rewind .exposure { transition: none; }
-  .card .lines { position: relative; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
-  .card .percent { color: #f2f2f2; font: 300 28px/1.1 var(--mono); letter-spacing: -.02em; margin-bottom: 6px; }
-  .card .lines strong { color: #d4d4d4; font-weight: 500; font-size: 13px; }
-  .card .btn { position: relative; height: 28px; padding: 0 12px;
-    --chrome: transparent; --chrome-3: rgba(255, 255, 255, .08); --line-strong: #3a3a3a; --text: #d4d4d4; }
+  /* Polaroid: the print drops out of the slot at the top, in the dark teal of
+     an undeveloped SX-70 print. Kodak: the print rises out of a slot at the
+     bottom. The line is the print's leading edge. */
+  [data-theme=polaroid] .exposure, [data-theme=kodak] .exposure { inset: 0 0 auto 0; width: auto;
+    height: var(--exposed, 0%); transition: height .6s linear; }
+  [data-theme=kodak] .exposure { inset: auto 0 0 0; }
+  [data-theme=polaroid] .exposure { background: linear-gradient(180deg, #243234, #33443f); }
+  [data-theme=kodak] .exposure { background: linear-gradient(0deg, #2e241d, #43342a); }
+  [data-theme=polaroid] .exposure::after, [data-theme=kodak] .exposure::after {
+    inset: auto 0 0 0; width: auto; height: 1px; }
+  [data-theme=kodak] .exposure::after { inset: 0 0 auto 0; }
+  [data-theme=polaroid] .exposure::before, [data-theme=kodak] .exposure::before { display: none; }
+  [data-theme=polaroid] .card::after, [data-theme=kodak] .card::after { content: ""; position: absolute;
+    left: 5px; right: 5px; height: 4px; border-radius: 2px; background: #000;
+    box-shadow: inset 0 1px 2px rgba(255, 255, 255, .08); }
+  [data-theme=polaroid] .card::after { top: 3px; }
+  [data-theme=kodak] .card::after { bottom: 21px; }
+  /* Leica: film, so no eject. The print comes up all over in the tray. */
+  [data-theme=leica] .exposure { inset: 0; width: auto; opacity: var(--exposed, 0%);
+    background: rgba(255, 255, 255, .14); transition: opacity .6s linear; }
+  [data-theme=leica] .exposure::before, [data-theme=leica] .exposure::after { display: none; }
+  .card .percent { position: relative; color: #f2f2f2; font: 300 28px/1.1 var(--mono); letter-spacing: -.02em; }
 
   /* Under the frame: the prompt as its caption, then one quiet line of facts. */
-  .stage-bar { display: flex; align-items: center; gap: 24px; padding: 0 28px 18px; min-width: 0; }
+  .stage-bar { display: flex; align-items: center; gap: 24px; min-height: 82px; padding: 0 28px 18px; min-width: 0; }
+  .stage-bar.reserved { visibility: hidden; }
   .stage-bar[hidden] { display: none; }
   .about { flex: 1; min-width: 0; }
   .prompt-line { margin: 0; color: var(--text); font: 15px/1.4 var(--serif); overflow: hidden;
@@ -196,7 +348,10 @@
     padding: 4px; background: var(--chrome); border-radius: 9px; box-shadow: var(--shadow);
     animation: arrive .12s ease-out; }
   .menu.up { top: auto; bottom: calc(100% + 6px); }
-  #templates { top: 30px; width: min(310px, 100%); }
+  /* The menu opens about 110px from the top of the window. In a short window it scrolls
+     instead of running off the bottom. */
+  #templates { top: 30px; width: min(310px, 100%); max-height: calc(100dvh - 140px); overflow-y: auto;
+    overscroll-behavior: contain; }
   .menu button { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 7px 10px;
     border: 0; border-radius: 6px; background: none; color: var(--text); text-align: left;
     cursor: pointer; font-size: 13px; }
@@ -241,7 +396,9 @@
   .frame .no { font: 9px/11px var(--mono); letter-spacing: .14em; color: #6e6e6e; }
   .frame.selected .no { color: #d4d4d4; }
   .frame:focus-visible { outline: none; }
-  .frame:focus-visible .still { outline: 1.5px solid #ededed; outline-offset: 3px; }
+  /* The marker already shows the selected frame, so the focus ring shows
+     only on a frame Tab reached without selecting it. */
+  .frame:focus-visible:not(.selected) .still { outline: 1.5px solid #ededed; outline-offset: 3px; }
   /* The marker loop circles the picture, clear of the number, and is drawn
      once, when a frame is picked, not on every redraw. */
   .mark { position: absolute; top: -6px; left: -9px; width: calc(100% + 18px); height: 71px;
@@ -257,9 +414,9 @@
   .frame.pending .still { display: block; opacity: 1; }
 
   /* Right: the controls. Only this column's middle scrolls; the run button stays put. */
-  aside { background: var(--chrome); border-left: 1px solid var(--line); min-height: 0; }
+  aside { background-color: var(--chrome); border-left: 1px solid var(--line); min-height: 0; }
   form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-  .controls { flex: 1; overflow-y: auto; padding: 18px 22px 28px; display: flex;
+  .controls { flex: 1; overflow-y: auto; padding: 18px 22px calc(28px + var(--slack, 0px)); display: flex;
     flex-direction: column; gap: 22px; }
   .field { display: flex; flex-direction: column; gap: 8px; }
   .field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; min-height: 18px; }
@@ -361,13 +518,24 @@
     white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
   details[open] summary .values { visibility: hidden; }
   .advanced { display: flex; flex-direction: column; gap: 18px; margin-top: 18px; }
-  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .look { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
-  .look-row { display: flex; flex-direction: column; gap: 7px; }
-  .look-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .look { display: flex; flex-direction: column; margin-top: 10px; }
+  .look-row { display: flex; flex-direction: column; }
+  .look-row + .look-row { border-top: 1px solid var(--line); }
+  .look-row-toggle { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    height: 34px; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
+  .look-row-toggle:hover .label, .look-row-toggle[aria-expanded=true] .label { color: var(--text); }
+  .look-pick { color: var(--text-3); font-size: 12px; }
+  .look-pick.picked { color: var(--text); }
+  .look-chips { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 10px; }
   .look-chips .chip { height: 28px; padding: 0 10px; }
-  .look-adds { margin: 16px 0 0; color: var(--text-3); font-size: 12px; line-height: 1.5; }
-  .look-adds q { color: var(--text-2); font-family: var(--serif); font-size: 13px; }
+  .look-note { margin: 16px 0 0; color: var(--text-3); font-size: 12px; line-height: 1.5; }
+  /* The Look sits under the prompt it extends, so the whole sent text reads in one place. */
+  .look-tail { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+  .look-tail[hidden] { display: none; }
+  .look-tail .chip { height: 24px; padding: 0 8px; gap: 6px; }
+  .look-tail q { flex-basis: 100%; color: var(--text-3); font: 13px/1.45 var(--serif); }
+  .look-tail .look-avoids { flex-basis: 100%; margin: 0; color: var(--text-3); font-size: 12px; line-height: 1.45; }
+  .prompt-line .look-said { color: var(--text-3); }
 
   /* The count sits beside the run button because it belongs to the run. It
      stays unfilled, so the button is still the one thing to press. */
@@ -400,16 +568,13 @@
   #go .main { font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
   #go .sub { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .7; }
   #go .busy-label, #go .stopping-label { display: none; }
-  body.busy #go { background: var(--chrome-2); border-color: var(--line); color: var(--text);
-    opacity: 1; cursor: progress; }
+  body.busy #go { background: var(--chrome-2); border-color: var(--line-strong); color: var(--text); opacity: 1; }
+  body.busy #go:hover:not(:disabled) { background: var(--chrome-3); }
   body.busy #go .idle-label { display: none; }
   body.busy #go .busy-label { display: inline; }
   body.stopping #go .busy-label { display: none; }
   body.stopping #go .stopping-label { display: inline; }
   body.stopping #go { color: var(--text-3); cursor: progress; }
-  #go .fill { position: absolute; left: 0; bottom: 0; height: 2px; width: 0; background: var(--text);
-    transition: width .6s linear; display: none; }
-  body.busy #go .fill { display: block; }
   #go .sub { color: inherit; }
   body.busy #go .sub { color: var(--text-2); opacity: 1; }
 
@@ -424,7 +589,7 @@
   @media (max-width: 900px) {
     .app { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
     .work { grid-template-rows: auto 62vh auto; }
-    .privacy span { display: none; }
+    .status #status-text { display: none; }
     .canvas { padding: 18px; }
     .stage-bar { flex-wrap: wrap; gap: 10px; padding: 0 18px 14px; }
     .about { flex-basis: 100%; }
@@ -455,7 +620,6 @@
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
-  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></symbol>
   <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="18" cy="12" r="1.4" fill="currentColor"/></symbol>
   <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/></symbol>
@@ -464,19 +628,29 @@
   <symbol id="i-shrink" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></symbol>
   <symbol id="i-caret" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-aperture" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.3 3.3L8.6 13.2M20.6 9.5H9.2M17.7 18.2L12 8.4M9.7 20.7l5.7-9.9M3.4 14.5h11.4M6.3 5.8L12 15.6"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/></symbol>
 </svg>
 
 <div class="app">
   <div class="work">
     <header class="topbar">
-      <div class="menu-anchor">
-        <h1><button type="button" id="backend-toggle" aria-haspopup="menu" aria-expanded="false"
-          aria-controls="backend-menu" disabled>__NAME__<svg class="icon"><use href="#i-caret"/></svg></button></h1>
-        <div class="menu" id="backend-menu" role="menu" hidden></div>
+      <div class="dial">
+        <div class="menu-anchor">
+          <h1><button type="button" id="backend-toggle" aria-haspopup="menu" aria-expanded="false"
+            aria-controls="backend-menu" disabled><span class="name">__NAME__</span><svg class="icon"><use href="#i-caret"/></svg></button></h1>
+          <div class="menu" id="backend-menu" role="menu" hidden></div>
+        </div>
+        <span class="badge" title="The weights loaded">__BADGE__</span>
       </div>
-      <span class="badge">__BADGE__</span>
-      <span class="privacy"><svg class="icon"><use href="#i-lock"/></svg><span>Nothing is saved to disk</span></span>
+      <div class="readout">
+        <span class="status" id="status" aria-live="polite"><span class="dot"></span><span id="status-text">Ready</span></span>
+        <div class="menu-anchor">
+        <button type="button" id="theme-toggle" class="icon-btn" aria-haspopup="menu" aria-expanded="false"
+          aria-controls="theme-menu" title="Theme" aria-label="Theme"><svg class="icon"><use href="#i-aperture"/></svg></button>
+          <div class="menu" id="theme-menu" role="menu" hidden></div>
+        </div>
+      </div>
     </header>
 
     <section class="stage">
@@ -518,6 +692,7 @@
           </div>
           <div class="menu" id="templates" role="menu" hidden></div>
           <textarea id="prompt" name="prompt" autofocus rows="4"></textarea>
+          <div class="look-tail" id="look-adds" hidden></div>
         </div>
 
         <div class="field">
@@ -565,7 +740,7 @@
         <details id="look">
           <summary>Look <span class="values" id="look-values"></span></summary>
           <div class="look" id="look-rows"></div>
-          <p class="look-adds" id="look-adds"></p>
+          <p class="look-note">Each pick adds a sentence after your prompt.</p>
         </details>
 
         <details id="advanced">
@@ -578,27 +753,33 @@
               </div>
               <input id="steps" name="steps" type="range">
             </div>
-            <div class="pair">
-              <div class="field" data-param="guidance">
+            <div class="field" data-param="guidance">
+              <div class="field-head">
                 <label for="guidance">Guidance</label>
-                <input id="guidance" name="guidance" type="number" class="num">
+                <span class="caption num" id="guidance-value"></span>
               </div>
-              <div class="field" data-param="cfg">
-                <label for="cfg">True CFG</label>
-                <input id="cfg" name="cfg" type="number" class="num">
-              </div>
-              <div class="field">
-                <div class="field-head">
-                  <label for="seed">Seed</label>
-                  <button type="button" class="text-btn" id="random-seed">Random</button>
-                </div>
-                <input id="seed" name="seed" type="text" inputmode="numeric" placeholder="Random" class="num">
-              </div>
+              <input id="guidance" name="guidance" type="range">
             </div>
-            <span class="caption" data-param="cfg">Raise True CFG if the edit is ignored.</span>
+            <div class="field" data-param="cfg">
+              <div class="field-head">
+                <label for="cfg">Guidance</label>
+                <span class="caption num" id="cfg-value"></span>
+              </div>
+              <input id="cfg" name="cfg" type="range">
+              <span class="caption">Raise guidance if the edit is ignored.</span>
+            </div>
+            <div class="field">
+              <div class="field-head">
+                <label for="seed">Seed</label>
+                <button type="button" class="text-btn" id="clear-seed" hidden>Clear</button>
+              </div>
+              <input id="seed" name="seed" type="text" inputmode="numeric" placeholder="Random" class="num">
+            </div>
             <div class="field" data-param="negative">
               <label for="negative">Negative prompt</label>
               <input id="negative" name="negative" type="text" placeholder="Optional">
+              <span class="caption" id="negative-look" hidden></span>
+              <span class="caption" id="negative-note" hidden></span>
             </div>
           </div>
         </details>
@@ -609,11 +790,10 @@
         <button id="go" type="submit">
           <span class="main">
             <span class="idle-label"><span class="generate-only">Generate</span><span class="edit-only">Edit</span></span>
-            <span class="busy-label" id="go-busy">Generating</span>
+            <span class="busy-label">Cancel</span>
             <span class="stopping-label">Stopping&hellip;</span>
           </span>
-          <span class="sub num" id="go-sub" aria-live="polite"></span>
-          <span class="fill" id="go-fill"></span>
+          <span class="sub num" id="go-sub"></span>
         </button>
         <button type="button" id="count-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="count-menu"
                 title="Images to make. Each one uses the next seed.">
@@ -641,7 +821,6 @@
   const form = document.getElementById('form');
   const go = document.getElementById('go');
   const goSub = document.getElementById('go-sub');
-  const goFill = document.getElementById('go-fill');
   const promptInput = document.getElementById('prompt');
   const countInput = document.getElementById('count');
   const sizeSelect = document.getElementById('size');
@@ -682,11 +861,12 @@
   fillSelect(document.getElementById('resolution'), 'resolution');
 
   // A number param takes its range from the spec of the mode in use. The value
-  // carries over a mode switch when it still fits the new range. The first call
-  // sets every default, because an empty range input reads as its midpoint. A
+  // carries over a mode switch when it still fits the new range. An input takes
+  // its default the first time a mode applies it, because a range input never
+  // starts empty: it reads as the middle of its range, and the new range clamps
+  // that to a value that fits, such as 10 for a guidance of 1 to 10. A
   // choice param takes the mode's default on every switch, because a mode
   // switch starts over: an edit keeps the image's shape, a generate is square.
-  let paramsSet = false;
   function applyParams() {
     form.querySelectorAll('[data-param]').forEach(function (node) {
       node.hidden = !paramSpec(node.dataset.param);
@@ -701,13 +881,13 @@
       const value = Number(input.value);
       const fits = input.value !== '' && (param.minimum === null || value >= param.minimum)
         && (param.maximum === null || value <= param.maximum);
-      if (!fits || !paramsSet) input.value = param.default;
+      if (!fits || !input.dataset.applied) input.value = param.default;
+      input.dataset.applied = '1';
     });
     currentMode().params.filter(function (param) { return param.kind === 'choice'; }).forEach(function (param) {
       const select = document.getElementById(param.id);
       if (select) select.value = param.default;
     });
-    paramsSet = true;
   }
 
   function busy() {
@@ -923,13 +1103,20 @@
       button.type = 'button';
       button.className = 'num';
       button.dataset.value = option.value;
-      button.textContent = option.value === 'match' ? 'Match' : option.value;
+      button.textContent = option.value === 'match' ? 'Match' : megapixels(Number(option.value) ** 2);
       button.addEventListener('click', function () { setSelect(resolutionSelect, option.value); });
       edits.append(button);
     });
   }
 
-  // The sizes of the chosen shape, smallest first, labelled by their pixels.
+  // A size tier by its pixel count, so both modes name tiers alike. The exact
+  // pixels show once, in the caption above.
+  function megapixels(pixels) {
+    const mp = pixels / 1e6;
+    return (mp < 1 ? mp.toFixed(1) : String(Math.round(mp * 10) / 10)) + ' MP';
+  }
+
+  // The sizes of the chosen shape, smallest first.
   function renderTiers(ratio) {
     const tiers = document.getElementById('tier-sizes');
     tiers.hidden = ratio === 'match';
@@ -940,7 +1127,8 @@
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'num';
-        button.textContent = option.width + '\u00d7' + option.height;
+        button.textContent = megapixels(option.width * option.height);
+        button.title = option.width + ' \u00d7 ' + option.height;
         button.setAttribute('aria-pressed', String(option.value === sizeSelect.value));
         button.addEventListener('click', function () { setSelect(sizeSelect, option.value); });
         tiers.append(button);
@@ -1028,7 +1216,7 @@
   }
   countToggle.addEventListener('click', openCount);
 
-  document.getElementById('random-seed').addEventListener('click', function () {
+  document.getElementById('clear-seed').addEventListener('click', function () {
     document.getElementById('seed').value = '';
     refreshForm();
   });
@@ -1036,13 +1224,15 @@
   function renderAdvancedValues() {
     const steps = document.getElementById('steps').value;
     const seed = document.getElementById('seed').value.trim();
-    const scale = editing()
-      ? 'CFG ' + document.getElementById('cfg').value
-      : 'guidance ' + document.getElementById('guidance').value;
-    const negative = document.getElementById('negative').value.trim() ? ', negative prompt' : '';
+    const scaleId = scaleParam();
+    const scale = scaleId ? ', guidance ' + document.getElementById(scaleId).value : '';
+    const negative = negativeText() ? ', negative prompt' : '';
     document.getElementById('advanced-values').textContent =
-      steps + ' steps, ' + scale + ', ' + (seed ? 'seed ' + seed : 'random seed') + negative;
+      steps + ' steps' + scale + ', ' + (seed ? 'seed ' + seed : 'random seed') + negative;
+    document.getElementById('clear-seed').hidden = !seed;
     document.getElementById('steps-value').textContent = steps;
+    document.getElementById('guidance-value').textContent = document.getElementById('guidance').value;
+    document.getElementById('cfg-value').textContent = document.getElementById('cfg').value;
     document.getElementById('strength-value').textContent =
       Number(document.getElementById('strength').value).toFixed(2);
   }
@@ -1064,10 +1254,22 @@
   let runStepSeconds = 0;   // the pre-run guess per step, until real steps arrive
   let runRatio = 1;         // the shape of the image in flight, whatever the form says now
 
+  // The mode's guidance scale, whichever of the two names it declares.
+  function scaleParam() {
+    return paramSpec('cfg') ? 'cfg' : paramSpec('guidance') ? 'guidance' : '';
+  }
+
+  // A backend with a negative prompt runs the second pass only for a set
+  // negative: qwen21 at guidance 2.5 and a blank negative takes the time of
+  // guidance 1. A backend without one runs it for any guidance above 1.
+  function twoPass() {
+    const id = scaleParam();
+    if (!id || Number(document.getElementById(id).value) <= 1) return false;
+    return !paramSpec('negative') || Boolean(negativeText());
+  }
+
   function costKey() {
-    const scaleParam = paramSpec('cfg') ? 'cfg' : paramSpec('guidance') ? 'guidance' : '';
-    const scale = scaleParam ? Number(document.getElementById(scaleParam).value) : 1;
-    return STUDIO.backend.id + ' ' + currentMode().id + (scale > 1 ? ' two-pass' : '');
+    return STUDIO.backend.id + ' ' + currentMode().id + (twoPass() ? ' two-pass' : '');
   }
 
   function targetPixels() {
@@ -1081,7 +1283,10 @@
   function stepSeconds() {
     const model = currentMode().estimate;
     if (!model) return 0;
-    const cost = learnedCost[costKey()] || model.step_cost;
+    // The constant holds the passes it was measured with, so rescale it to the
+    // passes the form asks for. A learned rate is already per pass count.
+    const passes = (twoPass() ? 2 : 1) / (model.two_pass ? 2 : 1);
+    const cost = learnedCost[costKey()] || model.step_cost * passes;
     return cost * Math.pow(targetPixels() / 1e6, model.exponent);
   }
 
@@ -1112,7 +1317,63 @@
     goSub.textContent = reason || estimate();
   }
 
+  // A negative prompt works only through a guidance above 1, and the spec
+  // names the value it needs in `with_negative`. So when a negative prompt
+  // appears, the page raises the scale to that value. When it goes, the page
+  // puts the old value back, unless the scale was moved by hand in between.
+  // A scale moved below 1 by hand stays there, with a note.
+  let hadNegative = false;
+  let raisedFrom = null;    // the scale's value before the page raised it
+
+  // The negative the model gets: the typed one, then the avoid parts of the
+  // picked Looks. Only the typed one is the user's own text.
+  function typedNegative() {
+    return paramSpec('negative') ? document.getElementById('negative').value.trim() : '';
+  }
+
+  function negativeText() {
+    return [typedNegative(), lookAvoids()].filter(Boolean).join(', ');
+  }
+
+  function followNegative() {
+    const id = scaleParam();
+    const spec = id ? paramSpec(id) : null;
+    const note = document.getElementById('negative-note');
+    const wanted = Boolean(negativeText());
+    if (!spec || spec.with_negative === null) {
+      note.hidden = true;
+      hadNegative = wanted;
+      return;
+    }
+    const input = document.getElementById(id);
+    if (wanted && !hadNegative && Number(input.value) < spec.with_negative) {
+      raisedFrom = input.value;
+      input.value = spec.with_negative;
+    }
+    if (!wanted && hadNegative && raisedFrom !== null && Number(input.value) === spec.with_negative) {
+      input.value = raisedFrom;
+    }
+    if (!wanted) raisedFrom = null;
+    hadNegative = wanted;
+    note.hidden = !wanted;
+    note.textContent = Number(input.value) > 1
+      ? 'Guidance is ' + input.value + ' for the negative prompt. Each image takes about twice as long.'
+      : 'A negative prompt works only with guidance above 1. Each image then takes about twice as long.';
+  }
+
+  // The field keeps the user's own text, as the prompt field does. What the
+  // Look adds shows under it, so the field never looks empty while a
+  // negative prompt is sent.
+  function renderNegativeLook() {
+    const line = document.getElementById('negative-look');
+    const avoids = lookAvoids();
+    line.hidden = !avoids;
+    line.textContent = avoids ? 'Look adds: ' + avoids : '';
+  }
+
   function refreshForm() {
+    renderNegativeLook();
+    followNegative();
     renderSize();
     renderAdvancedValues();
     renderRunButton();
@@ -1188,9 +1449,11 @@
   // prompt is cleared too: a scene description is not an edit instruction.
   // ---- Look -------------------------------------------------------------------
   // Each choice adds one sentence after the prompt, at run time only, so the
-  // prompt field, the caption and Reuse prompt keep the user's own text. The
+  // prompt field keeps the user's own text and a pick stays one click to undo.
+  // The sentence shows under the field, and the caption shows it muted. The
   // rows and their wording come from the backend, tuned on its model.
   let look = {};            // row name to the labels picked in it
+  let openLookRow = null;   // the one row showing its options, by name
 
   function lookRows() {
     return currentMode().looks;
@@ -1203,6 +1466,14 @@
     }).filter(Boolean).join(' ');
   }
 
+  function lookAvoids() {
+    if (!paramSpec('negative')) return '';
+    return lookRows().map(function (row) {
+      const picked = (row.avoids || []).find(function (avoid) { return (look[row.name] || []).includes(avoid[0]); });
+      return picked ? picked[1] : '';
+    }).filter(Boolean).join(', ');
+  }
+
   function lookLabels() {
     return lookRows().flatMap(function (row) { return look[row.name] || []; });
   }
@@ -1210,42 +1481,120 @@
   function pickLook(row, label) {
     const had = (look[row.name] || []).includes(label);
     look[row.name] = had ? [] : [label];
+    openLookRow = null;
     renderLook();
+    refreshForm();
   }
 
+  // A pick from the rows changes the text under the prompt, above the rows,
+  // which pushes the row being clicked down the sidebar. The sidebar scrolls
+  // by as much, so the row stays under the pointer. A sidebar too short to
+  // scroll that far gets the missing room as empty space at its foot.
+  function pickLookInPlace(row, label) {
+    const controls = document.querySelector('.controls');
+    const rowTop = function () {
+      const toggle = document.querySelector('.look-row-toggle[data-row="' + CSS.escape(row.name) + '"]');
+      return toggle.getBoundingClientRect().top;
+    };
+    const before = rowTop();
+    pickLook(row, label);
+    const target = controls.scrollTop + rowTop() - before;
+    // The sidebar fills the window, so its content can end well above its
+    // foot. The slack makes the content reach target + the visible height.
+    const box = controls.getBoundingClientRect();
+    const contentEnd = Math.max.apply(null, Array.from(controls.children).map(function (child) {
+      return child.getBoundingClientRect().bottom;
+    })) - box.top + controls.scrollTop + 28;
+    controls.style.setProperty('--slack', Math.max(0, target + controls.clientHeight - contentEnd) + 'px');
+    controls.scrollTop = target;
+  }
+
+  // One line per row, with the row's pick. A row shows its options only
+  // while it is open, and one row is open at a time.
   function renderLook() {
     const rows = document.getElementById('look-rows');
     rows.replaceChildren();
     lookRows().forEach(function (row) {
       const line = document.createElement('div');
       line.className = 'look-row';
+      const picked = (look[row.name] || [])[0];
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'look-row-toggle';
+      toggle.dataset.row = row.name;
+      toggle.setAttribute('aria-expanded', String(openLookRow === row.name));
       const name = document.createElement('span');
       name.className = 'label';
       name.textContent = row.name;
+      const pick = document.createElement('span');
+      pick.className = 'look-pick' + (picked ? ' picked' : '');
+      pick.textContent = picked || 'none';
+      toggle.append(name, pick);
+      toggle.addEventListener('click', function () {
+        openLookRow = openLookRow === row.name ? null : row.name;
+        renderLook();
+      });
       const chips = document.createElement('div');
       chips.className = 'look-chips';
+      chips.hidden = openLookRow !== row.name;
       row.options.forEach(function ([label]) {
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'chip';
         chip.textContent = label;
         chip.setAttribute('aria-pressed', String((look[row.name] || []).includes(label)));
-        chip.addEventListener('click', function () { pickLook(row, label); });
+        chip.addEventListener('click', function () { pickLookInPlace(row, label); });
         chips.append(chip);
       });
-      line.append(name, chips);
+      line.append(toggle, chips);
       rows.append(line);
     });
     const labels = lookLabels();
     document.getElementById('look-values').textContent = labels.length ? labels.join(', ') : 'none';
-    const adds = document.getElementById('look-adds');
+    renderLookTail();
+  }
+
+  // Under the prompt: one chip per pick, which unpicks it, then the sentence
+  // the run adds.
+  function renderLookTail() {
+    const tail = document.getElementById('look-adds');
     const added = lookText();
-    adds.replaceChildren(added ? 'Adds after your prompt: ' : 'Pick any to add a line after your prompt.');
-    if (added) {
-      const quote = document.createElement('q');
-      quote.textContent = added;
-      adds.append(quote);
-    }
+    tail.hidden = !added;
+    tail.replaceChildren();
+    if (!added) return;
+    lookRows().forEach(function (row) {
+      (look[row.name] || []).forEach(function (label) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip';
+        chip.textContent = label + ' \u00d7';
+        chip.setAttribute('aria-label', 'Remove ' + label);
+        chip.addEventListener('click', function () { pickLook(row, label); });
+        tail.append(chip);
+      });
+    });
+    const quote = document.createElement('q');
+    quote.textContent = added;
+    tail.append(quote);
+    const avoids = lookAvoids();
+    if (!avoids) return;
+    const note = document.createElement('p');
+    note.className = 'look-avoids';
+    note.textContent = 'Negative prompt adds: ' + avoids + '. Each image takes about twice as long.';
+    tail.append(note);
+  }
+
+  // A copy of the picks if this mode offers every one of them, else null.
+  // Rows differ by mode, so a pick is matched by its row and label.
+  function picksHere(picks) {
+    const fits = Object.keys(picks).filter(function (name) { return picks[name].length; })
+      .every(function (name) {
+        const row = lookRows().find(function (candidate) { return candidate.name === name; });
+        return row && picks[name].every(function (label) {
+          return row.options.some(function (option) { return option[0] === label; });
+        });
+      });
+    return fits ? JSON.parse(JSON.stringify(picks)) : null;
   }
 
   // The prompt as the model gets it: the user's text, closed as a sentence,
@@ -1263,6 +1612,8 @@
     document.getElementById('templates-toggle').hidden = !currentMode().templates.length;
     document.getElementById('look').hidden = !currentMode().looks.length;
     applyParams();
+    hadNegative = false;
+    raisedFrom = null;
   }
   form.querySelectorAll('input[name=mode]').forEach(function (radio) {
     radio.addEventListener('change', function () {
@@ -1271,6 +1622,7 @@
       references = [];
       promptInput.value = '';
       look = {};
+      openLookRow = null;
       renderLook();
       growPrompt();
       renderReferences();
@@ -1291,7 +1643,7 @@
   let arrivedId = null;     // the image to fade in once, on arrival
   let nextId = 1;
   let batchSource = null;   // the source of a one-image edit, for before and after
-  let runLook = null;       // the run's own prompt and look, apart from what the model got
+  let runLook = null;       // the run's own prompt, look and negative, apart from what the model got
 
   // Each image is shown by a blob URL. As a data URL, every img that showed it
   // made the browser parse megabytes of base64 text again. The base64 stays on
@@ -1321,11 +1673,12 @@
       const entry = {
         id: nextId++, src: blobUrl(source), b64: source.split(',')[1], seed: data.seed,
         width: data.width, height: data.height, steps: data.steps, elapsed: data.elapsed,
-        position: data.position, mode: data.mode, prompt: data.prompt, look: null,
+        position: data.position, mode: data.mode, prompt: data.prompt, look: null, negative: '',
         before: data.mode === 'edit' ? batchSource : null,
       };
       if (runLook && data.prompt === runLook.sent) {
         entry.prompt = runLook.prompt;
+        entry.negative = runLook.negative;
         if (runLook.labels.length) entry.look = runLook;
       }
       gallery.unshift(entry);
@@ -1373,6 +1726,13 @@
     view = id;
     renderStrip();
     renderStage();
+  }
+
+  const statusText = document.getElementById('status-text');
+
+  function renderTopPlate() {
+    if (!busy()) statusText.textContent = 'Ready';
+    else if (!progressState) statusText.textContent = 'Starting';
   }
 
   function pendingNode() {
@@ -1450,23 +1810,22 @@
   }
 
   function renderStage() {
+    renderTopPlate();
     canvas.innerHTML = '';
     stageBar.hidden = true;
+    stageBar.classList.remove('reserved');
     if (view === 'progress' && busy()) {
+      // The caption's room is kept through the run, so the frame does not
+      // move when the plate turns into the print.
+      stageBar.innerHTML = '';
+      stageBar.hidden = false;
+      stageBar.classList.add('reserved');
       const card = document.createElement('div');
       card.className = 'card';
       const now = progressNow();
       paintPlate(card, now.running, now.percent);
-      card.innerHTML = '<div class="plate"><div class="exposure"></div>'
-        + '<div class="lines"><span class="percent num"></span><strong class="num" data-slot="step"></strong>'
-        + '<span class="num" data-slot="image"></span><span class="num" data-slot="left"></span></div></div>'
+      card.innerHTML = '<div class="plate"><div class="exposure"></div><span class="percent num"></span></div>'
         + '<div class="edge"><span>' + EDGE_NAME + '</span><span>' + frameNumber(nextId) + '</span></div>';
-      const cancel = document.createElement('button');
-      cancel.type = 'button';
-      cancel.className = 'btn';
-      cancel.textContent = 'Cancel';
-      cancel.addEventListener('click', requestCancel);
-      card.querySelector('.plate').append(cancel);
       canvas.append(card);
       fitStage();
       renderProgress();
@@ -1568,7 +1927,7 @@
   }
 
   function sweep(range, split) {
-    const delay = 900;      // after the print has mostly developed
+    const delay = 650;      // once the print is in focus, while its grain still settles
     const length = 650;
     let start = null;
     range.value = '0';
@@ -1608,8 +1967,15 @@
     // The prompt leads, as the frame's caption; the facts sit quietly under it.
     const prompt = document.createElement('p');
     prompt.className = 'prompt-line';
-    prompt.textContent = entry.prompt;
-    prompt.title = entry.prompt;
+    if (entry.look) {
+      const said = document.createElement('span');
+      said.className = 'look-said';
+      said.textContent = entry.look.adds;
+      prompt.append(entry.look.sent.slice(0, -entry.look.adds.length), said);
+    } else {
+      prompt.textContent = entry.prompt;
+    }
+    prompt.title = entry.look ? entry.look.sent : entry.prompt;
     about.append(prompt, facts);
 
     // Every action is page state only; nothing is sent until the next run.
@@ -1637,11 +2003,13 @@
         refreshForm();
       }),
       menuItem('text', 'Reuse prompt', function () {
-        promptInput.value = entry.prompt;
-        if (entry.mode === (editing() ? 'edit' : 'generate')) {
-          look = entry.look ? JSON.parse(JSON.stringify(entry.look.picks)) : {};
-          renderLook();
-        }
+        // A Look this mode does not offer comes back as text, so the prompt
+        // still says what the model got.
+        const picks = entry.look ? picksHere(entry.look.picks) : {};
+        promptInput.value = picks ? entry.prompt : entry.look.sent;
+        look = picks || {};
+        renderLook();
+        if (paramSpec('negative')) document.getElementById('negative').value = entry.negative;
         growPrompt();
         refreshForm();
         promptInput.focus();
@@ -1736,6 +2104,8 @@
     references = [];
     promptInput.value = '';
     growPrompt();
+    look = (entry.look && picksHere(entry.look.picks)) || {};
+    renderLook();
     document.getElementById('seed').value = entry.seed;
     addReference(entry.b64, 'Seed ' + entry.seed);
     view = entry.id;
@@ -1777,7 +2147,7 @@
 
   function fitStage() {
     const plate = canvas.querySelector('.card .plate');
-    if (plate) fitBox(plate, runRatio, 0.9);
+    if (plate) fitBox(plate, runRatio, 1);
     const pic = canvas.querySelector('.pic');
     if (pic) fitBox(pic, Number(pic.dataset.ratio), 1);
   }
@@ -1827,15 +2197,30 @@
   let progressState = null;
   let pace = null;          // how fast this run's steps arrive, for the time left
 
+  let runStartedAt = 0;
+
+  // While a run goes, the run button is Cancel. A click in the first half
+  // second is the second half of a double click on Generate, so it waits.
+  // Enter in a text field also clicks this button (an implicit submit), with
+  // no click count and the focus left in the field; that is not a cancel.
+  go.addEventListener('click', function (event) {
+    if (!busy()) return;
+    event.preventDefault();
+    const implicit = event.detail === 0 && document.activeElement !== go;
+    if (implicit || Date.now() - runStartedAt < 500) return;
+    requestCancel();
+  });
+
   function startWork(element) {
     const fresh = element === form;
     document.body.classList.add('busy');
-    go.disabled = true;
+    go.disabled = false;
+    goSub.textContent = '';
     countToggle.disabled = true;
-    document.getElementById('go-busy').textContent = editing() ? 'Editing' : 'Generating';
     progressSlot.innerHTML = POLLER;
     htmx.process(progressSlot);
     if (fresh) {
+      runStartedAt = Date.now();
       runKey = costKey();
       runPixels = targetPixels();
       runEstimate = currentMode().estimate;
@@ -1862,7 +2247,6 @@
     document.body.classList.remove('busy', 'stopping');
     progressSlot.innerHTML = '';
     progressState = null;
-    goFill.style.width = '0';
     countToggle.disabled = false;
     if (view === 'progress') view = gallery.length ? gallery[0].id : null;
     renderStrip();
@@ -1873,13 +2257,14 @@
   function requestCancel() {
     if (document.body.classList.contains('stopping')) return;
     document.body.classList.add('stopping');
+    go.disabled = true;
     renderProgress();
     htmx.ajax('POST', '/cancel', { swap: 'none' });
   }
 
   // ---- Full screen ------------------------------------------------------------
-  // The stage and the sheet fill the screen. F toggles it, the arrow keys walk
-  // the sheet, and Escape leaves by the browser's own rule.
+  // The stage and the sheet fill the screen. F toggles it, and Escape leaves by
+  // the browser's own rule. The arrow keys walk the sheet in and out of it.
   const work = document.querySelector('.work');
 
   function toggleFullscreen() {
@@ -1893,8 +2278,11 @@
     const index = order.indexOf(view);
     const next = order[index + delta];
     if (next === undefined) return;
+    const stripHadFocus = strip.contains(document.activeElement);
     show(next);
-    strip.querySelector('.selected').scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const selected = strip.querySelector('.selected');
+    selected.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (stripHadFocus) selected.focus();
   }
 
   document.addEventListener('keydown', function (event) {
@@ -1905,7 +2293,6 @@
       event.preventDefault();
       toggleFullscreen();
     }
-    if (!document.fullscreenElement) return;
     if (event.key === 'ArrowRight') stepFrame(1);
     if (event.key === 'ArrowLeft') stepFrame(-1);
   });
@@ -1915,7 +2302,7 @@
   document.addEventListener('keydown', function (event) {
     if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return;
     event.preventDefault();
-    if (!go.disabled) form.requestSubmit(go);
+    if (!go.disabled && !busy()) form.requestSubmit(go);
   });
 
   new MutationObserver(function () {
@@ -2004,19 +2391,16 @@
     if (running) stepText = 'Step ' + state.step + ' of ' + state.total;
     if (stopping) stepText = 'Stopping at the end of this step';
 
-    goSub.textContent = stopping ? '' : stepText;
+    const left = running && !stopping ? timeLeft() : '';
+    statusText.textContent = stopping ? 'Stopping' : running
+      ? ['Developing ' + now.percent + '%', state.label ? 'image ' + state.label : '',
+        left.charAt(0).toLowerCase() + left.slice(1)].filter(Boolean).join(', ')
+      : stepText;
     document.title = (running ? '(' + now.percent + '%) ' : '') + BASE_TITLE;
-    goFill.style.width = now.percent + '%';
     document.querySelectorAll('.card, .frame.pending .still').forEach(function (plate) {
       paintPlate(plate, running, now.percent);
       const percent = plate.querySelector('.percent');
       if (percent) percent.textContent = running ? now.percent + '%' : '';
-    });
-    const slots = canvas.querySelectorAll('[data-slot]');
-    slots.forEach(function (slot) {
-      if (slot.dataset.slot === 'step') slot.textContent = stepText;
-      if (slot.dataset.slot === 'image') slot.textContent = state && state.label ? 'Image ' + state.label : '';
-      if (slot.dataset.slot === 'left') slot.textContent = running && !stopping ? timeLeft() : '';
     });
   }
 
@@ -2036,8 +2420,12 @@
     batchSource = editing() && references.length === 1
       ? blobUrl('data:image/png;base64,' + references[0].b64) : null;
     const own = promptInput.value.trim();
-    runLook = { prompt: own, sent: withLook(own), labels: lookLabels(), picks: JSON.parse(JSON.stringify(look)) };
+    runLook = {
+      prompt: own, sent: withLook(own), adds: lookText(), labels: lookLabels(),
+      picks: JSON.parse(JSON.stringify(look)), negative: typedNegative(),
+    };
     event.detail.parameters.prompt = runLook.sent;
+    if (paramSpec('negative')) event.detail.parameters.negative = negativeText();
     event.detail.parameters.references = JSON.stringify(references.map(function (r) {
       return r.b64;
     }));
@@ -2122,8 +2510,48 @@
       });
   }
 
+  // The theme is the one thing the page keeps: its name, in this browser.
+  const THEMES = [['', 'Darkroom'], ['leica', 'Leica M'], ['kodak', 'Kodak Instamatic'], ['polaroid', 'Polaroid SX-70']];
+
+  function setupThemes() {
+    const toggle = document.getElementById('theme-toggle');
+    const menu = document.getElementById('theme-menu');
+    toggle.addEventListener('click', function () { toggleMenu(menu); });
+    const head = document.createElement('div');
+    head.className = 'menu-head';
+    head.textContent = 'Theme';
+    menu.append(head);
+    THEMES.forEach(function ([id, name]) {
+      const item = menuItem('check', name, function () { applyTheme(id); });
+      item.setAttribute('role', 'menuitemradio');
+      item.dataset.theme = id;
+      menu.append(item);
+    });
+    markTheme();
+  }
+
+  function applyTheme(id) {
+    if (id) document.documentElement.dataset.theme = id;
+    else delete document.documentElement.dataset.theme;
+    markTheme();
+    try {
+      if (id) localStorage.setItem('studio-theme', id);
+      else localStorage.removeItem('studio-theme');
+    } catch (error) {
+      showToast('info', 'The theme applies to this tab only: ' + error.message);
+    }
+  }
+
+  function markTheme() {
+    const current = document.documentElement.dataset.theme || '';
+    document.querySelectorAll('#theme-menu [role=menuitemradio]').forEach(function (item) {
+      item.setAttribute('aria-checked', String(item.dataset.theme === current));
+    });
+  }
+
   setupModes();
   setupBackends();
+  setupThemes();
   buildSizeControls();
   applyMode();
   renderLook();
