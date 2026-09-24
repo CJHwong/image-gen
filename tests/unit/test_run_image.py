@@ -1,8 +1,10 @@
+import threading
 from dataclasses import replace
 
 import pytest
 
 from studio.l1_entities.errors import (
+    BackendBusy,
     BackendChanged,
     Cancelled,
     InvalidJob,
@@ -201,3 +203,18 @@ def _chained(response):
         "reference_token": step.reference_token,
         "backend": step.backend,
     }
+
+
+def test_a_second_run_is_refused_while_one_is_in_flight():
+    """Another tab's run fails at once. Queued, it would show the first run's
+    progress, and its Cancel would stop the first run."""
+    backend = FakeBackendGateway()
+    progress = InMemoryProgressGateway()
+    catalog = InMemoryBackendCatalogGateway({"fake": backend}, default_id="fake", visible_ids=("fake",))
+    engine_lock = threading.Lock()
+    use_case = RunImageUseCase(catalog, progress, InMemoryReferenceStoreGateway(), engine_lock=engine_lock)
+    progress.request_cancel()  # the first run's own cancel, which the refused run must not clear
+    with engine_lock, pytest.raises(BackendBusy, match="another tab"):
+        use_case.execute(request())
+    assert backend.jobs == []
+    assert progress.cancel_requested()

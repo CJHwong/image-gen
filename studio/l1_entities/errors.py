@@ -27,7 +27,7 @@ class Cancelled(StudioError):
 
 
 class BackendBusy(StudioError):
-    """A switch was asked for while a run is in flight."""
+    """A run or a switch was asked for while a run is in flight."""
 
 
 class UnknownBackend(StudioError):

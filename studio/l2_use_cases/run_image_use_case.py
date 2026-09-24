@@ -14,7 +14,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from studio.l1_entities.capabilities import ModeSpec
-from studio.l1_entities.errors import BackendChanged, Cancelled, InvalidJob, MissingPrompt, ReferenceExpired
+from studio.l1_entities.errors import (
+    BackendBusy,
+    BackendChanged,
+    Cancelled,
+    InvalidJob,
+    MissingPrompt,
+    ReferenceExpired,
+)
 from studio.l1_entities.image_job import ImageJob, ImageResult, ReferenceImage
 from studio.l2_use_cases.boundaries.backend_catalog_gateway import BackendCatalogGateway
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
@@ -79,9 +86,18 @@ class RunImageUseCase:
         self._engine_lock = engine_lock or threading.Lock()
 
     def execute(self, request: RunImageRequest) -> RunImageResponse:
+        """Refuse a run while another is in flight, rather than queue it.
+
+        The progress and the cancel belong to the one run in flight. A queued
+        run's tab would show that run's steps, and its Cancel would stop it.
+        """
         started = self._clock()
-        with self._engine_lock:
+        if not self._engine_lock.acquire(blocking=False):
+            raise BackendBusy("The model is busy with a run in another tab. Wait for it, or cancel it there.")
+        try:
             return self._execute(request, started)
+        finally:
+            self._engine_lock.release()
 
     def _execute(self, request: RunImageRequest, started: float) -> RunImageResponse:
         backend_id = self._catalog.active_id()
