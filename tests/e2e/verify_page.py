@@ -390,8 +390,18 @@ with sync_playwright() as playwright:
     page.mouse.click(box["x"] + box["width"] * 0.2, box["y"] + box["height"] / 2)
     split = page.evaluate("getComputedStyle(document.querySelector('.pic')).getPropertyValue('--split').trim()")
     check("a click moves the split", split in ("19%", "20%", "21%"), split)
+    page.click(".facts .compare")
+    check(
+        "Compare off shows the result alone",
+        page.locator(".compare-range").count() == 0
+        and page.get_attribute(".facts .compare", "aria-pressed") == "false"
+        and page.evaluate("document.activeElement.className") == "compare",
+    )
+    page.click(".facts .compare")
+    check("Compare on brings the slider back", page.locator(".compare-range").count() == 1)
     page.locator("#strip .frame:not(.pending) >> nth=1").click()
     check("no slider on a generate image", page.locator(".compare-range").count() == 0)
+    check("no Compare switch on a generate image", page.locator(".facts .compare").count() == 0)
     page.locator("#strip .frame:not(.pending) >> nth=0").click()
     check(
         "second view opens at the middle",

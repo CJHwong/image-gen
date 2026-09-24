@@ -366,6 +366,11 @@
     color: var(--text-2); font-weight: 500; }
   .facts .made button { padding: 0; border: 0; background: none; color: inherit; font: inherit;
     text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  /* The before and after slider sits on the print, so its switch sits by the badge. */
+  .facts .compare { padding: 1px 7px; border: 1px solid var(--line-strong); border-radius: 4px;
+    background: none; color: var(--text-3); font: inherit; cursor: pointer; }
+  .facts .compare[aria-pressed=true] { color: var(--text-2); font-weight: 500; }
+  .facts .compare[aria-pressed=false] { border-style: dashed; }
   .facts .break { display: none; }
   .actions { display: flex; align-items: center; gap: 2px; flex: none; }
   .actions .rule { width: 1px; height: 18px; background: var(--line-strong); margin: 0 6px; }
@@ -1898,7 +1903,7 @@
     image.src = entry.src;
     image.alt = entry.prompt;
     pic.append(image);
-    if (entry.before) renderCompare(pic, entry);
+    if (entry.before && comparing) renderCompare(pic, entry);
     const edge = document.createElement('div');
     edge.className = 'edge';
     edge.innerHTML = '<span>' + EDGE_NAME + '</span><span>' + frameNumber(entry.id) + '</span>';
@@ -1948,6 +1953,40 @@
     }
     empty.append(title, line, start);
     canvas.append(empty);
+  }
+
+  // One choice for every edit, kept across reloads like the theme.
+  const COMPARE_KEY = 'studio-compare';
+  let comparing = readCompare();
+
+  function readCompare() {
+    try {
+      return localStorage.getItem(COMPARE_KEY) !== 'off';
+    } catch (error) {
+      console.warn('The compare setting was not read:', error);
+      return true;
+    }
+  }
+
+  function compareToggle() {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'compare';
+    button.textContent = 'Compare';
+    button.title = comparing ? 'Hide the before and after slider' : 'Show the before and after slider';
+    button.setAttribute('aria-pressed', String(comparing));
+    button.addEventListener('click', function () {
+      comparing = !comparing;
+      try {
+        localStorage.setItem(COMPARE_KEY, comparing ? 'on' : 'off');
+      } catch (error) {
+        console.warn('The compare setting was not saved:', error);
+      }
+      renderStage();
+      const again = stageBar.querySelector('.compare');
+      if (again) again.focus();  // the stage was drawn again, so focus stays on the switch
+    });
+    return button;
   }
 
   // The first time an edit shows, the divider sweeps in from the left edge,
@@ -2008,6 +2047,7 @@
     const facts = document.createElement('div');
     facts.className = 'facts num';
     facts.append(madeBadge(entry));
+    if (entry.before) facts.append(compareToggle());
     // Two groups: which image, then how it was made. A phone puts each on its own line.
     [[entry.position === '1 image' ? '' : 'Image ' + entry.position, 'Seed ' + entry.seed],
      [entry.width + ' × ' + entry.height, entry.steps + ' steps', 'Took ' + entry.elapsed + ' s']
