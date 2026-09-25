@@ -9,7 +9,7 @@ One model fits in memory at a time. A second job on the GPU makes every timing w
 1. Before a GPU run, check port 8765, the default studio port. If a server runs there, ask the user to stop it. Never stop it yourself.
 2. Run your own server on another port. Stop it when you finish.
 3. Run one GPU job at a time. If a timing ran next to another GPU job, discard it and measure again.
-4. If a change touches only the page, run `uv run studio --stub --port <port>`. The stub keeps each backend's form and fakes the engine, so it uses no GPU and the user's server can keep running. A change to a backend or its engine still needs the real model.
+4. If a change touches only the page, run `uv run studio --stub --port <port>`. The stub keeps each backend's form and fakes the engine, so it uses no GPU and the user's server can keep running. A change to a backend or its engine still needs the real model. The server reads `page.html` once at start, so restart the stub after an edit to the page, or it keeps serving the old one.
 
 ## Backend flow
 
