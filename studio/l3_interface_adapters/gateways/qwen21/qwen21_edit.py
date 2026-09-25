@@ -271,6 +271,12 @@ def parse_stdio_job(request):
     }
 
 
+def answer_error(error):
+    """One job's failure, on stdout, in the shape the caller waits for."""
+    json.dump({"error": f"{type(error).__name__}: {error}"}, sys.stdout)
+    print(flush=True)
+
+
 def run_stdio(args):
     """JSON jobs in on stdin, JSON results out on stdout, one per line.
 
@@ -313,9 +319,18 @@ def run_stdio(args):
             continue
 
         if pipe is None:
-            start = time.time()
-            pipe = build_pipeline(args.offload, args.vae_encode_on_mps)
-            log(f"{'Loaded':<12}: {time.time() - start:.1f}s")
+            try:
+                start = time.time()
+                pipe = build_pipeline(args.offload, args.vae_encode_on_mps)
+                log(f"{'Loaded':<12}: {time.time() - start:.1f}s")
+            except (Exception, SystemExit) as error:
+                # SystemExit too: build_pipeline exits on a machine with no MPS
+                # device, and that reason has to reach the caller like any other.
+                answer_error(error)
+                # A child with no pipeline has nothing to serve, and keeping it
+                # would repay the whole load on the next job. Answer, then go:
+                # the server starts a fresh child the next time it needs one.
+                return
         else:
             log("ready")
         # Step 0 tells the caller the pipeline is ready, as the mflux engines do.
@@ -325,8 +340,7 @@ def run_stdio(args):
         try:
             image, seed, elapsed = run_edit(pipe, job, log, on_step)
         except Exception as error:
-            json.dump({"error": f"{type(error).__name__}: {error}"}, sys.stdout)
-            print(flush=True)
+            answer_error(error)
             continue
 
         buffer = io.BytesIO()

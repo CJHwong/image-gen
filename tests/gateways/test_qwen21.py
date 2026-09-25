@@ -1,5 +1,11 @@
 import base64
+import importlib.util
+import io
+import json
 import re
+import sys
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -165,3 +171,49 @@ def test_the_look_rows_go_style_then_shot_then_subject():
     for row in looks[:1] + looks[2:]:
         for _, sentence in row.options:
             assert not any(stock in sentence for stock in ("Portra", "Tri-X", "Fuji", "Ektachrome")), row.name
+
+
+EDIT_SCRIPT = Path(__file__).resolve().parents[2] / "studio/l3_interface_adapters/gateways/qwen21/qwen21_edit.py"
+
+
+def load_edit_child():
+    """The edit child as a module, so its stdio contract can be driven in-process."""
+    spec = importlib.util.spec_from_file_location("qwen21_edit_under_test", EDIT_SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def drive_child(monkeypatch, edit, jobs):
+    """Feed the child's stdio loop the given jobs, and return what it answered."""
+    lines = b"".join(json.dumps(job).encode() + b"\n" for job in jobs)
+    stdout = io.StringIO()
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=io.BytesIO(lines)))
+    monkeypatch.setattr(sys, "stdout", stdout)
+    edit.run_stdio(SimpleNamespace(offload=False, vae_encode_on_mps=False))
+    return [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
+
+
+def child_job():
+    return {"prompt": "make it cobalt", "images": [base64.b64encode(png(8, 8).png).decode("ascii")], "steps": 2}
+
+
+def no_weights(offload, encode_on_mps):
+    raise RuntimeError("no weights for Qwen/Qwen-Image-2.1")
+
+
+def test_a_failed_pipeline_build_answers_with_the_error(monkeypatch):
+    """The build sits inside the job's error contract, so the reason reaches the caller."""
+    edit = load_edit_child()
+    monkeypatch.setattr(edit, "build_pipeline", no_weights)
+    answers = drive_child(monkeypatch, edit, [child_job()])
+    assert answers == [{"error": "RuntimeError: no weights for Qwen/Qwen-Image-2.1"}]
+
+
+def test_a_failed_pipeline_build_ends_the_child(monkeypatch):
+    """A child with no pipeline has nothing to serve: it answers, then goes."""
+    edit = load_edit_child()
+    monkeypatch.setattr(edit, "build_pipeline", no_weights)
+    answers = drive_child(monkeypatch, edit, [child_job(), child_job()])
+    assert len(answers) == 1 and "error" in answers[0]

@@ -15,6 +15,8 @@ Each layer imports only the layers inside it. `.importlinter` enforces this, and
 
 The entities and use cases import no engine: no mlx, mflux, PIL, http or subprocess. The backend adapters do not import each other; what two of them share sits next to them in `gateways/`.
 
+The engine choice is made in layer 4, from the probe in `engines.py`, not in a gateway. An engine that only one platform has is a decision at the top, not a branch inside the adapter. Engine code that already branches is not converted: `qwen21_edit.py` still checks for an MPS device, and `gateways/qwen21/PORTABILITY.md` records what a port does with that check.
+
 Names follow the role. A gateway ends in `_gateway.py` and its class in `Gateway`. A use case ends in `_use_case.py` and `UseCase`. Controllers and presenters do the same. Entities and the records passed between layers have no suffix.
 
 ## One request
