@@ -25,6 +25,7 @@ from studio.l3_interface_adapters.gateways.stub_backend_gateway import StubBacke
 from studio.l3_interface_adapters.gateways.thread_confined_backend_gateway import ThreadConfinedBackendGateway
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
+from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
 
 PAGE = Path(__file__).with_name("web") / "page.html"
@@ -86,6 +87,8 @@ def create_studio(config: Config, stub: bool = False) -> Studio:
     backends = build_backends(config)
     if stub:
         backends = {backend_id: StubBackendGateway(backend.capabilities()) for backend_id, backend in backends.items()}
+    else:
+        require_mlx()
     return assemble_studio(backends, config.default_backend, config.visible_backends)
 
 

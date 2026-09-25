@@ -89,6 +89,8 @@ Both images stay in the strip at the bottom, also after a reload.
 | Qwen-Image-2.1 (default) | `gateways/qwen21` | generate and img2img through mflux (MLX); instruction edit with up to 10 images through diffusers (MPS) | downloads itself |
 | FLUX.2 klein-base-9B, uncensored | `gateways/flux2` | generate and img2img, edit with up to 4 images, all through mflux (MLX) | manual setup below |
 
+Both adapters generate through MLX, so this server runs on Apple Silicon. It refuses to start a real studio where MLX is missing; `--stub` still works there, because it fakes the engines. Porting generation to another vendor is not built. The decisions it needs are in [PORTABILITY.md](studio/l3_interface_adapters/gateways/qwen21/PORTABILITY.md).
+
 **Qwen-Image-2.1.** The weights are `Qwen/Qwen-Image-2.1` on HuggingFace. They are not gated, about 33 GB in bf16. They download into `~/.cache/huggingface` on the first run (`HF_HOME` moves the cache).
 
 **FLUX.2 klein-base-9B.** mflux reads one diffusers-layout folder, and its name must contain `klein-base-9b`. The default is `~/Library/Caches/models/mflux-klein-base-9b-uncensored`; `model_dir` in `studio.toml` moves it. It takes about 33 GB.

@@ -20,6 +20,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
+from studio.l4_frameworks_and_drivers.engines import EngineUnavailable
 from studio.l4_frameworks_and_drivers.main import create_studio
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
@@ -54,6 +55,8 @@ def main():
         studio = create_studio(load_config(args.config, backend=args.backend, quantize=args.quantize), stub=args.stub)
     except ConfigError as error:
         sys.exit(f"Bad settings in {args.config}: {error}")
+    except EngineUnavailable as error:
+        sys.exit(f"Cannot run here: {error}")
     # Bind before loading. The weights take a minute, and a busy port found
     # after that minute is a waste. Anything that connects during the load
     # waits in the listen backlog.
