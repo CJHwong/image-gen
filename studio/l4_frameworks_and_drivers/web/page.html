@@ -130,8 +130,11 @@
   .app { display: grid; grid-template-columns: minmax(0, 1fr) 372px; grid-template-rows: minmax(0, 1fr);
     height: 100vh; }
 
-  /* Left: top bar, stage, contact sheet. Nothing here scrolls but the sheet. */
-  .work { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
+  /* Left: top bar, stage, contact sheet. Nothing here scrolls but the sheet and
+     the strip. The column is set, or a full strip makes the implicit column
+     max-content and the left side widens over the controls at the right. */
+  .work { display: grid; grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
   /* The camera's top plate: the model dial on the left, the status readout on
      the right. The readout is the one place that says how a run is going. */
   .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 52px; min-width: 0;

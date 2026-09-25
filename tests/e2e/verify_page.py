@@ -305,6 +305,32 @@ with sync_playwright() as playwright:
     check("the strip keeps its thumbnails", page.evaluate("(img) => img.isConnected", thumb))
     check("thumbnails use blob URLs", page.evaluate("(img) => img.src.startsWith('blob:')", thumb))
 
+    # The left column keeps its width whatever the strip holds. It used to lose
+    # that width to the strip's content, which pushed the stage, the print and
+    # the caption over the controls at the right. Filling the strip with 16:9
+    # images takes ten runs, and the content's width is the whole trigger, so
+    # the frames are cloned at a wide thumbnail's width instead.
+    page.evaluate("""() => {
+        const strip = document.querySelector('#strip');
+        const frames = Array.from(strip.querySelectorAll('.frame'));
+        for (let i = 0; i < 14; i++) {
+            const copy = frames[i % frames.length].cloneNode(true);
+            copy.classList.add('clone');
+            copy.querySelector('.still').style.width = '106px';
+            strip.append(copy);
+        }
+    }""")
+    check(
+        "a full strip scrolls instead of widening the column",
+        page.evaluate("""() => {
+            const strip = document.querySelector('#strip');
+            const stage = document.querySelector('.stage').getBoundingClientRect();
+            const panel = document.querySelector('form').getBoundingClientRect();
+            return strip.scrollWidth > strip.clientWidth + 1 && stage.right <= panel.left + 1;
+        }"""),
+    )
+    page.evaluate("() => document.querySelectorAll('#strip .frame.clone').forEach((node) => node.remove())")
+
     page.mouse.click(200, 200)
     first = page.evaluate("view")
     page.keyboard.press("ArrowRight")

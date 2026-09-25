@@ -60,3 +60,61 @@ def test_cancel_kills_the_whole_group(child):
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
     assert not child.running()
+
+
+def test_a_dead_child_says_what_it_reported_during_the_job(child):
+    """The child's stderr is the only account of its death, so the message carries it."""
+    with pytest.raises(RuntimeError, match="say no such file"):
+        child.request({"say": "no such file", "crash": True}, lambda *_: None, never)
+
+
+def test_a_failure_does_not_wait_for_a_reason_that_cannot_come():
+    """A wrapper can outlive the process it started and hold the pipe open.
+
+    The kill closes that pipe, so the wait for the child's last words ends at
+    once. Reading before killing burns the whole timeout instead, every time,
+    because the survivor is still holding the other end.
+    """
+    command = f'( sleep 2; echo "late reason" >&2 ) 1>/dev/null & exec "{sys.executable}" "{FAKE}"'
+    runner = StdioChild(["/bin/sh", "-c", command])
+    try:
+        began = time.time()
+        with pytest.raises(RuntimeError, match="stopped answering"):
+            runner.request({"crash": True}, lambda *_: None, never)
+        assert time.time() - began < 0.9, "the failure waited out the drain timeout"
+    finally:
+        runner.stop()
+
+
+def test_the_engine_is_alive_while_its_group_is():
+    """A wrapper can outlive the process we started and still hold its pipes."""
+    command = f'( sleep 2 ) 1>/dev/null & exec "{sys.executable}" "{FAKE}"'
+    runner = StdioChild(["/bin/sh", "-c", command])
+    try:
+        runner.request({"echo": "one", "exit": True}, lambda *_: None, never)
+        time.sleep(0.3)  # let the process we started die, so only the group is left
+        assert runner.running(), "the engine left the pipes to its group"
+    finally:
+        runner.stop()
+
+
+def test_cancel_reaches_an_engine_whose_wrapper_holds_the_pipes():
+    """A survivor on stdout blocks the read, so the cancel has to kill the group."""
+    command = f'( sleep 5 ) & exec "{sys.executable}" "{FAKE}"'
+    runner = StdioChild(["/bin/sh", "-c", command])
+    try:
+        runner.request({"echo": "one", "exit": True}, lambda *_: None, never)
+        began = time.time()
+        with pytest.raises(Cancelled, match="stopped at step"):
+            runner.request({"steps": 50, "pause": 0.1}, lambda *_: None, lambda: time.time() - began > 0.5)
+        assert time.time() - began < 3
+    finally:
+        runner.stop()
+
+
+def test_a_dead_child_does_not_report_the_previous_jobs_log(child):
+    """What it said about an earlier job is not the reason this one died."""
+    child.request({"say": "all good"}, lambda *_: None, never)
+    with pytest.raises(RuntimeError) as raised:
+        child.request({"crash": True}, lambda *_: None, never)
+    assert "all good" not in str(raised.value)
