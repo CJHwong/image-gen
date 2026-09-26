@@ -729,7 +729,9 @@
         <span class="badge" title="The weights loaded">__BADGE__</span>
       </div>
       <div class="readout">
-        <span class="status" id="status" aria-live="polite"><span class="dot"></span><span id="status-text">Ready</span></span>
+        <span class="status" id="status" aria-live="polite" hidden><span class="dot"></span><span id="status-text"></span></span>
+        <button type="button" id="guide-toggle" class="icon-btn" aria-expanded="false"
+          title="How to use this studio" aria-label="How to use this studio"><svg class="icon"><use href="#i-info"/></svg></button>
         <div class="menu-anchor">
         <button type="button" id="theme-toggle" class="icon-btn" aria-haspopup="menu" aria-expanded="false"
           aria-controls="theme-menu" title="Theme and images" aria-label="Theme and images"><svg class="icon"><use href="#i-aperture"/></svg></button>
@@ -2380,8 +2382,15 @@
   const statusText = document.getElementById('status-text');
 
   function renderTopPlate() {
-    if (!busy()) statusText.textContent = 'Ready';
-    else if (!progressState) statusText.textContent = 'Starting';
+    // The readout is for a run: it says what the engine is doing and how long it has
+    // been doing it. "Ready" said nothing, so the line waits for a run and goes with it.
+    const status = document.getElementById('status');
+    status.hidden = !busy();
+    if (!busy()) {
+      statusText.textContent = '';
+    } else if (!progressState) {
+      statusText.textContent = 'Starting';
+    }
   }
 
   function pendingNode() {
@@ -2842,6 +2851,57 @@
     markCaption(prompt);
     prompt.focus();
   }
+
+  // The studio had no manual, so this is it: short, and about what the page does rather
+  // than about what the model can do. It is the same sheet the prompt opens in, because
+  // that is the shape this page already has for reading something over the print.
+  const GUIDE = [
+    ['Generate, or Edit', 'Generate writes a picture from a prompt. Edit changes one you already have, and needs an image from the strip: click a frame, then Edit this.'],
+    ['Mark a region', "Fill the area you want changed. Do not circle it: the mark's own shape is the shape that comes back repainted."],
+    ['What changes there', 'One row per marked colour says what changes in that area. Or pick the Mark a region template and leave the rows empty.'],
+    ['The brush', 'Three widths, and a loupe follows the brush while you draw. The area you mark is the area that changes, so keep the mark close to what should change.'],
+    ['The wait', 'An edit reads your prompt and images for about a minute before its first step. The line in the top bar counts that time.'],
+    ['Run and Cancel', 'Run empties the form it sent. Cancel puts all of it back, the marked region included.'],
+    ['The strip', 'Images stay in the strip. Download the ones you want before you clear it.'],
+  ];
+
+  function closeGuide() {
+    const sheet = document.getElementById('guide-sheet');
+    if (!sheet) return;
+    sheet.remove();
+    const toggle = document.getElementById('guide-toggle');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.focus();
+  }
+
+  function openGuide() {
+    if (document.getElementById('guide-sheet')) return closeGuide();
+    const sheet = document.createElement('div');
+    sheet.className = 'sheet';
+    sheet.id = 'guide-sheet';
+    sheet.setAttribute('role', 'region');
+    sheet.setAttribute('aria-label', 'How to use this studio');
+    const list = document.createElement('dl');
+    GUIDE.forEach(function (pair) {
+      const term = document.createElement('dt');
+      const text = document.createElement('dd');
+      term.textContent = pair[0];
+      text.textContent = pair[1];
+      list.append(term, text);
+    });
+    const close = iconButton('x', 'Close', closeGuide, 'close');
+    sheet.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      closeGuide();
+    });
+    sheet.append(list, close);
+    canvas.append(sheet);
+    document.getElementById('guide-toggle').setAttribute('aria-expanded', 'true');
+    close.focus();
+  }
+
+  document.getElementById('guide-toggle').addEventListener('click', openGuide);
 
   // ---- Menus -----------------------------------------------------------------
   // One menu is open at most. A click outside or Escape closes it, and Escape
@@ -3539,10 +3599,24 @@
       stepText = runSources.length ? 'Reading the prompt and images' : 'Reading the prompt';
     }
     if (running && state.step > 0) stepText = 'Step ' + state.step + ' of ' + state.total;
-    if (stopping) stepText = 'Stopping at the end of this step';
+    if (stopping) {
+      // An engine inside this process can only stop where it looks, which is a step, and
+      // before the first step there is nothing to look at. So the label says when, not
+      // that it has happened. A child engine is killed outright and this flashes past.
+      stepText = state && state.step > 0
+        ? 'Stopping at the end of this step' : 'Stopping when the first step arrives';
+    }
 
-    const left = running && !stopping ? timeLeft() : '';
-    statusText.textContent = stopping ? 'Stopping' : running
+    // Before the first step the estimate is the only number the page has, and it does
+    // not move: the same sentence, redrawn every second, is what a frozen run looks
+    // like. The elapsed time does move, so the reading phase says how long it has been
+    // reading and a slow engine is visibly still working.
+    const reading = running && state && state.step === 0;
+    const soFar = runStartedAt ? spell(Math.max(0, (Date.now() - runStartedAt) / 1000)) + ' so far' : '';
+    const left = running && !stopping ? (reading ? soFar : timeLeft()) : '';
+    // While stopping, the phase text says when the stop lands. It used to be a bare
+    // "Stopping", and the sentence built for this case was written and never shown.
+    statusText.textContent = stopping ? stepText : running
       ? [stepText, state.label ? 'image ' + state.label : '',
         left.charAt(0).toLowerCase() + left.slice(1)].filter(Boolean).join(', ')
       : stepText;
