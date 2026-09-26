@@ -1872,7 +1872,22 @@
   }
 
   function costKey() {
-    return STUDIO.backend.id + ' ' + currentMode().id + (twoPass() ? ' two-pass' : '');
+    return STUDIO.backend.id + ' ' + currentMode().id + ' ' + sentReferences() + ' images'
+      + (twoPass() ? ' two-pass' : '');
+  }
+
+  // The images a run will carry: the references, and the mask when one is drawn.
+  // Each one is encoded and attended to, so the count is part of the cost.
+  function sentReferences() {
+    return references.length + (marks && marks.strokes.length ? 1 : 0);
+  }
+
+  // One more image costs more per step, by the factor the backend measured. It
+  // scales the constants only: a rate this device has shown already has the shape
+  // it was shown for, because the key carries the count.
+  function referenceFactor(model) {
+    if (!model.per_reference) return 1;
+    return 1 + model.per_reference * Math.max(0, sentReferences() - 1);
   }
 
   function targetPixels() {
@@ -1889,7 +1904,9 @@
     // The constant holds the passes it was measured with, so rescale it to the
     // passes the form asks for. A learned rate is already per pass count.
     const passes = (twoPass() ? 2 : 1) / (model.two_pass ? 2 : 1);
-    const cost = learnedCost[costKey()] || model.step_cost * passes;
+    const learned = learnedCost[costKey()];
+    const cost = learned === undefined
+      ? model.step_cost * passes * referenceFactor(model) : learned;
     return cost * Math.pow(targetPixels() / 1e6, model.exponent);
   }
 
