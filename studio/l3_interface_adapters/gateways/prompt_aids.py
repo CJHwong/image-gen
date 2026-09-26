@@ -94,6 +94,16 @@ EDIT_TEMPLATES = (
         "A jointed figure in the same pose, as a reference",
         "Turn the [subject] into a 3D pose mannequin in exactly the same pose, position and camera angle: a smooth gray jointed figure with a ball joint at every joint, matching its body proportions. Replace the background with a plain light gray backdrop and even studio light.",
     ),
+    # Needs the page's draw tool: the region travels as the last image of the
+    # run, and the page replaces [the region you marked] with its number.
+    Template(
+        "Mark a region",
+        "Draw the area first, then describe the change",
+        # The page pins the rest of the picture after every prompt that carries a mask, so
+        # this one does not say it too. The region token becomes the number of the image
+        # holding the mask, and a row is optional while this sentence names the area.
+        "Change only [what changes] in the area marked in [the region you marked].",
+    ),
 )
 
 GENERATE_LOOKS = (

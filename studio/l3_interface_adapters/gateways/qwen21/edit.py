@@ -19,7 +19,10 @@ from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 def edit_payload(job: ImageJob) -> dict:
     options = job.options
     if options["resolution"] == MATCH:
-        # The pipeline sizes from the last reference, so match that one.
+        # The pipeline sizes from the last reference, so match that one. A marked
+        # edit appends the mask last, and maskDataUrl writes the mask at the
+        # reference's own pixel size, so the picture and the mask agree and the
+        # output follows the picture either way.
         last = job.references[-1]
         resolution = min(round((last.width * last.height) ** 0.5), EDIT_MATCH_CAP)
     else:

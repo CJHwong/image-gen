@@ -234,3 +234,237 @@ A sample, not every option: the options most likely to behave differently on FLU
 | Deadpan absurdity, Banner, Alternate reality, Add an object | Not tested on flux2, so flux2 does not offer them. |
 
 The other 19 Look options were not tested on flux2, so flux2 does not offer them.
+
+## Marking a region
+
+The page's **Mark a region** tool sends the marked area as the last image of the
+run: the model takes the original image and a separate mask as two inputs. The
+mask file carries each region in the palette colour that names it, on black, with
+hard edges and at the reference's own pixel size. A default single region is
+therefore orange, not white.
+
+The black is not a prohibition. See "What the mask does not do" below: nothing in
+the pipeline pins the latents to the marked pixels, so the mask steers the model
+rather than constraining it.
+
+Measured 2026-09-25 on Qwen-Image-2.1, one seed, 20 steps, one image at 832 x
+1248, each result compared against its input. Concentration is the mean change
+inside the region divided by the mean change outside it.
+
+| What the run sent | Inside | Outside | Concentration | The ink survived? |
+|---|---|---|---|---|
+| Circles drawn on the image, named by colour | 18.2 | 3.0 | 6.2 | not measurable |
+| A white scrawl on the image, named as white | 68.1 | 11.8 | 5.8 | no: 4.20% white to 0.00% |
+| Original and mask, plain instruction | 30.8 | 3.1 | 9.9 | not applicable |
+| **Original and mask, instruction names the image** | **52.4** | **2.5** | **20.7** | not applicable |
+| The vendor's own mask example, measured the same way | 35.8 | 8.7 | 4.1 | not applicable |
+
+### Several regions and several colours, measured 2026-09-26
+
+A drawn scene, so its content is known without looking: a yellow circle on the left
+and a green square on the right. Two changes in one prompt, written the blog's way,
+naming the object that is there rather than one to add. One seed, 20 steps. The
+numbers are colour fractions of the result, because a recolour is what both an eye
+and a count can see.
+
+| What the run sent | The circle | The square | The marks | Background |
+|---|---|---|---|---|
+| Rings painted on the image (the blog's way) | yellow to 0.01%, blue only 0.07% | green to 1.56%, red 5.63% | the ring's orange 0 to 1.73%: it stayed | 87.32 to 84.14% |
+| The original and one colour coded mask | yellow to 0.00%, **blue 0 to 6.12%** | green to 0.00%, **red 0 to 6.21%** | none: separate image | 87.32 to **87.29%** |
+
+The colour coded mask followed both instructions and left the background alone. The
+rings did neither: the circle never took the colour it was told to, and the ring's
+own colour stayed in the picture. That is the failure a run of "make circled area
+McDonald logo" showed, reproduced on a scene whose content is known, and it is the
+method, not the wording.
+
+So several regions travel as one mask whose areas carry the colours, and the prompt
+names each area's colour. The mean delta concentration is not the metric here
+(x0.4): a recolour changes the objects while the model re-renders the background's
+texture, so the colour fractions are the evidence.
+
+Read that row with its fixture in mind. The marked area and the object under it were
+the same circle, so the mask's edge sat on the object's edge and a mask that paints
+its own colour has nowhere to show. The loose-region measurement below finds exactly
+that: a hand-drawn region comes back in the mask's colour wherever the mask reaches
+past the object. So this row says the colour coded mask works when the two edges
+coincide, which is what a drawn shape gives and what a hand on a track pad does not.
+
+### The leak, measured 2026-09-26
+
+The table above measured locality only. It never asked whether the mask's own shape
+lands in the result, which is the failure a run of "make circled area McDonald
+logo" showed. Measured again on the same image and seed with 20 steps, adding a
+small red apple, with a second number: the edge strength along the mask's own
+outline against the frame's average. A ratio near 1 means no edge was drawn there;
+a ratio over 2 means the outline is visible.
+
+| Prompt, after the instruction | Locality | Outline edge |
+|---|---|---|
+| "in the area marked in <image2>" | x8.8 | x1.10 |
+| "in the area you marked in <image2>" | x8.5 | x1.13 |
+| "in the area marked in white in <image2>" | x19.7 | **x2.18** |
+
+So the phrase that named white nearly doubled the change in the region and painted
+the mask's outline into the picture. Reading it as the best wording was wrong: that
+reading came from a metric that cannot see a leak. The template says "the area
+marked in [the region you marked]", and naming white is not how to make the model
+work harder inside the region.
+
+So this repo sends the mask as the last image and names it in the prompt. Naming
+the image doubles the concentration over a plain instruction, and beats the
+model vendor's own published example on the identical measurement.
+
+Read that number knowing what the later measurements found. A high concentration is what
+repainting the marked area looks like, so it says the mark was followed. It does not say
+the change stayed inside the object under the mark, and on a hand-drawn region it does not.
+
+Two things these numbers do not say. Local means the change lands in the region,
+not that the rest is untouched: outside it the frame shifts by a mean of 2.5 to
+11.8, which is the model re-rendering the whole picture. And one seed and one
+image is a signal, not a benchmark. The cost is 97 to 149 seconds an edit at
+about one megapixel and 20 steps.
+
+### What the mask does not do, measured 2026-09-26
+
+The section above describes the mask file. It does not say what the pipeline does with it, and the pinned source answers that plainly. `pipeline_qwenimage21.py` at the pin `9f1246971` takes no mask argument. The only `mask=` in the file is line 270, and it is PIL alpha compositing for the vision-encoder copy. Every other mask in the file is a token attention mask.
+
+```python
+if img.mode == "RGBA":
+    white = PILImage.new("RGB", img.size, (255, 255, 255))
+    white.paste(img, mask=img.getchannel("A"))
+    img = white
+```
+
+So nothing pins the latents to the marked pixels. The mask reaches the model as a second image in the vision context. The model reads it, then paints where its own reading of the instruction says. That is the mechanism behind the overreach on the shirt photograph: "change the cloth" names one object, the model finds cloth across the marked yoke and the unmarked overalls, and the mask cannot veto the second one.
+
+A drawn scene cannot reproduce that. A flat shirt, one sleeve marked, one seed, 20 steps, two runs: one prompt bare, one naming the body and the right sleeve as unchanged. The number is the fraction of each part that took the target red.
+
+| Region | Marked | Red, bare prompt | Red, naming what stays |
+|---|---|---|---|
+| The left sleeve | yes, the mask covers it fully | 98.6% | 98.6% |
+| The body | no, the mask touches 2.6% of it | 0.0% | 0.0% |
+| The right sleeve | no | 0.0% | 0.0% |
+
+Both runs are the same picture. The mean delta between them is 0.41 levels, and the only box where they differ by more than 12 levels sits inside the marked sleeve. The change stayed in the mask, and the rest of the frame moved by 2 to 3 levels, which is noise.
+
+So naming what must stay has no measurable effect on this scene, and the scene cannot show one. The model's reading and the mask agree, so nothing needs correcting. The result is a limit of the fixture, not a verdict on the wording. A test of the wording needs a case where the instruction's object spans the mask's edge, which is what the photograph gave.
+
+One rule survives, and the mechanism explains it. Make the marked area have exactly one plausible reading, because the model will take the unmarked part of any object the instruction names.
+
+### The wording the page sends, measured 2026-09-26
+
+The page writes the sentence itself, so the page's own wording was the one shape never measured. `composedPrompt` sends `<row text> in the orange area of <image2>. Keep the background and everything else unchanged.` over the colour coded mask. The table above measured a different prompt, on a white mask, so `region_marking` shipped on borrowed evidence until this run.
+
+A drawn scene, so its content is known: a yellow circle on the left and a green square on the right. The circle is marked in orange and told to turn blue. The square is not marked. One seed, 20 steps, at 1024.
+
+| Prompt | The circle | Blue | The square | The mark's ink | Background | Concentration |
+|---|---|---|---|---|---|---|
+| `...in the orange area of <image2>.` (what the page writes) | yellow 6.21% to 0.00% | 0.00% to 6.13% | 6.21% to 6.21% | 0.00% to 0.00% | 87.32% to 87.29% | x24.2 |
+| `...in the area marked in <image2>.` | yellow 6.21% to 0.00% | 0.00% to 6.13% | 6.21% to 6.21% | 0.00% to 0.00% | 87.32% to 87.29% | x24.7 |
+
+Both wordings did the same thing. The recolour is exact: the circle's 6.21% of yellow left and 6.13% of blue arrived, which is the same area. The unmarked square is unchanged to the digit. The background holds within 0.03%. No ink from the mark appears. Naming the colour costs nothing measurable against naming the image, so the sentence the page writes stands, and the token it writes that sentence around is the page's to fill.
+
+Two things this does not settle. The concentration is fixture-dependent, so x24.2 here and 8.8 in the table above are a different scene, a different mask and a different prompt, and neither is a benchmark on one seed. And the outline metric is confounded on a drawn scene: a flat circle already has an edge at its own boundary in the input (x14.8 there, against x22.4 in the result), so it cannot separate a painted mask outline from the stronger contrast of the recolour itself. The outline rows above come from a photograph. They are not a claim about this wording.
+
+### A loose region, measured 2026-09-26
+
+A hand-drawn region is not accurate, so a test of that case needs the mask's edge away from the object's. This fixture is a hard-edged block and a wobbly mask that covers it and bulges into the background all the way round. The mask covers 17.9% of the frame and the block 11.0%, so the recolour's own area says which of the two the model followed. The question was whether a clause about keeping the object's shape would help.
+
+| Prompt | Green | The block's blue | The mask's orange | Stray, the change outside the block | Concentration |
+|---|---|---|---|---|---|
+| The sentence the page sends | 10.82% | 0.00% | **6.78%** | 38.4% | x11.4 |
+| Plus "Keep the object's own shape exactly as it is." | 10.82% | 0.00% | 6.77% | 38.3% | x10.8 |
+| Plus "The marked area is a guide, not a boundary: keep the shape of the object in the original image." | 10.79% | 0.00% | 6.71% | 38.2% | x10.1 |
+
+Two things fall out, and neither is the wording. The model already keeps the object's shape: green is 10.82% against the block's 10.89%, so it recoloured the block, not the mask's wider area. A clause asking for that changes nothing measurable, and the three rows being the same is that answer.
+
+The model also renders the mask's own fill. The annulus between the block and the mask's edge comes back orange, sampled at 251,128,0 on all four sides of the block, bounded exactly by the mask, with the background outside it unchanged. On the fixtures above the mask's edge sat on the object's edge, so the halo had no width and nothing showed. A loose region is the halo, drawn at the wobble, and it is 6.78% of the frame.
+
+So the next thing to measure is the colour, not the wording: a white mask named with "in the area marked in `<image2>`", against the palette colour with a clause that says the colour labels the area rather than belonging to the picture.
+
+That measurement, on the same fixture and seed, two more runs:
+
+| Mask, and the wording | Green | The mask's orange | Stray, the change outside the block | Concentration | The ring outside the mask |
+|---|---|---|---|---|---|
+| Orange, "in the orange area of `<image2>`" | 10.82% | 6.78% | 38.4% | x11.4 | x21.90 |
+| Orange, plus "the orange is only a label for where to work, and is not part of the picture" | 10.82% | 6.78% | 38.3% | x11.8 | x22.55 |
+| **White, "in the area marked in `<image2>`"** | 10.82% | **0.00%** | **1.2%** | x6.3 | x2.51 |
+
+The halo is the mask's colour, not the wording. A clause saying the colour is a label changes nothing, and the white mask takes the halo away: the change lands inside the block instead of painting the mask's shape, 1.2% of it straying against 38.4%.
+
+Two costs to weigh. The concentration halves, x11.4 to x6.3, though the higher figure is the halo counted as change inside the region, so the fall is not as bad as it reads. And the ring outside the mask rises from 0.63 to 1.59, a hairline edge at 2.51 times a baseline that is nearly flat, against a frame whose own mean edge is about 1.5. So a faint outline is drawn where the mask's boundary is, which is the failure the white wording showed on the photograph at x2.18. It is far smaller than the halo: 1.59 against 13.87.
+
+That row put the white mask ahead for one region, and the next measurement takes it back. Two things are wrong with it as evidence: its fixture is flat, and every measurement above had the mask's edge on the object's edge, where a halo has no width and cannot show. So the two-region rows are not evidence that the palette is safe on a loose region, and the white row is not evidence that it is unsafe.
+
+#### The flat fixture was too easy, measured 2026-09-26
+
+Everything above is drawn flat: one colour against another, with the object's edge the only edge on the frame. That hands the model the object. Measured again on a textured scene, a garment with folds on a noisy background, the same loose mask in two colours, one seed, 20 steps:
+
+| Mask, and the wording | Green, the change | The garment as drawn | Stray | The ring outside the mask |
+|---|---|---|---|---|
+| Orange, "in the orange area of `<image2>`" | 21.62% | 17.47% | 23.9% | 4.90 to 19.49 |
+| White, "in the area marked in `<image2>`" | 21.56% | 17.47% | 23.9% | 4.90 to 18.09 |
+
+The mask covers 21.9% of that frame and the garment 17.5%. Both runs painted about 21.6% green, so both painted the mask's area and not the garment's, and the two masks behaved the same. The white mask no longer helps, so the mask's colour is not the lever, and the white row above is not a reason to change the page's palette.
+
+#### The template and a row say it twice, resolved 2026-09-26
+
+The region template is written as `Change only [what changes] in the area marked in
+[the region you marked].`, and the page writes one clause per row after it and then its own
+pin on the background. So a run that picks the template and fills a row asked for the change
+twice, and the row was required whenever a region was drawn, so following the UI's own hints
+reached it.
+
+Fixed on the call that the user's experience should win over the page's tidiness. A row is
+optional once the prompt names the region, and an empty row writes nothing rather than
+leaving ` in the orange area of <image2>` in the sentence with no instruction in front of it:
+
+    the template, a region drawn, the row left empty:
+    Change only turn the wall blue in the area marked in <image2>. Keep the background and
+    everything else unchanged.
+
+So the template's sentence is the instruction, or the rows are, and the page writes whichever
+the user filled. The template also lost its own trailing `Leave the rest of the image
+unchanged.`, because the page pins the background after every prompt that carries a mask, and
+two pins are the same duplication one level down.
+
+#### What the model does with a marked region
+
+Put the loose measurements together and one thing holds across all of them: **the model repaints the area the mask marks.** On a flat frame it can find the object instead, and on a frame where the mark and the object are the same shape there is no difference to see, which is why this stayed hidden. Two-region runs do the same thing twice over: each region comes back filled, sometimes with the change asked for and sometimes with a blend of the mark's own colour, and the boundary of what changed is the mask's boundary.
+
+#### The boundary's own quality, measured 2026-09-26, unresolved
+
+If the model repaints the marked area, then the boundary it bakes is the drawn one, and
+a track pad's tremor is high-frequency noise worth removing before the run. Two masks on
+the textured garment, one seed, 20 steps: one carrying a tremor, and the same contour
+blurred and re-thresholded to smooth it.
+
+| Mask drawn | Covers | Its boundary roughness | Green, the change | Stray |
+|---|---|---|---|---|
+| With a tremor | 22.0% | 1.86 | 21.35% | 21.4% |
+| Smoothed | 18.9% | 1.38 | 18.80% | 14.0% |
+| The plain contour, for reference | 21.9% | 1.35 | not run | not run |
+
+Roughness here is the changed area's boundary length against a circle of the same area,
+so 1.00 is perfect. Smoothing took the spill from 21.4% to 14.0% and the recoloured area
+from 21.35% to 18.80%, which is nearer the garment's 17.5%.
+
+That looked like smoothing helping, and it was the area. Growing the smoothed mask back to
+22.0% with `MaxFilter(19)`, so the two masks cover the same and only the edge differs:
+
+| Mask, both covering 22.0% | Boundary roughness | Green, the change | Stray |
+|---|---|---|---|
+| With a tremor | 1.86 | 21.35% | 21.4% |
+| Smoothed, grown back to the same area | 1.33 | 21.63% | 21.4% |
+
+The same spill either way. So the extent of what comes back is the area the mask covers and
+not how its edge was drawn: smoothing is not a lever, and the earlier gain was the mask
+being 3.1 points smaller. The changed-area measure above is confounded besides, coming out
+at 52 to 57% of the frame because the noisy background re-renders above the threshold.
+
+So the one thing that moves the spill is the area the user marks. That is why a finer brush,
+a loupe on the print, and copy that says the whole marked area is repainted are the
+improvements left, and not the wording, the colour, or the edge.
+
+Three levers were measured against that and none of them moves it. The mask's colour does not (palette and white are the same on a textured frame). Naming the object's shape does not, 38.4% stray against 38.3% and 38.2%. Calling the colour a label does not, 38.3% against 38.4%. So the wobble in a hand-drawn region lands in the result, and the thing to attack is the quality of the boundary rather than the wording or the colour.

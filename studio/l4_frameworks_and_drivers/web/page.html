@@ -215,11 +215,20 @@
   .edge { position: absolute; left: 11px; right: 11px; bottom: 7px; display: flex;
     justify-content: space-between; color: var(--edge-ink);
     font: 9px/12px var(--mono); letter-spacing: .16em; pointer-events: none; }
+  .region-rows { display: flex; flex-direction: column; gap: 8px; }
+  .region-row { display: flex; align-items: center; gap: 8px; }
+  .region-row .swatch { cursor: default; }
+  .region-row input { flex: 1; min-width: 0; }
   /* Before and after: the source image lies over the edit, clipped at the
      slider. The range input covers the image, so a drag anywhere moves it.
      The source is stretched to the picture, because the edit resized the whole
      source; cropping it would shift every point it is compared against. */
   .pic img.before { object-fit: fill; clip-path: inset(0 calc(100% - var(--split)) 0 0); }
+  /* The brush and the divided view cannot both take the drag on one print: the
+     divider covers the picture, so it would take every stroke. The brush is what
+     the user armed, so the divided view steps aside. It is taken off the print
+     rather than shown dead, and it is back as soon as the brush is. */
+  .shot.marking .compare-range, .shot.marking .divider, .shot.marking .compare-tag { display: none; }
   .compare-range { position: absolute; inset: 0; width: 100%; height: 100%;
     margin: 0; opacity: 0; cursor: ew-resize; z-index: 2; }
   .divider { position: absolute; top: 0; bottom: 0; left: var(--split); width: 1px; margin-left: -.5px;
@@ -342,7 +351,7 @@
 
   /* Under the frame, across the whole stage: two lines of the prompt, then one
      quiet line of facts. A tall print leaves the stage's width to the caption. */
-  .stage-bar { display: flex; align-items: center; gap: 24px; min-height: 82px; padding: 0 28px 18px; min-width: 0; }
+  .stage-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; min-height: 82px; padding: 0 28px 18px; min-width: 0; }
   .stage-bar.reserved { visibility: hidden; }
   .stage-bar[hidden] { display: none; }
   .about { flex: 1; min-width: 0; }
@@ -362,6 +371,30 @@
   .sheet dt { padding-top: 4px; color: var(--text-3); font-size: 12px; }
   .sheet dd { margin: 0; font: 16px/1.55 var(--serif); }
   .sheet .close { position: absolute; top: 12px; right: 12px; }
+  /* The mark sits on the print, so the strokes land on the picture itself. It is
+     drawn in the palette colour the next stroke will use, and at the reference's
+     own pixels, so the region cannot drift on the way. */
+  .shot .region-mark { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2;
+    cursor: crosshair; touch-action: none; }
+  /* The loupe is a tool, not a picture: above the mark, never taking the pointer, and
+     only up while a stroke is being drawn. */
+  .shot .region-loupe { position: absolute; width: 108px; height: 108px; z-index: 3;
+    border-radius: 6px; box-shadow: 0 3px 12px rgba(0, 0, 0, .35); pointer-events: none; }
+  /* The drawing controls sit under the print, not on it: a control over the
+     picture covers the very area the user is trying to mark. */
+  /* The drawing controls take their own line between the picture and its caption:
+     order -1 and a full width put them on the first line, and the caption and the
+     existing buttons wrap to the next, keeping their order and their size. */
+  .region-tools { display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 100%; order: -1; }
+  .region-tools .icon-btn { width: 24px; height: 24px; }
+  .region-tools .icon-btn .icon { width: 14px; height: 14px; }
+  .region-tools .icon-btn:disabled { color: var(--line-strong); cursor: default; background: none; }
+  .swatch { width: 18px; height: 18px; margin: 0 1px; border: 2px solid transparent; border-radius: 50%;
+    padding: 0; cursor: pointer; }
+  .swatch[aria-pressed=true] { border-color: var(--text-2); }
+  .swatch:hover { border-color: var(--line-strong); }
+  .field-head .head-actions { display: flex; gap: 10px; }
+
   .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; margin-top: 4px;
     color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
   /* How the image was made, as a badge. A source frame still in the strip is a link. */
@@ -383,6 +416,7 @@
     background: none; color: var(--text-2); cursor: pointer; padding: 0; transition: background-color .12s, color .12s; }
   .icon-btn:hover { background: var(--chrome-3); color: var(--text); }
   .icon-btn.danger:hover { background: var(--danger-fill); color: #fff; }
+  .icon-btn[aria-pressed=true] { background: var(--chrome-3); color: var(--text); }
   .btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px;
     border: 1px solid var(--line-strong); border-radius: 6px; background: var(--chrome);
     color: var(--text); cursor: pointer; text-decoration: none; font-size: 12px; font-weight: 500;
@@ -679,6 +713,7 @@
   <symbol id="i-caret" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-aperture" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.3 3.3L8.6 13.2M20.6 9.5H9.2M17.7 18.2L12 8.4M9.7 20.7l5.7-9.9M3.4 14.5h11.4M6.3 5.8L12 15.6"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M8 5L4 9l4 4"/><path d="M4 9h9a6 6 0 0 1 0 12H7"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/></symbol>
 </svg>
 
@@ -746,6 +781,17 @@
           <div class="menu" id="templates" role="menu" hidden></div>
           <textarea id="prompt" name="prompt" autofocus rows="4"></textarea>
           <div class="look-tail" id="look-adds" hidden></div>
+        </div>
+
+        <!-- One row per colour marked, in the prompt's own place, because while a
+             region is drawn these rows are what the prompt is. -->
+        <div class="field" id="region-field" hidden>
+          <div class="field-head">
+            <span class="label">What changes in each marked area</span>
+          </div>
+          <div class="region-rows" id="region-rows"></div>
+          <p class="caption" id="region-preview"></p>
+          <p class="caption" id="region-note">The whole marked area is repainted, so keep the mark close to what changes.</p>
         </div>
 
         <div class="field">
@@ -1024,8 +1070,23 @@
       note.textContent = 'Drop or paste another image to replace it.';
     }
     refreshForm();
+    syncMarkTools();
     // An empty stage says what to do next, and that depends on the references.
     if (view === null) renderStage();
+  }
+
+  // The estimate, the "Match" size, the progress card's shape and the region
+  // canvas all need the pixel size, so it is read once here. Reading it is
+  // asynchronous, which is why the size is checked rather than assumed.
+  function probeSize(entry) {
+    if (entry.width) return;
+    const probe = new Image();
+    probe.onload = function () {
+      entry.width = probe.naturalWidth;
+      entry.height = probe.naturalHeight;
+      renderReferences();
+    };
+    probe.src = 'data:image/png;base64,' + entry.b64;
   }
 
   // `source` is the id of the frame the image came from; an upload has none.
@@ -1037,15 +1098,7 @@
     }
     const entry = { b64: b64, name: name, width: 0, height: 0, source: source || null };
     references.push(entry);
-    // The estimate, the "Match" size and the progress card's shape all need the
-    // pixel size, so it is read once here.
-    const probe = new Image();
-    probe.onload = function () {
-      entry.width = probe.naturalWidth;
-      entry.height = probe.naturalHeight;
-      renderReferences();
-    };
-    probe.src = 'data:image/png;base64,' + b64;
+    probeSize(entry);
     renderReferences();
   }
 
@@ -1060,6 +1113,490 @@
       reader.readAsDataURL(file);
     });
   }
+
+  // ---- Marking a region -------------------------------------------------------
+  // The marked region travels as the last image of the run, because the model
+  // takes the original image and a separate mask as two inputs. Each region's
+  // pixels carry the palette colour that names it, on black, with hard edges, at
+  // the reference's own pixel size. Measured 2026-09-26: the original plus one
+  // colour coded mask followed two instructions and left the background alone,
+  // where rings painted on the image did neither. The prompt has to name that
+  // image, so the region template's [the region you marked] becomes <imageN>.
+  const MARK_TOKEN = '[the region you marked]';
+  const MASK_ALPHA = 128;         // an alpha at or over this is solid in the mask
+  // One named colour per region. The prompt has to name the area, so the palette
+  // holds only colours a prompt can say, and the mask carries them on black.
+  // Measured 2026-09-26: two regions, both changes landed, no mark in the result.
+  const MARK_COLOURS = [
+    ['#e2761e', 'orange'], ['#e2381f', 'red'], ['#2f9e4f', 'green'], ['#2f6fe0', 'blue'],
+  ];
+  let markColour = MARK_COLOURS[0][0];
+  // The model repaints the area the mark covers, so the brush's width is the only
+  // precision the user has. Measured 2026-09-26: a mask of the same shape spills 21.4%
+  // past the object at 22.0% coverage against 14.0% at 18.9%, and the roughness of the
+  // edge changes nothing. A twentieth is the middle, and anything small wants the thin
+  // end of this, which a track pad cannot reach by drawing carefully alone.
+  const MARK_WIDTHS = [
+    { divisor: 60, label: 'thin' }, { divisor: 20, label: 'medium' }, { divisor: 8, label: 'broad' },
+  ];
+  let markWidth = 1;              // an index into MARK_WIDTHS
+  let marks = null;               // { strokes, width, height } of the image marked
+  let marking = false;            // the brush is armed
+  let drawing = null;             // the stroke in progress
+
+  function markable() {
+    // One reference, and only while it is the frame on the stage, so a stroke
+    // always lands on the picture it marks. With more than one reference the
+    // prompt would name the mask but not the picture whose region it is, and
+    // which one the model picks is untested, so the tool stays away.
+    if (!editing() || !currentMode().region_marking) return null;
+    const first = references[0];
+    if (references.length !== 1 || !first || first.source === null || first.source !== view) return null;
+    // A reference's pixel size is read asynchronously. Marking before it arrives
+    // sized the canvas from a fallback while the mask took the real size, and the
+    // strokes were recorded in one space and clipped in the other.
+    if (!first.width || !first.height) return null;
+    return first;
+  }
+
+  // A brush as wide as a twentieth of the image by default: the same stroke at any
+  // size. The mark's width travels with the stroke, so a change of width leaves what
+  // is already drawn alone.
+  function brushWidth() {
+    const reference = marks || { width: 1024, height: 1024 };
+    const divisor = MARK_WIDTHS[markWidth].divisor;
+    return Math.max(3, Math.round(Math.min(reference.width, reference.height) / divisor));
+  }
+
+  function markCanvas() {
+    return document.querySelector('.shot .region-mark');
+  }
+
+  // An edit starts with the brush in hand: pressing Edit this is enough, and the
+  // picture on the stage is the one being marked.
+  function syncMarkTools() {
+    const first = markable();
+    if (!first) {
+      marks = null;
+      stopMarking();
+      return;
+    }
+    if (!marking) {
+      marking = true;
+      marks = { strokes: [], width: first.width, height: first.height };
+      renderStage();  // the brush and its controls are mounted with the print
+    }
+    syncMarkToggle();
+  }
+
+  // The brush's own states, on the bar over the print.
+  function syncMarkToggle() {
+    // The rows say what changes in each area; the prompt field stays, for an
+    // instruction about the whole picture.
+    document.getElementById('region-field').hidden = !drawnColours().length;
+    renderRegionRows();
+    const undo = document.getElementById('mark-undo');
+    const clear = document.getElementById('mark-clear');
+    if (!undo || !clear) return;
+    const empty = !marks || !marks.strokes.length;
+    undo.disabled = empty;
+    clear.disabled = empty;
+    const size = document.getElementById('mark-size');
+    if (size) {
+      const label = MARK_WIDTHS[markWidth].label;
+      size.setAttribute('aria-label', 'Brush width: ' + label);
+      size.title = 'Brush width: ' + label + ', about ' + brushWidth() + ' px. '
+        + 'The whole marked area is repainted, so a thin brush marks less of the picture.';
+    }
+  }
+
+  function stopMarking() {
+    marking = false;
+    drawing = null;
+    syncMarkToggle();
+    const canvas = markCanvas();
+    if (canvas) canvas.remove();
+    const tools = document.querySelector('.region-tools');
+    if (tools) tools.remove();
+  }
+
+  // The controls under the print, each with its state. There is no button to put
+  // the brush down: nothing else wants the print, and a dead end has no way back.
+  function regionTools(host) {
+    const bar = document.createElement('div');
+    bar.className = 'region-tools';
+    const undo = iconButton('undo', 'Take back the last mark', function () {
+      if (!marks) return;
+      marks.strokes.pop();
+      paintMarks();
+      syncMarkToggle();
+      refreshForm();
+    });
+    undo.id = 'mark-undo';
+    undo.title = 'Take back the last mark.';
+    const clear = iconButton('trash', 'Clear every mark', clearMarks);
+    clear.id = 'mark-clear';
+    clear.title = 'Remove every mark.';
+    // One button cycling the three widths, so the bar keeps its shape. The next stroke
+    // takes the new width and the strokes already drawn keep theirs.
+    const size = iconButton('brush', 'Brush width', function () {
+      markWidth = (markWidth + 1) % MARK_WIDTHS.length;
+      syncMarkToggle();
+    });
+    size.id = 'mark-size';
+    bar.append(undo, clear, size);
+    MARK_COLOURS.forEach(function (pair) {
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
+      swatch.className = 'swatch';
+      swatch.style.background = pair[0] || 'var(--marker)';
+      swatch.setAttribute('aria-label', 'Mark in ' + pair[1]);
+      swatch.setAttribute('aria-pressed', String(markColour === pair[0]));
+      swatch.title = 'Mark in ' + pair[1] + '. A region per colour: the prompt names the ' + pair[1] + ' area.';
+      swatch.addEventListener('click', function () {
+        markColour = pair[0];
+        bar.querySelectorAll('.swatch').forEach(function (other) {
+          other.setAttribute('aria-pressed', String(other === swatch));
+        });
+      });
+      bar.append(swatch);
+    });
+    host.append(bar);
+    syncMarkToggle();
+  }
+
+  function markInk() {
+    return markColour;
+  }
+
+  // What the page will send, shown while it is being written, so a fragment that
+  // only makes sense to the user is visible before the run. `forReader` writes the
+  // same sentence without the number of the image carrying the mask, which the
+  // model needs and a reader does not: the mark's own colour already names the
+  // area. The card uses that form, because the region rows may be the only place
+  // the instruction was ever written down.
+  function composedPrompt(forReader) {
+    const suffix = forReader ? '' : ' of <image' + (references.length + 1) + '>';
+    // A row with nothing in it writes nothing. The prompt may already carry the whole
+    // instruction, from the template, and then the rows are a second way to say the same
+    // thing rather than the only way. An empty clause used to leave " in the orange area
+    // of <image2>" in the sentence.
+    const clauses = drawnColours().filter(function (colour) {
+      return (regionText[colour] || '').trim();
+    }).map(function (colour) {
+      return regionText[colour].trim() + ' in the ' + markName(colour) + ' area' + suffix;
+    });
+    // The template's [the region you marked] becomes the number of the image that
+    // carries the mask. Sending the token itself told the model nothing about
+    // where the change goes, and the template is the one that names the region.
+    const lead = forReader ? ''
+      : promptInput.value.split(MARK_TOKEN).join('<image' + (references.length + 1) + '>').trim();
+    const written = (lead ? lead + ' ' : '') + (clauses.length ? clauses.join('. ') + '. ' : '');
+    return written + 'Keep the background and everything else unchanged.';
+  }
+
+  function renderRegionPreview() {
+    const preview = document.getElementById('region-preview');
+    const colours = drawnColours();
+    preview.hidden = !colours.length;
+    preview.textContent = colours.length ? composedPrompt() : '';
+  }
+
+  // What the user types for each marked colour. Each row becomes a clause the page
+  // writes, so the examples below show the shape of an instruction, nothing else.
+  const REGION_EXAMPLES = [
+    'change the background to blue',
+    'make this part darker',
+    'remove the object here',
+    'turn it into a wooden texture',
+    'add a small red apple here',
+    'replace this with a woven pattern',
+    'change this part, and keep the rest of it exactly as it is',
+  ];
+  let regionText = {};
+
+  function drawnColours() {
+    const seen = [];
+    (marks ? marks.strokes : []).forEach(function (stroke) {
+      if (stroke.colour && seen.indexOf(stroke.colour) < 0) seen.push(stroke.colour);
+    });
+    return MARK_COLOURS.map(function (pair) { return pair[0]; }).filter(function (colour) {
+      return seen.indexOf(colour) >= 0;
+    });
+  }
+
+  function regionRow(colour) {
+    const row = document.createElement('div');
+    row.className = 'region-row';
+    const swatch = document.createElement('span');
+    swatch.className = 'swatch';
+    swatch.style.background = colour;
+    swatch.setAttribute('aria-hidden', 'true');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = regionText[colour] || '';
+    // A whole instruction, because the page writes a sentence around the row, and
+    // a generic one drawn at random, so the example never describes the picture the
+    // person is working on.
+    input.placeholder = 'For example: ' + REGION_EXAMPLES[Math.floor(Math.random() * REGION_EXAMPLES.length)];
+    input.setAttribute('aria-label', 'What changes in the ' + markName(colour) + ' area?');
+    input.addEventListener('input', function () {
+      regionText[colour] = input.value;
+      refreshForm();
+    });
+    row.append(swatch, input);
+    return row;
+  }
+
+  function renderRegionRows() {
+    const rows = document.getElementById('region-rows');
+    const colours = marking ? drawnColours() : [];
+    const wanted = colours.join(',');
+    if (rows.dataset.wanted === wanted) return;   // do not rebuild while typing
+    rows.dataset.wanted = wanted;
+    rows.replaceChildren.apply(rows, colours.map(regionRow));
+    renderRegionPreview();
+  }
+
+  function hexChannels(hex) {
+    return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+  }
+
+  function closestColour(palette, red, green, blue) {
+    let best = palette[0];
+    let distance = Infinity;
+    palette.forEach(function (colour) {
+      const gap = Math.pow(colour[0] - red, 2) + Math.pow(colour[1] - green, 2) + Math.pow(colour[2] - blue, 2);
+      if (gap < distance) {
+        distance = gap;
+        best = colour;
+      }
+    });
+    return best;
+  }
+
+  // The region a colour names, for the prompt and for the per region inputs.
+  function markName(colour) {
+    const found = MARK_COLOURS.filter(function (pair) { return pair[0] === colour; })[0];
+    return found ? found[1] : '';
+  }
+
+  function clearMarks() {
+    if (!marks) return;
+    marks.strokes = [];
+    drawing = null;
+    paintMarks();
+    // The rows, the field and both disabled flags all read the stroke list, so
+    // they are recomputed here. Clearing without this left them showing a region
+    // that was no longer there, until an Undo happened to recompute them.
+    syncMarkToggle();
+    refreshForm();
+  }
+
+  // A mark that no longer belongs to the picture in front of the user goes, and its
+  // row text goes with it: a region drawn again in the same colour would otherwise
+  // come back carrying an instruction for a picture it was never about.
+  function dropMarks(reason) {
+    const dropped = drawnColours();
+    marks = null;
+    marking = false;
+    dropped.forEach(function (colour) { delete regionText[colour]; });
+    if (reason) showToast('info', reason);
+    syncMarkToggle();
+  }
+
+  // The overlay is the print's own box, in the print's own pixels, so a stroke
+  // needs no scaling to reach the mask.
+  function mountMarkCanvas(pic, reference) {
+    const canvas = document.createElement('canvas');
+    canvas.className = 'region-mark';
+    canvas.width = reference.width || 1024;
+    canvas.height = reference.height || 1024;
+    canvas.setAttribute('aria-label', 'Mark the area to change');
+    canvas.addEventListener('pointerdown', markDown);
+    canvas.addEventListener('pointermove', markMove);
+    canvas.addEventListener('pointerup', markUp);
+    canvas.addEventListener('pointercancel', markUp);
+    pic.append(canvas);
+    mountLoupe(pic);
+    // A hand-drawn mark becomes the extent of the change, so what sits under the brush
+    // matters more than it did. See `paintLoupe`.
+    paintMarks();
+  }
+
+  function pointOf(canvas, event) {
+    const box = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - box.left) * (canvas.width / box.width),
+      y: (event.clientY - box.top) * (canvas.height / box.height),
+    };
+  }
+
+  // The loupe: the print at three times the size, beside the pointer, so a small
+  // feature can be traced without zooming the whole print and without the cursor
+  // covering what is being marked. It has no pointer events, so it never takes a
+  // stroke, and it appears only while one is being drawn.
+  const LOUPE_SIZE = 108;      // its own pixels, on screen
+  const LOUPE_ZOOM = 3;
+  const LOUPE_GAP = 22;        // clear of the pointer, so the mark stays in view
+
+  function mountLoupe(pic) {
+    const loupe = document.createElement('canvas');
+    loupe.className = 'region-loupe';
+    loupe.width = LOUPE_SIZE;
+    loupe.height = LOUPE_SIZE;
+    loupe.hidden = true;
+    loupe.setAttribute('aria-hidden', 'true');
+    pic.append(loupe);
+  }
+
+  function loupeCanvas() {
+    return document.querySelector('.shot .region-loupe');
+  }
+
+  function hideLoupe() {
+    const loupe = loupeCanvas();
+    if (loupe) loupe.hidden = true;
+  }
+
+  function screenPointOf(canvas, event) {
+    const box = canvas.getBoundingClientRect();
+    return { x: event.clientX - box.left, y: event.clientY - box.top };
+  }
+
+  // `point` is in the marked image's own pixels.
+  function paintLoupe(point, screen) {
+    const loupe = loupeCanvas();
+    if (!loupe || !marks || !drawing) {
+      hideLoupe();
+      return;
+    }
+    loupe.hidden = false;
+    const context = loupe.getContext('2d');
+    const half = LOUPE_SIZE / (2 * LOUPE_ZOOM);
+    context.fillStyle = '#000';
+    context.fillRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
+    const print = document.querySelector('.shot .pic img');
+    if (print) {
+      context.drawImage(print, point.x - half, point.y - half, half * 2, half * 2,
+                        0, 0, LOUPE_SIZE, LOUPE_SIZE);
+    }
+    context.save();
+    context.translate(-(point.x - half) * LOUPE_ZOOM, -(point.y - half) * LOUPE_ZOOM);
+    context.scale(LOUPE_ZOOM, LOUPE_ZOOM);
+    paintStrokes(context, marks.strokes.concat([drawing]), 1, markInk(), 0.85);
+    context.restore();
+    // A crosshair, because a thin stroke cannot show where its centre is.
+    context.strokeStyle = 'rgba(255, 255, 255, .9)';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(LOUPE_SIZE / 2 - 7, LOUPE_SIZE / 2);
+    context.lineTo(LOUPE_SIZE / 2 + 7, LOUPE_SIZE / 2);
+    context.moveTo(LOUPE_SIZE / 2, LOUPE_SIZE / 2 - 7);
+    context.lineTo(LOUPE_SIZE / 2, LOUPE_SIZE / 2 + 7);
+    context.stroke();
+    const pic = loupe.parentElement;
+    loupe.style.left = Math.min(Math.max(screen.x + LOUPE_GAP, 0),
+                                Math.max(pic.clientWidth - LOUPE_SIZE, 0)) + 'px';
+    loupe.style.top = Math.min(Math.max(screen.y + LOUPE_GAP, 0),
+                               Math.max(pic.clientHeight - LOUPE_SIZE, 0)) + 'px';
+  }
+
+  function markDown(event) {
+    if (!marks) return;
+    const canvas = event.currentTarget;
+    const point = pointOf(canvas, event);
+    canvas.setPointerCapture(event.pointerId);
+    // The colour belongs to the stroke, so a later pick does not repaint what is
+    // already on the print.
+    drawing = { kind: 'line', width: brushWidth(), points: [point], colour: markInk() };
+    paintLoupe(point, screenPointOf(canvas, event));
+    event.preventDefault();
+  }
+
+  function markMove(event) {
+    if (!drawing || !marks) return;
+    const point = pointOf(event.currentTarget, event);
+    drawing.points.push(point);
+    paintLoupe(point, screenPointOf(event.currentTarget, event));
+    paintMarks();
+  }
+
+  function markUp(event) {
+    if (!drawing || !marks) return;
+    marks.strokes.push(drawing);
+    drawing = null;
+    hideLoupe();
+    paintMarks();
+    syncMarkToggle();
+    refreshForm();
+  }
+
+  // White strokes on the print, which is what the mask will be.
+  function paintStrokes(context, strokes, scale, colour, alpha) {
+    context.globalAlpha = alpha;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    strokes.forEach(function (stroke) {
+      context.fillStyle = stroke.colour || colour;
+      context.strokeStyle = stroke.colour || colour;
+      const points = stroke.points;
+      if (points.length === 1) {
+        context.beginPath();
+        context.arc(points[0].x * scale, points[0].y * scale, (stroke.width * scale) / 2, 0, Math.PI * 2);
+        context.fill();
+        return;
+      }
+      context.lineWidth = stroke.width * scale;
+      context.beginPath();
+      context.moveTo(points[0].x * scale, points[0].y * scale);
+      points.slice(1).forEach(function (point) { context.lineTo(point.x * scale, point.y * scale); });
+      context.stroke();
+    });
+  }
+
+  function paintMarks() {
+    const canvas = markCanvas();
+    if (!canvas || !marks) return;
+    const context = canvas.getContext('2d');
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    paintStrokes(context, drawing ? marks.strokes.concat([drawing]) : marks.strokes, 1, markInk(), 0.85);
+  }
+
+  // The mask itself: the palette colours on black, hard edged, at the reference's
+  // own size. The antialiased edge of a stroke is thresholded, so the mask keeps
+  // the palette colours and black and nothing in between.
+  function maskDataUrl() {
+    const reference = markable();
+    if (!reference || !marks || !marks.strokes.length) return null;
+    const wide = reference.width || marks.width;
+    const tall = reference.height || marks.height;
+    const ink = document.createElement('canvas');
+    ink.width = wide;
+    ink.height = tall;
+    const context = ink.getContext('2d');
+    paintStrokes(context, marks.strokes, wide / (marks.width || wide), '#fff', 1);
+    const drawn = context.getImageData(0, 0, wide, tall).data;
+    const flat = document.createElement('canvas');
+    flat.width = wide;
+    flat.height = tall;
+    const mask = flat.getContext('2d').createImageData(wide, tall);
+    // The palette colours, as channels, so a region's pixels can be snapped to the
+    // exact colour that names it. A canvas hands back its antialiased edge pixels
+    // premultiplied, which is a near miss of the colour and a second tone in the mask.
+    const palette = MARK_COLOURS.map(function (pair) { return hexChannels(pair[0]); });
+    for (let index = 0; index < drawn.length; index += 4) {
+      const solid = drawn[index + 3] >= MASK_ALPHA;
+      const nearest = solid ? closestColour(palette, drawn[index], drawn[index + 1], drawn[index + 2]) : [0, 0, 0];
+      mask.data[index] = nearest[0];
+      mask.data[index + 1] = nearest[1];
+      mask.data[index + 2] = nearest[2];
+      mask.data[index + 3] = 255;
+    }
+    flat.getContext('2d').putImageData(mask, 0, 0);
+    return flat.toDataURL('image/png');
+  }
+
 
   referenceInput.addEventListener('change', function () {
     addFiles(referenceInput.files);
@@ -1369,8 +1906,40 @@
   // What stops a run, said on the button itself rather than as an error after.
   function blocker() {
     if (editing() && !references.length) return 'Add an image to edit';
-    if (!promptInput.value.trim()) return editing() ? 'Describe the change' : 'Write a prompt';
-    if (PLACEHOLDER.test(promptInput.value)) return 'Fill in the [brackets]';
+    // With a region marked, the per area rows are the prompt, so the field is not
+    // asked for one.
+    const regions = marks && marks.strokes.length;
+    if (!regions && !promptInput.value.trim()) return editing() ? 'Describe the change' : 'Write a prompt';
+    // The region token is not the user's to fill: the page replaces it with the
+    // number of the image carrying the mask. Without a drawn region there is no
+    // such image, so the run waits for one. With the tool off, the wait would never
+    // end, so that case names the way out instead.
+    if (promptInput.value.indexOf(MARK_TOKEN) >= 0 && !regions) {
+      return markable() ? 'Draw the region this prompt names' : 'Remove all but one image, to draw a region';
+    }
+    const typed = promptInput.value.split(MARK_TOKEN).join('');
+    if (PLACEHOLDER.test(typed)) return 'Fill in the [brackets]';
+    if (regions) {
+      // The prompt may name the region itself, from the template, and then a row is a
+      // second way to say the same thing rather than the only way. The page writes
+      // whichever the user filled, and asks for a row only when nothing else says what
+      // changes.
+      const named = promptInput.value.indexOf(MARK_TOKEN) >= 0;
+      const silent = drawnColours().filter(function (colour) { return !(regionText[colour] || '').trim(); });
+      if (!named && silent.length) return 'Say what changes in the ' + markName(silent[0]) + ' area';
+      // The page writes a sentence around the row, so a bare phrase is a fragment:
+      // "to green" would read as "to green in the orange area of <image2>". A comma
+      // means the row carries its own clause, and an instruction may open with a
+      // preposition: "in the corner, add a lamp" is a whole one.
+      const fragment = drawnColours().filter(function (colour) {
+        const typed = (regionText[colour] || '').trim();
+        return /^(to|for|in|with|as)\b/i.test(typed) && typed.indexOf(',') < 0;
+      });
+      if (fragment.length) {
+        return 'Write a whole instruction for the ' + markName(fragment[0])
+          + ' area, for example: change the cloth to green';
+      }
+    }
     return '';
   }
 
@@ -1436,6 +2005,7 @@
   }
 
   function refreshForm() {
+    renderRegionPreview();
     renderNegativeLook();
     followNegative();
     renderSize();
@@ -1463,6 +2033,10 @@
     head.textContent = editing() ? 'Start an edit from a template' : 'Start from a template';
     templatesMenu.append(head);
     currentMode().templates.forEach(function (template) {
+      // A template that names the region token needs the draw tool, so it is not
+      // offered where the tool is off. With more than one reference there is no
+      // print to draw on, and the run would wait for a region that cannot exist.
+      if (template.text.indexOf(MARK_TOKEN) >= 0 && !markable()) return;
       const option = menuItem('', template.name, function () { useTemplate(template.text); });
       const note = document.createElement('span');
       note.className = 'item-note';
@@ -1743,7 +2317,15 @@
         before: data.mode === 'edit' ? batchSource : null,
       };
       if (runLook && data.prompt === runLook.sent) {
-        entry.prompt = runLook.prompt;
+        // The user's own words, so the card does not read back the sentence the
+        // page composed around the region rows. A run that is rows only has no words
+        // of its own, and there the composed sentence is the only record of what the
+        // run asked for, so it stands in, written for a reader.
+        entry.prompt = runLook.prompt || runLook.reader || data.prompt;
+        // The user's own words, kept apart so Reuse prompt has them and not the
+        // sentence the page composed. A run that is rows only has none, and an empty
+        // box is the honest thing to hand back.
+        entry.typed = runLook.prompt;
         entry.negative = runLook.negative;
         if (runLook.labels.length) entry.look = runLook;
       }
@@ -1880,6 +2462,13 @@
 
   function renderStage() {
     renderTopPlate();
+    // A mark belongs to the picture it was drawn on: another frame, another
+    // reference, or a mode that does not take a region drops it. A run moves the
+    // stage to its progress card and takes the mark with it, which is the one case
+    // that is not the user's doing, so that one is dropped without a word.
+    if (marks && !markable()) {
+      dropMarks(busy() || view === 'progress' ? '' : 'The mark went with its picture.');
+    }
     canvas.innerHTML = '';
     stageBar.hidden = true;
     stageBar.classList.remove('reserved');
@@ -1912,15 +2501,21 @@
     image.alt = entry.prompt;
     pic.append(image);
     if (entry.before && comparing) renderCompare(pic, entry);
+    if (marking && markable()) mountMarkCanvas(pic, markable());
     const edge = document.createElement('div');
     edge.className = 'edge';
     edge.innerHTML = '<span>' + EDGE_NAME + '</span><span>' + frameNumber(entry.id) + '</span>';
     shot.append(pic, edge);
+    if (marking && markable()) shot.classList.add('marking');
+    // A brush on the print takes the drag that the divided view's divider would
+    // take, since the divider covers the whole print. The divided view goes while
+    // the brush is here, and it is off the print rather than shown dead.
     canvas.append(shot);
     arrivedId = null;
     // The bar takes its height from the stage, so the shot is fitted after it.
     renderStageBar(entry);
     fitStage();
+    syncMarkTools();
   }
 
   // An empty stage names the next step and offers it as a button.
@@ -2147,6 +2742,7 @@
         ? iconButton('shrink', 'Exit full screen (F)', toggleFullscreen)
         : iconButton('expand', 'Full screen (F)', toggleFullscreen));
     }
+    if (marking && markable()) regionTools(stageBar);
     stageBar.append(about, actions);
     captionWatch.disconnect();
     captionWatch.observe(prompt);
@@ -2877,14 +3473,38 @@
     };
     event.detail.parameters.prompt = runLook.sent;
     if (paramSpec('negative')) event.detail.parameters.negative = negativeText();
+    // A marked region rides as the last image, and the prompt names that image,
+    // so the model is told which one carries the mask.
+    const mask = maskDataUrl();
+    if (mask) {
+      // Measured 2026-09-26: one clause per region, each naming the colour the mask
+      // carries, then one line pinning the rest of the picture.
+      event.detail.parameters.prompt = composedPrompt();
+      // The card's copy, taken while the rows are still here to read.
+      runLook.reader = composedPrompt(true);
+    }
+    // `sent` is what the model got, so it is recorded after every override. A
+    // masked run sends the composed sentence, and the match in harvest() looked
+    // for the pre-composition prompt, so the card lost the user's own words.
+    runLook.sent = event.detail.parameters.prompt;
     event.detail.parameters.references = JSON.stringify(references.map(function (r) {
       return r.b64;
-    }));
+    }).concat(mask ? [mask.split(',')[1]] : []));
   });
   document.body.addEventListener('htmx:beforeRequest', function (event) {
     if (sideChannel(event)) return;
-    if (event.detail.elt === form) toasts.innerHTML = '';
+    const fresh = event.detail.elt === form;
+    if (fresh) {
+      toasts.innerHTML = '';
+      // The copy comes first: startWork moves the stage to the progress card, and
+      // the frame the region was drawn on is part of what Cancel has to put back.
+      cleared = snapshotInputs();
+    }
     startWork(event.detail.elt);
+    // The form empties after startWork, which reads it for the run's cost, shape
+    // and step time. A chain request carries its own token and never reads the
+    // form, so only the form's own request clears.
+    if (fresh) clearInputs();
   });
   document.body.addEventListener('htmx:afterSettle', function (event) {
     // A /progress response settles once a second. It is not the end of the run,
