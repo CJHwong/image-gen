@@ -58,10 +58,34 @@ EDIT_MATCH_CAP = 1328
 # both. The constant sits at the high end on purpose, because an estimate that
 # runs short is worse than one that runs long. The page replaces it with the
 # rate it sees once a run is under way.
+#
+# More references cost more, because each is a second vision context. Measured
+# again 2026-09-26 on the same machine, edit mode alone, 20 steps, one seed:
+#
+#   megapixels    0.26   0.59   1.05
+#   1 reference   0.83   1.80   4.23
+#   2 references  1.21   2.67   5.71
+#   10 references 2.99      -      -
+#
+# A second image multiplies the step cost by 1.35 to 1.48, so per_reference is
+# 0.45. Ten came in at 3.6 times where a straight line predicts 5.05, so the
+# line runs long rather than short, which is the side to be wrong on. A marked
+# region is one more image, and that is what a marked run sends. This run put
+# 1.05 megapixels at 4.23 against the 3.52 in the table above, and the same
+# shape has taken 130 s and 207 s in one session, so the constant stays as the
+# first table fitted it rather than moving on one shape.
 STEP_COST = 4.0
 STEP_EXPONENT = 1.25
+# Measured 2026-09-26 by timing the child's own steps, so the encode is separated from the
+# denoising. Between step 0, which says the engine started, and step 1 sits the prompt and
+# image encode, and it is 30 to 90 seconds whatever the reference's size, because the
+# processor resizes to a token budget. The mask is a second image and it costs about half
+# again: at 1024 output, per step 3.57 becomes 5.66 with it, and the encode 28.6 becomes
+# 70.5. So one more reference adds 0.6 of the step cost, and the encode rides in the
+# overhead, counted per image rather than per batch because every image encodes its own.
+REFERENCE_STEP_GROWTH = 0.6  # one more reference adds this share to the step cost
 GENERATE_OVERHEAD = 3  # per image; the model is already resident
-EDIT_OVERHEAD = 20  # once per batch; the child may have to load a pipeline
+EDIT_OVERHEAD = 100  # per image: the pipeline build, then the encode before step 1
 
 STEPS = ParamSpec(id="steps", kind="number", default=40, minimum=1, maximum=100, integer=True, step=1)
 NEGATIVE = ParamSpec(id="negative", kind="text", default="")
@@ -112,7 +136,22 @@ EDIT = ModeSpec(
     prompt_hint="For example: make it night, with the lights on",
     prompt_required="An edit instruction is required.",
     templates=EDIT_TEMPLATES,
-    estimate=Estimate(STEP_COST, STEP_EXPONENT, EDIT_OVERHEAD, overhead_per_image=False, match_cap=EDIT_MATCH_CAP),
+    estimate=Estimate(
+        STEP_COST,
+        STEP_EXPONENT,
+        EDIT_OVERHEAD,
+        # Every image of a batch is its own run through the child, so each one pays the
+        # encode before its first step. The pipeline build is paid once and counted here
+        # once per image, which runs long for a batch and is the side to be wrong on.
+        overhead_per_image=True,
+        match_cap=EDIT_MATCH_CAP,
+        per_reference=REFERENCE_STEP_GROWTH,
+    ),
+    # Measured 2026-09-26 with the mask and the sentence the page sends, one seed
+    # and 20 steps, on a drawn scene: the recolour was exact, an unmarked object
+    # and the background were unchanged, and the change landed 24.2x more inside
+    # the marked area than outside it. PROMPTS.md holds the table and its limits.
+    region_marking=True,
 )
 
 

@@ -37,7 +37,7 @@ A batch is a chain of requests, one per image. Progress is a poll of `/progress`
 4. Add a gateway test under `tests/gateways/`, with a `live` test that loads the real weights.
 5. Run it with `uv run studio --backend <name>`.
 
-The page knows two mode ids, `generate` and `edit`, and the params `size`, `resolution`, `steps`, `guidance`, `cfg`, `strength` and `negative`. A backend declares the ones it supports. A new kind of param needs a control in `web/page.html`.
+The page knows two mode ids, `generate` and `edit`, and the params `size`, `resolution`, `steps`, `guidance`, `cfg`, `strength` and `negative`. An edit may also carry a marked region: the page appends it as the last image of the run, and replaces the prompt's `[the region you marked]` with that image's number. Only a mode that declares `region_marking` is offered the tool. A backend declares the ones it supports. A new kind of param needs a control in `web/page.html`.
 
 ## Tests
 

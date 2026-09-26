@@ -102,6 +102,9 @@ class Estimate:
     `match_cap` bounds the side of an output sized from its reference.
     `two_pass` says the step cost was measured with guidance above 1, which
     runs two passes per step. The page halves or doubles it from there.
+    `per_reference` is how much one more reference multiplies the step cost: each
+    one is encoded and attended to, so a mode that takes several needs it. A
+    marked region rides as one more reference.
     """
 
     step_cost: float
@@ -110,6 +113,7 @@ class Estimate:
     overhead_per_image: bool
     match_cap: int | None = None
     two_pass: bool = False
+    per_reference: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -124,6 +128,22 @@ class ModeSpec:
     looks: tuple[LookRow, ...] = ()
     templates: tuple[Template, ...] = ()
     estimate: Estimate | None = None
+    region_marking: bool = False
+    """The page offers the draw tool for this mode, and appends the marked region
+    as the last image of the run. Only a mode whose model was tested with a
+    region gets it: the page hides the tool where it is not declared. The mask
+    rides as one more reference, so the mode needs a slot for it: max_references
+    has to leave room past min_references."""
+
+    def __post_init__(self) -> None:
+        # The mask is one more reference, so a mode that offers the tool has to be
+        # able to carry the picture and the mask. Without this check the page would
+        # offer a tool whose every run the backend refuses.
+        if self.region_marking and self.max_references <= self.min_references:
+            raise ValueError(
+                f"mode {self.id!r} declares region_marking, so max_references must leave room for the "
+                f"mask: {self.max_references} is not more than {self.min_references}"
+            )
 
     def parse_options(self, raw: Mapping[str, str]) -> dict[str, OptionValue]:
         """The mode's settings from a form. Fields the mode does not declare are ignored."""
