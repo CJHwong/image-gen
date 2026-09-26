@@ -19,6 +19,7 @@ from playwright.sync_api import sync_playwright
 from studio.l1_entities.capabilities import Capabilities, ModeSpec, ParamSpec
 from studio.l1_entities.image_job import ImageResult
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
+from studio.l3_interface_adapters.gateways.prompt_aids import EDIT_TEMPLATES
 from studio.l3_interface_adapters.gateways.qwen21.capabilities import qwen21_capabilities
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 
@@ -33,6 +34,33 @@ TINY = Capabilities(
             label="Draw",
             params=(ParamSpec(id="steps", kind="number", default=5, minimum=1, maximum=9, integer=True, step=1),),
             prompt_hint="Tiny prompt hint",
+        ),
+    ),
+)
+
+# A backend that takes one picture and shares qwen21's edit templates, but does not
+# declare a region. The page has to keep the draw tool, and the one template whose
+# whole point is a mask, away from it, and offer the rest.
+PLAIN = Capabilities(
+    backend_id="plain",
+    name="Plain",
+    badge="fp16",
+    max_batch=1,
+    modes=(
+        ModeSpec(
+            id="generate",
+            label="Draw",
+            params=(ParamSpec(id="steps", kind="number", default=6, minimum=1, maximum=9, integer=True, step=1),),
+            prompt_hint="Plain prompt hint",
+        ),
+        ModeSpec(
+            id="edit",
+            label="Touch up",
+            params=(ParamSpec(id="steps", kind="number", default=6, minimum=1, maximum=9, integer=True, step=1),),
+            min_references=1,
+            max_references=2,
+            templates=EDIT_TEMPLATES,
+            prompt_hint="Plain edit hint",
         ),
     ),
 )
@@ -80,8 +108,9 @@ def seconds(text):
 
 
 def main():
-    qwen, tiny = StubBackendGateway(qwen21_capabilities("bf16")), StubBackendGateway(TINY)
-    studio = assemble_studio({"qwen21": qwen, "tiny": tiny}, "qwen21", ("qwen21", "tiny"))
+    qwen = StubBackendGateway(qwen21_capabilities("bf16"))
+    tiny, plain = StubBackendGateway(TINY), StubBackendGateway(PLAIN)
+    studio = assemble_studio({"qwen21": qwen, "tiny": tiny, "plain": plain}, "qwen21", ("qwen21", "tiny", "plain"))
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{server.server_port}/"
@@ -91,7 +120,7 @@ def main():
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on("dialog", lambda dialog: dialog.accept())  # the switch warns about the stub run's image
         page.goto(url)
-        check("the title is a switch with two backends", not page.is_disabled("#backend-toggle"))
+        check("the title is a switch with three backends", not page.is_disabled("#backend-toggle"))
         check("the qwen21 page has both modes", not page.is_disabled("#mode-edit"))
         page.click("#advanced summary")
         check("guidance shows in generate", visible(page, "#guidance"))
@@ -244,10 +273,16 @@ def main():
             and page.inner_text(".prompt-line .look-said").startswith("Overcast sky"),
             f"{page.inner_text('.prompt-line')!r} vs {sent.prompt!r}",
         )
-        tail.locator(".chip").first.click()
-        tail.locator(".chip").first.click()
-        page.fill("#prompt", "")
-        page.fill("#negative", "")
+        # A run takes everything the form held, so the prompt, the Look and the
+        # negative are already gone here, and there is nothing to unpick.
+        check(
+            "a run empties the form it sent",
+            page.input_value("#prompt") == ""
+            and page.input_value("#negative") == ""
+            and tail.locator(".chip").count() == 0
+            and tail.is_hidden(),
+            f"{page.input_value('#prompt')!r}, {tail.inner_text()!r}, {page.input_value('#negative')!r}",
+        )
         page.get_by_role("button", name="More actions").click()
         page.get_by_role("menuitem", name="Reuse prompt").click()
         check(
@@ -275,7 +310,7 @@ def main():
         page.get_by_role("menuitemradio", name="Tiny").click()
         page.wait_for_function("STUDIO.backend.id === 'tiny'")
         check("a switch reloads on the new backend", page.inner_text("h1") == "Tiny", page.inner_text("h1"))
-        check("the caret stays with two backends", page.locator("#backend-toggle .icon").is_visible())
+        check("the caret stays with three backends", page.locator("#backend-toggle .icon").is_visible())
         check("an undeclared mode is disabled", page.is_disabled("#mode-edit"))
         check("the mode takes its label from the spec", page.inner_text("label[for=mode-generate]").strip() == "Draw")
         check("the badge comes from the backend", page.inner_text(".badge") == "int4")
@@ -310,6 +345,42 @@ def main():
             str(tiny.jobs[0].options if tiny.jobs else None),
         )
         check("the film edge names the backend", "TINY" in page.inner_text(".stage"))
+
+        # A backend that shares the templates and takes one picture, but declares no
+        # region: the tool, and the one template whose whole point is a mask, stay
+        # away, and the rest of the templates are still offered.
+        page.click("#backend-toggle")
+        page.get_by_role("menuitemradio", name="Plain").click()
+        page.wait_for_function("STUDIO.backend.id === 'plain'")
+        check(
+            "the plain labels come from its spec",
+            page.inner_text("label[for=mode-edit]").strip() == "Touch up",
+            page.inner_text("label[for=mode-edit]"),
+        )
+        page.fill("#prompt", "a plain square")
+        page.click("#go")
+        page.wait_for_function("document.querySelectorAll('#strip .frame:not(.pending)').length >= 1")
+        page.locator("#strip .frame").first.click()
+        page.get_by_role("button", name="Edit this", exact=True).click()
+        # Wait on the state the tool would need, not on the print: the print is there
+        # from the previous view, so asserting as soon as it appears would pass
+        # before this view has rendered at all.
+        page.wait_for_function(
+            "() => references.length === 1 && references[0].source === view && references[0].width > 0"
+        )
+        check(
+            "a mode without region_marking offers no brush, on a frame from its own strip",
+            page.locator(".shot .region-mark").count() == 0 and page.locator(".region-tools").count() == 0,
+            f"{page.locator('.shot .region-mark').count()} canvases",
+        )
+        page.get_by_role("button", name="Templates").click()
+        names = " ".join(page.locator("#templates [role=menuitem]").all_inner_texts())
+        page.keyboard.press("Escape")
+        check(
+            "and no template that names a region, while the others are offered",
+            "Mark a region" not in names and "Change a color or material" in names,
+            names[:60],
+        )
         check("no page errors", not errors, "; ".join(errors))
     server.shutdown()
     print(f"\n{sum(results)}/{len(results)} passed")

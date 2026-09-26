@@ -6,10 +6,15 @@ temporary directory, printed at the start.
 Usage: uv run --with playwright python tests/e2e/verify_page.py <port>
 """
 
+import base64
+import io
+import json
 import sys
 import tempfile
 import time
+import urllib.parse
 
+from PIL import Image
 from playwright.sync_api import sync_playwright
 
 PORT = sys.argv[1]
@@ -29,6 +34,42 @@ def leave_blocked(page):
         window.dispatchEvent(event);
         return event.defaultPrevented;
     }""")
+
+
+def parse_post(request):
+    """One posted form, as a plain dict of single values."""
+    return {name: values[0] for name, values in urllib.parse.parse_qs(request.post_data or "").items()}
+
+
+def mask_size(b64):
+    return Image.open(io.BytesIO(base64.b64decode(b64))).size
+
+
+def mask_carries(b64, colour, tolerance=12):
+    """A region reaches the model in the palette colour that names it."""
+    image = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+    hits = sum(
+        1
+        for pixel in image.resize((image.width // 4, image.height // 4)).getdata()
+        if all(abs(pixel[channel] - colour[channel]) < tolerance for channel in range(3))
+    )
+    return hits > 5
+
+
+# The palette in the page, as channels, plus black. The strokes already carry
+# these colours, so the snap only repairs the antialiased edge: a mask whose tones
+# stay inside this set is the only thing that shows the snap ran at all.
+MARK_PALETTE = {(0, 0, 0), (226, 118, 30), (226, 56, 31), (47, 158, 79), (47, 111, 224)}
+
+
+def mask_tones(b64):
+    """Every distinct RGB in the mask, at full size."""
+    return set(Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB").getdata())
+
+
+def mask_alpha(b64):
+    """Every distinct alpha in the mask. The threshold writes one value."""
+    return set(Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGBA").getchannel("A").getdata())
 
 
 def wait_idle(page):
@@ -141,7 +182,24 @@ with sync_playwright() as playwright:
     }""")
     check("a long model name truncates in the top plate", name == [True, 52], str(name))
     page.reload()
-    check("the status reads ready", page.inner_text("#status") == "Ready", page.inner_text("#status"))
+    # The readout is for a run. "Ready" said nothing, so it waits for one and goes with it.
+    check("the top bar shows no status when idle", page.locator("#status").is_hidden())
+    # The guide, which is the manual the studio did not have.
+    check("no guide until it is asked for", page.locator("#guide-sheet").count() == 0)
+    page.click("#guide-toggle")
+    check(
+        "the guide opens and lists what a person needs",
+        page.locator("#guide-sheet dt").count() >= 6
+        and page.get_attribute("#guide-sheet", "aria-label") == "How to use this studio",
+        str(page.locator("#guide-sheet dt").count()),
+    )
+    check(
+        "the guide says what a mark does",
+        "Fill the area you want changed" in page.inner_text("#guide-sheet"),
+        page.inner_text("#guide-sheet")[:60],
+    )
+    page.keyboard.press("Escape")
+    check("Escape closes the guide", page.locator("#guide-sheet").count() == 0)
     button(page, "Browse templates").click()
     check("empty stage opens templates", page.locator("#templates").is_visible())
     page.keyboard.press("ArrowDown")
@@ -196,6 +254,32 @@ with sync_playwright() as playwright:
     page.keyboard.press("Meta+Enter")
     page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
     check("Cmd+Enter starts a run", True)
+    # Before the first step the estimate is the only number and it never moves, so the
+    # reading phase says how long it has been reading instead: a slow engine then looks
+    # alive rather than frozen.
+    page.evaluate("""() => { runStartedAt = Date.now() - 95000;
+        progressState = {stage: 'running', step: 0, total: 20}; renderProgress(); }""")
+    reading = page.inner_text("#status")
+    check(
+        "the reading phase counts the time it has been reading",
+        reading.startswith("Reading the") and "min" in reading and "so far" in reading,
+        reading,
+    )
+    # A stop that has not landed yet says when it will, because an engine inside this
+    # process can only stop where it looks, and before the first step there is nothing.
+    page.evaluate("""() => { document.body.classList.add('stopping'); renderProgress(); }""")
+    check(
+        "a stop before the first step says when it lands",
+        page.inner_text("#status").startswith("Stopping when the first step arrives"),
+        page.inner_text("#status"),
+    )
+    page.evaluate("""() => { progressState = {stage: 'running', step: 3, total: 20}; renderProgress(); }""")
+    check(
+        "a stop after a step says it lands at the end of that step",
+        page.inner_text("#status").startswith("Stopping at the end of this step"),
+        page.inner_text("#status"),
+    )
+    page.evaluate("() => { document.body.classList.remove('stopping'); }")
     # The percent shows at 0% while the backend still loads, before step 1.
     page.wait_for_function("document.getElementById('status').innerText.startsWith('Step ')", timeout=300000)
     status = page.inner_text("#status")
@@ -253,7 +337,7 @@ with sync_playwright() as playwright:
     )
     check("no leave warning while the browser keeps the images", not leave_blocked(page))
     check("a plain run says Generated", page.inner_text(".facts .made") == "Generated", page.inner_text(".facts .made"))
-    learned = page.evaluate("learnedCost[STUDIO.backend.id + ' generate'] || 0")
+    learned = page.evaluate("() => learnedCost[costKey()] || 0")
     check("a run teaches the step rate", 0.3 < learned < 20, f"{learned:.2f} s per step at 1 MP")
     check(
         "the caption shows the typed prompt, then the Look muted",
@@ -441,11 +525,12 @@ with sync_playwright() as playwright:
     page.get_by_role("menuitem", name="Use as reference").click()
     page.fill("#prompt", "Put the two teapots side by side on one table.")
     page.dispatch_event("#prompt", "input")
+    check("a two-image edit holds both references", page.locator("#thumbs .thumb").count() == 2)
     page.click("#go")
     wait_idle(page)
     check(
         "no slider on a two-image edit",
-        page.locator("#thumbs .thumb").count() == 2 and page.locator(".compare-range").count() == 0,
+        page.locator(".compare-range").count() == 0,
     )
 
     # Mode switch and cancel
@@ -482,7 +567,450 @@ with sync_playwright() as playwright:
     page.locator("#strip .frame >> nth=0").click()
     page.get_by_role("button", name="Remove", exact=True).click()
     check("remove takes one", page.locator("#strip .frame").count() == 3)
-    check("the status is ready again", page.inner_text("#status") == "Ready", page.inner_text("#status"))
+
+    # A marked region: the page draws it on the print, the run carries it as the
+    # last image whose areas are the marked colours, and the prompt is written from
+    # the per area rows. The tool appears only where the mode declares a region.
+    page.get_by_role("button", name="Edit this", exact=True).click()
+    page.wait_for_selector(".shot .region-mark", timeout=10000)  # the reference's size is read first
+    check(
+        "an edit starts with the brush armed",
+        page.locator(".shot .region-mark").count() == 1 and page.locator(".stage-bar .region-tools").count() == 1,
+    )
+    check(
+        "the drawing tools take their own line, undo dead until a mark exists",
+        page.locator(".stage-bar .region-tools button").count() == 7 and page.is_disabled("#mark-undo"),
+    )
+    check(
+        "the controls line sits at the right, above the buttons there",
+        page.evaluate("""() => { const tools = document.querySelector('.region-tools').getBoundingClientRect();
+            const actions = document.querySelector('.stage-bar .actions').getBoundingClientRect();
+            return Math.abs(tools.right - actions.right) < 4; }"""),
+    )
+    check(
+        "their line is between the picture and its caption",
+        page.evaluate("""() => { const tools = document.querySelector('.region-tools').getBoundingClientRect();
+            const caption = document.querySelector('.prompt-line').getBoundingClientRect();
+            const actions = document.querySelector('.stage-bar .actions').getBoundingClientRect();
+            return tools.bottom <= caption.top + 1 && tools.width >= caption.width
+                && actions.top >= caption.top - 1; }"""),
+    )
+
+    # The model repaints the area the mark covers, so the brush's width is the precision
+    # the user has, and the width travels with the stroke.
+    page.evaluate("() => { markWidth = 0; syncMarkToggle(); }")
+    thin = page.evaluate("() => brushWidth()")
+    overlay = page.locator(".shot .region-mark").bounding_box()
+    page.mouse.move(overlay["x"] + 60, overlay["y"] + 60)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + 120, overlay["y"] + 120, steps=4)
+    page.mouse.up()
+    page.evaluate("() => { markWidth = 2; syncMarkToggle(); }")
+    broad = page.evaluate("() => brushWidth()")
+    page.mouse.move(overlay["x"] + 200, overlay["y"] + 200)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + 260, overlay["y"] + 260, steps=4)
+    page.mouse.up()
+    check(
+        "each stroke keeps the width it was drawn with",
+        page.evaluate("() => marks.strokes.map((stroke) => stroke.width)") == [thin, broad] and thin < broad,
+        f"{page.evaluate('() => marks.strokes.map((stroke) => stroke.width)')}, thin {thin}, broad {broad}",
+    )
+    page.evaluate("""() => { markWidth = 0; syncMarkToggle(); const seen = [];
+        for (let step = 0; step < 4; step++) { seen.push(brushWidth());
+            document.getElementById('mark-size').click(); }
+        window.cycle = seen; }""")
+    cycle = page.evaluate("() => window.cycle")
+    check(
+        "the brush button cycles three widths and comes back", len(set(cycle)) == 3 and cycle[0] == cycle[3], str(cycle)
+    )
+    page.evaluate("() => { markWidth = 1; syncMarkToggle(); }")
+
+    # The loupe: up while a stroke is drawn, holding the print, and gone when it ends.
+    check("no loupe while nothing is drawn", not page.is_visible(".shot .region-loupe"))
+    page.mouse.move(overlay["x"] + 100, overlay["y"] + 130)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + 170, overlay["y"] + 190, steps=4)
+    check(
+        "the loupe is up while a stroke is drawn, and holds the print",
+        page.is_visible(".shot .region-loupe")
+        and page.evaluate("""() => { const l = document.querySelector('.shot .region-loupe');
+            const d = l.getContext('2d').getImageData(0, 0, l.width, l.height).data;
+            let lit = 0;
+            for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 60) lit += 1;
+            return lit > 500; }"""),
+    )
+    page.mouse.up()
+    check("the loupe goes when the stroke ends", not page.is_visible(".shot .region-loupe"))
+    # Drawn near the print's own edge, so the clamping has something to do.
+    page.mouse.move(overlay["x"] + overlay["width"] - 12, overlay["y"] + overlay["height"] - 12)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + overlay["width"] - 6, overlay["y"] + overlay["height"] - 6, steps=3)
+    check(
+        "the loupe stays inside the print, even at its corner",
+        page.evaluate("""() => { const l = document.querySelector('.shot .region-loupe').getBoundingClientRect();
+            const p = document.querySelector('.shot .pic').getBoundingClientRect();
+            return l.right <= p.right + 1 && l.bottom <= p.bottom + 1 && l.left >= p.left - 1; }"""),
+    )
+    page.mouse.up()
+    check(
+        "the note says the whole marked area is repainted",
+        "whole marked area is repainted" in page.inner_text("#region-note"),
+        page.inner_text("#region-note"),
+    )
+    page.click("#mark-clear")
+
+    # The template names the region, so a row is a second way to say the same thing rather
+    # than the only way, and an empty row writes nothing instead of leaving a clause with
+    # no instruction in it.
+    page.click("#templates-toggle")
+    page.get_by_role("menuitem", name="Mark a region").click()
+    page.keyboard.type("turn the wall blue")
+    check(
+        "the region template waits for a region",
+        page.inner_text("#go-sub") == "Draw the region this prompt names",
+        page.inner_text("#go-sub"),
+    )
+    page.mouse.move(overlay["x"] + 90, overlay["y"] + 110)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + 150, overlay["y"] + 170, steps=4)
+    page.mouse.up()
+    preview = page.inner_text("#region-preview")
+    check(
+        "the template names the region, so the empty row writes nothing",
+        not page.is_disabled("#go")
+        and page.locator("#region-rows .region-row").count() == 1
+        and "turn the wall blue in the area marked in <image2>" in preview
+        and "area of <image2>" not in preview,
+        preview,
+    )
+    page.click("#mark-clear")
+    page.fill("#prompt", "")
+    page.dispatch_event("#prompt", "input")
+    # The mask is one more image, so the run costs more per step than the picture
+    # alone. A learned rate covers the shape it came from, so it is cleared here:
+    # this is about the backend's constants, which a new shape falls back to.
+    page.evaluate("() => { Object.keys(learnedCost).forEach(function (key) { delete learnedCost[key]; }); }")
+    before = page.evaluate("() => stepSeconds()")
+    overlay = page.locator(".shot .region-mark").bounding_box()
+    page.mouse.move(overlay["x"] + 100, overlay["y"] + 120)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + 200, overlay["y"] + 220, steps=6)
+    page.mouse.up()
+    covered = page.evaluate("""() => { const c = document.querySelector('.shot .region-mark');
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        let white = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200) white += 1;
+        return white; }""")
+    check("drawing paints the print", covered > 100, str(covered))
+    after = page.evaluate("() => stepSeconds()")
+    check(
+        "the estimate counts the mask as one more image",
+        before > 0 and after > before * 1.3,
+        f"{before:.2f} s per step with no region, {after:.2f} with one",
+    )
+    check("one row per marked colour", page.locator("#region-rows .region-row").count() == 1)
+    # The prompt field stays for a whole-picture instruction, which is only worth
+    # asserting if what is typed in it reaches the sentence the page writes.
+    page.fill("#prompt", "make it morning")
+    page.dispatch_event("#prompt", "input")
+    check(
+        "an instruction about the whole picture leads the composed sentence",
+        page.inner_text("#region-preview").startswith("make it morning"),
+        page.inner_text("#region-preview")[:60],
+    )
+    page.fill("#prompt", "")
+    page.dispatch_event("#prompt", "input")
+    examples = page.evaluate("() => REGION_EXAMPLES")
+    placeholder = page.get_attribute("#region-rows input >> nth=0", "placeholder")
+    check(
+        "the row's example is one of the mode's own, drawn at random",
+        placeholder.startswith("For example: ") and placeholder[len("For example: ") :] in examples,
+        placeholder,
+    )
+    page.locator("#region-rows input").nth(0).fill("change the cloth to green")
+    check(
+        "the preview shows the sentence the page will send",
+        "change the cloth to green in the orange area of <image2>" in page.inner_text("#region-preview"),
+        page.inner_text("#region-preview")[-60:],
+    )
+    page.locator(".stage-bar .region-tools .swatch").nth(1).click()
+    page.mouse.move(overlay["x"] + 240, overlay["y"] + 250)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + 330, overlay["y"] + 330, steps=6)
+    page.mouse.up()
+    check("a second colour adds its own row", page.locator("#region-rows .region-row").count() == 2)
+    colours_drawn = page.evaluate("() => marks.strokes.map((stroke) => stroke.colour)")
+    check(
+        "a swatch colours the next mark only",
+        len(colours_drawn) == 2 and colours_drawn[0] != colours_drawn[1],
+        str(colours_drawn),
+    )
+    page.locator("#region-rows input").nth(1).fill("to brass")
+    check(
+        "a fragment in a row stops the run with an example",
+        page.inner_text("#go-sub").startswith("Write a whole instruction for the red area") and page.is_disabled("#go"),
+        page.inner_text("#go-sub"),
+    )
+    # An instruction may open with a preposition and still be a whole one, so the
+    # comma is what separates it from a bare phrase.
+    page.locator("#region-rows input").nth(1).fill("in the corner, add a lamp")
+    check(
+        "a whole instruction that opens with a preposition is not a fragment",
+        not page.is_disabled("#go") and "Write a whole instruction" not in page.inner_text("#go-sub"),
+        page.inner_text("#go-sub"),
+    )
+    page.locator("#region-rows input").nth(1).fill("change the handle to brass")
+    sent = {}
+    page.on("request", lambda request: sent.update(parse_post(request)) if "/generate" in request.url else None)
+    page.click("#go")
+    wait_idle(page)
+    references = json.loads(sent.get("references", "[]"))
+    check("a marked run sends one more image", len(references) == 2, str(len(references)))
+    check(
+        "the mask carries each region's colour at the reference's size",
+        mask_size(references[-1]) == mask_size(references[0])
+        and mask_carries(references[-1], (226, 118, 30))
+        and mask_carries(references[-1], (226, 56, 31)),
+        f"size {mask_size(references[-1])} vs {mask_size(references[0])}, "
+        f"orange {mask_carries(references[-1], (226, 118, 30))} red {mask_carries(references[-1], (226, 56, 31))}",
+    )
+    # The colours above are within a tolerance, so they pass whether or not the
+    # snap ran: the strokes already carry them. These two do not.
+    tones = mask_tones(references[-1])
+    check(
+        "the mask holds only the palette colours and black, with nothing between",
+        tones <= MARK_PALETTE,
+        f"outside the palette: {sorted(tones - MARK_PALETTE)[:6]}",
+    )
+    check(
+        "the mask is fully opaque, so the threshold left no soft edge",
+        mask_alpha(references[-1]) == {255},
+        str(sorted(mask_alpha(references[-1]))),
+    )
+    sent_prompt = sent.get("prompt", "")
+    check(
+        "the prompt names each area by its colour, and pins the rest",
+        "<image2>" in sent_prompt
+        and "in the orange area of" in sent_prompt
+        and "in the red area of" in sent_prompt
+        and "Keep the background and everything else unchanged" in sent_prompt,
+        sent_prompt[-90:],
+    )
+
+    # A mark belongs to the picture it was drawn on, so the run's result took the
+    # brush away. Bring it back on the frame the result came from.
+    page.get_by_role("button", name="Edit this", exact=True).click()
+    page.wait_for_selector(".shot .region-mark", timeout=10000)
+    # A marked edit result is also the frame a divided view shows, and the divider
+    # covers the whole print, so the two cannot both take the drag. The brush steps
+    # the divided view aside rather than leaving a control that cannot be used.
+    check(
+        "the divided view steps aside while the brush is on the print",
+        not page.is_visible(".shot .compare-range")
+        and not page.is_visible(".shot .divider")
+        and page.locator(".shot .region-mark").count() == 1,
+    )
+    overlay = page.locator(".shot .region-mark").bounding_box()
+    page.mouse.move(overlay["x"] + 120, overlay["y"] + 140)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + 240, overlay["y"] + 260, steps=6)
+    page.mouse.up()
+    page.locator("#region-rows input").nth(0).fill("change the cloth to linen")
+    check("a region is back, with its row", page.locator("#region-rows .region-row").count() == 1)
+
+    # Clear recomputes the rows and both buttons, not only the strokes. The list on
+    # screen and the buttons' own state both read the stroke count.
+    page.click("#mark-clear")
+    check(
+        "Clear takes the rows and both buttons with it",
+        page.locator("#region-rows .region-row").count() == 0
+        and page.is_hidden("#region-field")
+        and page.is_disabled("#mark-undo")
+        and page.is_disabled("#mark-clear"),
+    )
+
+    # The region token is the page's to fill, and it needs a region to fill it
+    # with. Without one the run waits, rather than sending the token as text.
+    page.fill("#prompt", "Change only the cloth in the area marked in [the region you marked].")
+    page.dispatch_event("#prompt", "input")
+    check(
+        "the token with no region waits for one",
+        page.inner_text("#go-sub") == "Draw the region this prompt names" and page.is_disabled("#go"),
+        page.inner_text("#go-sub"),
+    )
+    page.mouse.move(overlay["x"] + 120, overlay["y"] + 140)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + 240, overlay["y"] + 260, steps=6)
+    page.mouse.up()
+    page.locator("#region-rows input").nth(0).fill("change the cloth to linen")
+    check(
+        "the token becomes the mask's own image number",
+        "[the region you marked]" not in page.inner_text("#region-preview")
+        and "in the area marked in <image2>" in page.inner_text("#region-preview"),
+        page.inner_text("#region-preview"),
+    )
+    page.click("#go")
+    wait_idle(page)
+    sent_prompt = sent.get("prompt", "")
+    check(
+        "the run carries no token",
+        "[the region you marked]" not in sent_prompt and "in the area marked in <image2>" in sent_prompt,
+        sent_prompt[-100:],
+    )
+    # The card holds the user's own words. Reading back the sentence the page
+    # composed around the region rows is what made a run look rewritten.
+    caption = page.locator(".prompt-line").first.inner_text()
+    check(
+        "the card keeps the user's words, not the composed sentence",
+        caption == "Change only the cloth in the area marked in [the region you marked]."
+        and "Keep the background and everything else unchanged" not in caption,
+        caption[-70:],
+    )
+
+    # A run with nothing in the prompt field. The row is then the only place the
+    # change was asked for, so the card holds the sentence the page wrote for a
+    # reader, without the number of the image carrying the mask.
+    page.get_by_role("button", name="Edit this", exact=True).click()
+    page.wait_for_selector(".shot .region-mark", timeout=10000)
+    page.fill("#prompt", "")
+    page.dispatch_event("#prompt", "input")
+    overlay = page.locator(".shot .region-mark").bounding_box()
+    page.mouse.move(overlay["x"] + 120, overlay["y"] + 140)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + 240, overlay["y"] + 260, steps=6)
+    page.mouse.up()
+    page.locator("#region-rows input").nth(0).fill("change the cloth to linen")
+    page.click("#go")
+    wait_idle(page)
+    caption = page.locator(".prompt-line").first.inner_text()
+    check(
+        "a rows-only run's card holds the sentence the page wrote, without the mask's number",
+        "change the cloth to linen in the" in caption
+        and "Keep the background and everything else unchanged" in caption
+        and "<image" not in caption,
+        caption[-90:],
+    )
+
+    # Reuse prompt hands back the user's own words. A rows-only run has none, and the
+    # composed sentence is not the user's to edit, so the box comes back empty.
+    page.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Reuse prompt").click()
+    check(
+        "Reuse prompt hands back nothing when the run had no words of its own",
+        page.input_value("#prompt") == "",
+        repr(page.input_value("#prompt")),
+    )
+
+    # A mark belongs to its picture: leaving that picture drops it, says so, and
+    # takes the row with it, so a region drawn again in that colour starts clean
+    # instead of inheriting an instruction for a picture it was never about.
+    page.get_by_role("button", name="Edit this", exact=True).click()
+    page.wait_for_selector(".shot .region-mark", timeout=10000)
+    overlay = page.locator(".shot .region-mark").bounding_box()
+    page.mouse.move(overlay["x"] + 120, overlay["y"] + 140)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + 240, overlay["y"] + 260, steps=6)
+    page.mouse.up()
+    page.locator("#region-rows input").nth(0).fill("change the cloth to linen")
+    page.locator("#strip .frame").nth(1).click()
+    check(
+        "leaving the marked frame drops the mark, takes the row and says so",
+        page.locator("#region-rows .region-row").count() == 0
+        and page.locator(".toast").count() >= 1
+        and page.evaluate("() => Object.keys(regionText).length") == 0,
+        str(page.evaluate("() => regionText")),
+    )
+
+    # Two references: the mask would mark a region of the first image while the
+    # prompt names only the mask, and which picture owns the region is untested,
+    # so the tool steps aside rather than guess.
+    page.locator("#strip .frame").first.click()
+    page.get_by_role("button", name="Edit this", exact=True).click()
+    page.wait_for_selector(".shot .region-mark", timeout=10000)
+    check("the brush is back for the one-reference edit", page.locator(".shot .region-mark").count() == 1)
+    page.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Use as reference").click()
+    check("the brush steps aside with two references", page.locator(".shot .region-mark").count() == 0)
+
+    # Run empties the form, and Cancel puts it back. The region is part of what
+    # comes back: a marked run is the one case where the input is also a drawing,
+    # and losing it means drawing it again.
+    page.locator("#strip .frame").first.click()
+    page.get_by_role("button", name="Edit this", exact=True).click()
+    page.wait_for_selector(".shot .region-mark", timeout=10000)
+    steps_default = page.input_value("#steps")
+    steps_max = page.evaluate("() => document.getElementById('steps').max")
+    check("the steps default differs from the top of its range", steps_max != steps_default, steps_default)
+    page.fill("#prompt", "make the sky warmer")
+    page.dispatch_event("#prompt", "input")
+    page.fill("#seed", "1234")
+    page.fill("#steps", steps_max)
+    page.dispatch_event("#steps", "input")
+    page.click("#count-toggle")
+    page.get_by_role("menuitemradio", name="2 images").click()
+    overlay = page.locator(".shot .region-mark").bounding_box()
+    page.mouse.move(overlay["x"] + 80, overlay["y"] + 90)
+    page.mouse.down()
+    page.mouse.move(overlay["x"] + 180, overlay["y"] + 190, steps=6)
+    page.mouse.up()
+    page.locator("#region-rows input").nth(0).fill("change the sky to dusk")
+    check(
+        "the form is set up for a run",
+        page.locator("#thumbs .thumb").count() == 1
+        and page.locator("#region-rows .region-row").count() == 1
+        and page.input_value("#count") == "2",
+    )
+
+    page.click("#go")
+    check(
+        "Run empties the prompt, the negative and the seed",
+        page.input_value("#prompt") == "" and page.input_value("#negative") == "" and page.input_value("#seed") == "",
+        repr(page.input_value("#prompt")),
+    )
+    check(
+        "Run puts the settings back to the mode's defaults",
+        page.input_value("#steps") == steps_default and page.input_value("#count") == "1",
+        f"steps {page.input_value('#steps')} against {steps_default}, count {page.input_value('#count')}",
+    )
+    check(
+        "Run takes the references and the region with it",
+        page.locator("#thumbs .thumb").count() == 0
+        and page.locator(".shot .region-mark").count() == 0
+        and page.locator("#region-rows .region-row").count() == 0,
+    )
+
+    page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
+    page.click("#go")
+    check(
+        "Cancel reads Stopping while it stops",
+        page.inner_text("#go .main") == "Stopping…",
+        page.inner_text("#go .main"),
+    )
+    wait_idle(page)
+    check(
+        "Cancel puts the prompt, the seed and the count back",
+        page.input_value("#prompt") == "make the sky warmer"
+        and page.input_value("#seed") == "1234"
+        and page.input_value("#count") == "2",
+        f"prompt {page.input_value('#prompt')!r}, seed {page.input_value('#seed')!r}, "
+        f"count {page.input_value('#count')}",
+    )
+    check(
+        "Cancel puts the settings and the reference back",
+        page.input_value("#steps") == steps_max and page.locator("#thumbs .thumb").count() == 1,
+        f"steps {page.input_value('#steps')} against {steps_max}, thumbs {page.locator('#thumbs .thumb').count()}",
+    )
+    check(
+        "Cancel puts the region and its instruction back",
+        page.locator(".shot .region-mark").count() == 1
+        and page.evaluate("() => Boolean(marks && marks.strokes.length)")
+        and page.locator("#region-rows input").nth(0).input_value() == "change the sky to dusk",
+        page.evaluate("() => (marks ? marks.strokes.length : -1)"),
+    )
+
+    # Leave the form as it was found: the mode switch clears the references, and
+    # the checks after this one start from an empty edit.
+    page.click("label[for=mode-generate]")
     check("Kodak is the default theme", page.evaluate("document.documentElement.dataset.theme") == "kodak")
     page.click("#theme-toggle")
     page.get_by_role("menuitemradio", name="Darkroom").click()
