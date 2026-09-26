@@ -30,6 +30,12 @@ class StepHook:
         every  5 steps   248.3s  295.6s
 
     One preview at 1024 costs about 25s. That is a tax, not a feature.
+
+    Cancel lands here, at the top of a step. This engine runs inside the server's own
+    process, so there is nothing to kill and the only place it can look is a step: a
+    cancel during the load or the encode waits for the first one. A child engine's
+    cancel kills the child at once, because that engine can be killed. The page says
+    when the stop lands rather than that it has already landed.
     """
 
     def __init__(self):

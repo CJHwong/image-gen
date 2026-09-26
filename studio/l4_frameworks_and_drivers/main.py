@@ -99,7 +99,7 @@ def assemble_studio(backends: dict, default_id: str, visible_ids: tuple[str, ...
     confined = {name: ThreadConfinedBackendGateway(backend, gpu) for name, backend in backends.items()}
     catalog = InMemoryBackendCatalogGateway(confined, default_id=default_id, visible_ids=visible_ids)
     progress = InMemoryProgressGateway()
-    cancel = CancelRunUseCase(progress)
+    cancel = CancelRunUseCase(progress, catalog)
     controller = FormController(
         describe=DescribeStudioUseCase(catalog),
         run=RunImageUseCase(catalog, progress, InMemoryReferenceStoreGateway(), engine_lock=engine_lock),

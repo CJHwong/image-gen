@@ -169,6 +169,14 @@ class RunImageUseCase:
             # engine's last look must still stop the next image of the batch.
             self._progress.clear_cancel()
             raise
+        except Exception:
+            # A stop that the engine never saw is enforced by freeing it, and the engine
+            # dying is how that reads here. The user asked to stop, so this reports a
+            # stop rather than the engine's own account of dying.
+            if self._progress.cancel_requested():
+                self._progress.clear_cancel()
+                raise Cancelled("stopped by freeing the engine") from None
+            raise
         finally:
             self._progress.finish()
 
