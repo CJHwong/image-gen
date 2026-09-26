@@ -3249,6 +3249,94 @@
     requestCancel();
   });
 
+  // ---- Emptying the form on Run, and putting it back on Cancel ---------------
+  // A run takes everything the form holds, so pressing Run empties the form and
+  // the next run starts from a blank one. One copy of what was there is kept, and
+  // Cancel puts it back: a run the user stops should leave the studio as it found
+  // it, prompt, images, region and settings included.
+  let cleared = null;          // what Run emptied, kept for Cancel
+  let cancelRestore = null;    // the copy Cancel asked for, applied once the run ends
+
+  function snapshotInputs() {
+    const params = {};
+    currentMode().params.forEach(function (param) {
+      const node = document.getElementById(param.id);
+      if (node) params[param.id] = node.value;
+    });
+    return {
+      view: view,
+      prompt: promptInput.value,
+      negative: document.getElementById('negative').value,
+      seed: document.getElementById('seed').value,
+      count: countInput.value,
+      params: params,
+      look: JSON.parse(JSON.stringify(look)),
+      regionText: JSON.parse(JSON.stringify(regionText)),
+      references: references.slice(),
+      strokes: marks ? marks.strokes.slice() : null,
+    };
+  }
+
+  // The defaults come from the mode, through the same call a mode switch makes,
+  // rather than from a value named here that could drift away from the backend.
+  function clearInputs() {
+    promptInput.value = '';
+    document.getElementById('negative').value = '';
+    document.getElementById('seed').value = '';
+    countInput.value = '1';
+    look = {};
+    regionText = {};
+    references = [];
+    marks = null;
+    stopMarking();
+    currentMode().params.forEach(function (param) {
+      const node = document.getElementById(param.id);
+      if (node) delete node.dataset.applied;
+    });
+    applyParams();
+    clampCount();
+    growPrompt();
+    renderLook();
+    renderReferences();
+    refreshForm();
+  }
+
+  function restoreInputs(snapshot) {
+    if (!snapshot) return;
+    // The stage the region was drawn on comes back first: a mark only survives on
+    // the frame it was drawn on, so the frame has to be there before the strokes.
+    view = snapshot.view;
+    promptInput.value = snapshot.prompt;
+    document.getElementById('negative').value = snapshot.negative;
+    document.getElementById('seed').value = snapshot.seed;
+    countInput.value = snapshot.count;
+    look = snapshot.look;
+    // The rows read their text from here, so it goes back before they are built.
+    regionText = snapshot.regionText;
+    references = snapshot.references.slice();
+    marks = null;
+    stopMarking();
+    applyParams();  // this marks every input as applied, so the values below stick
+    Object.keys(snapshot.params).forEach(function (id) {
+      const node = document.getElementById(id);
+      if (node) node.value = snapshot.params[id];
+    });
+    clampCount();
+    growPrompt();
+    renderLook();
+    references.forEach(probeSize);
+    // This arms the brush again, because a mark belongs to one reference on the
+    // stage. Its stroke list starts empty, so the strokes go back after it.
+    renderReferences();
+    if (marks && snapshot.strokes) {
+      marks.strokes = snapshot.strokes.slice();
+      syncMarkToggle();
+    }
+    renderStrip();
+    renderStage();
+    refreshForm();
+  }
+
   function startWork(element) {
     const fresh = element === form;
     document.body.classList.add('busy');
@@ -3290,6 +3378,12 @@
     renderStrip();
     renderStage();
     renderRunButton();
+    // A cancelled run puts back what Run emptied, after the stage has settled.
+    if (cancelRestore) {
+      const snapshot = cancelRestore;
+      cancelRestore = null;
+      restoreInputs(snapshot);
+    }
   }
 
   function requestCancel() {
@@ -3298,6 +3392,11 @@
     go.disabled = true;
     renderProgress();
     htmx.ajax('POST', '/cancel', { swap: 'none' });
+    // The form comes back once the run has really stopped, not now: the progress
+    // card lives on the stage, and moving the stage mid-run would take it away
+    // from the poller that is still streaming into it.
+    cancelRestore = cleared;
+    cleared = null;
   }
 
   // ---- Full screen ------------------------------------------------------------
