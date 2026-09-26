@@ -58,3 +58,29 @@ def test_an_undeclared_mode_is_unsupported():
     assert CAPS.mode("edit") is EDIT
     with pytest.raises(UnsupportedMode, match="Fake has no control mode"):
         CAPS.mode("control")
+
+
+def test_a_marking_mode_needs_room_for_the_mask():
+    # The mask is one more reference, so a mode that carries it needs a slot past
+    # the picture. One slot would make every marked run a refusal.
+    with pytest.raises(ValueError, match="leave room for the mask"):
+        ModeSpec(
+            id="edit",
+            label="Edit",
+            params=(STEPS,),
+            min_references=1,
+            max_references=1,
+            region_marking=True,
+        )
+
+
+def test_a_marking_mode_with_room_is_built():
+    mode = ModeSpec(
+        id="edit",
+        label="Edit",
+        params=(STEPS,),
+        min_references=1,
+        max_references=2,
+        region_marking=True,
+    )
+    assert mode.region_marking and mode.max_references == 2

@@ -150,7 +150,14 @@ def test_qwen21_offers_the_templates_it_passed():
     generate = [template.name for template in caps.mode("generate").templates]
     edit = [template.name for template in caps.mode("edit").templates]
     assert generate[-2:] == ["Deadpan absurdity", "Banner"] and len(generate) == 7
-    assert edit[-2:] == ["Turn into a skeleton", "Turn into a pose figure"] and len(edit) == 7
+    assert edit[-2:] == ["Turn into a pose figure", "Mark a region"] and len(edit) == 8
+
+
+def test_only_a_mode_tested_with_a_region_offers_the_draw_tool():
+    """The page hides the draw tool where no run proved the model respects a region."""
+    caps = Qwen21BackendGateway(None, None, badge="bf16").capabilities()
+    assert caps.mode("edit").region_marking is True
+    assert caps.mode("generate").region_marking is False
 
 
 def test_the_skeleton_is_a_medium_on_qwen21_only():
