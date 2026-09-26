@@ -2712,10 +2712,15 @@
         refreshForm();
       }),
       menuItem('text', 'Reuse prompt', function () {
-        // A Look this mode does not offer comes back as text, so the prompt
-        // still says what the model got.
+        // A Look this mode cannot show comes back as text, so the prompt still says what
+        // the model got. Otherwise the user's own words come back, which a region run may
+        // have none of: its instruction is the rows, and handing back the composed
+        // sentence would put words in the box the user never wrote. An image kept before
+        // this field existed has no `typed`, so its prompt stands in.
         const picks = entry.look ? picksHere(entry.look.picks) : {};
-        promptInput.value = picks ? entry.prompt : entry.look.sent;
+        promptInput.value = picks
+          ? (entry.typed !== undefined ? entry.typed : entry.prompt)
+          : entry.look.sent;
         look = picks || {};
         renderLook();
         if (paramSpec('negative')) document.getElementById('negative').value = entry.negative;
@@ -3065,7 +3070,7 @@
   // never number two new images at once.
   const KEEP_KEY = 'studio-keep';
   const KEPT_FIELDS = ['id', 'seed', 'width', 'height', 'steps', 'elapsed', 'position', 'mode', 'prompt',
-    'look', 'negative', 'sources'];
+    'typed', 'look', 'negative', 'sources'];
   const channel = new BroadcastChannel('studio-gallery');
   let keeping = readKeep();
   let store = null;
