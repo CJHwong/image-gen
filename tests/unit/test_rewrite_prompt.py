@@ -8,6 +8,7 @@ from studio.l2_use_cases.boundaries.backend_catalog_gateway import BackendCatalo
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.rewrite_prompt_use_case import RewritePromptUseCase, RewriteRequest
+from studio.l3_interface_adapters.gateways.qwen21.rewriter import _in_the_request_language
 
 SIZE = ParamSpec(
     id="size",
@@ -148,3 +149,21 @@ def test_a_mode_the_rewriter_does_not_serve_is_refused():
     rewriter = Rewriter(PromptRewrite(prompt="longer"), modes=("generate",))
     with pytest.raises(InvalidJob, match="rewrites no edit prompt"):
         use_case(catalog, rewriter).execute(RewriteRequest(prompt="a cat", mode="edit"))
+
+
+def test_an_english_request_asks_for_english():
+    # Measured 2026-09-27: 2 of 10 English requests came back in Chinese with no
+    # line, and 0 of 10 with this one.
+    sent = _in_the_request_language("make the sky a sunset")
+    assert sent.startswith("make the sky a sunset")
+    assert "Write the instruction in English." in sent
+
+
+def test_a_cjk_request_is_sent_as_it_stands():
+    # The model already keeps a CJK request in CJK, 10 of 10, so nothing is added.
+    assert _in_the_request_language("把天空改成日落") == "把天空改成日落"
+
+
+def test_a_latin_request_with_one_cjk_word_still_asks_for_english():
+    # The branch is on the request being CJK, not on it containing a stray glyph.
+    assert "Write the instruction in English." in _in_the_request_language("make it 夜")

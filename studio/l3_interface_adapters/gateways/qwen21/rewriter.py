@@ -16,6 +16,7 @@ resident and drops it when the other mode asks.
 
 import io
 import json
+import re
 from collections.abc import Mapping
 from typing import cast
 
@@ -61,6 +62,38 @@ def _as_rewrite(text: str) -> PromptRewrite:
     )
 
 
+# CJK Unified Ideographs, and the extensions that carry most everyday text.
+_CJK = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
+_CJK_SHARE = 0.5
+
+
+def _in_the_request_language(prompt: str) -> str:
+    """The request, asked for in English only when it is not already mostly CJK.
+
+    Measured 2026-09-27, ten seeds each on Qwen-Image-2.1's own fixture:
+
+        request    what is sent            answers in Chinese
+        English    the request alone       2 of 10
+        English    the request + English   0 of 10
+        CJK        the request alone      10 of 10
+        English    "same language as ..."  3 of 10, so that wording does not work
+
+    So the model already keeps a CJK request in CJK and needs no help there. An
+    English request drifts into Chinese about one time in five, and asking for
+    English stops it. This is a branch here rather than a sentence for the model
+    to read, because the sentence that asked for the model's own judgment did not
+    hold.
+
+    The test is the share of letters that are CJK, not the presence of one, so a
+    Latin request with a stray CJK character is still asked for English.
+    """
+    letters = [character for character in prompt if character.isalpha()]
+    cjk = sum(1 for character in letters if _CJK.match(character))
+    if letters and cjk / len(letters) > _CJK_SHARE:
+        return prompt
+    return f"{prompt}\n\nWrite the instruction in English."
+
+
 class Qwen21Rewriter(PromptRewriterGateway):
     def __init__(self, models: Mapping[str, str]):
         self._models = dict(models)
@@ -79,7 +112,7 @@ class Qwen21Rewriter(PromptRewriterGateway):
         images = [Image.open(io.BytesIO(reference.png)).convert("RGB") for reference in references]
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": _in_the_request_language(prompt)},
         ]
         # apply_chat_template returns a message list only when return_messages is
         # set, and its hint cannot say so, so the string form is taken here.
