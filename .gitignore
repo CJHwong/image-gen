@@ -4,5 +4,10 @@
 # Python
 __pycache__/
 
+# The coverage data file pytest-cov writes. It holds line numbers and paths, so
+# it is machine state, and one run overwrites the last.
+.coverage
+.coverage.*
+
 # Third-party prompts kept for reference, not ours to publish
 collected/

@@ -34,13 +34,16 @@ A batch is a chain of requests, one per image. Progress is a poll of `/progress`
 1. Write `l3_interface_adapters/gateways/<name>/capabilities.py`. Declare the modes, the params with their ranges and defaults, the reference limits, and the time estimate. Leave out Looks and templates until you test them on this model. Then pick the options that passed from the shared `gateways/prompt_aids.py` with `pick_looks`.
 2. Write `<name>_backend_gateway.py` with a `<Name>BackendGateway` that implements `ImageBackendGateway`: `capabilities`, `load`, `run` and `release`. `run` reports each step and raises `Cancelled` when `should_stop()` turns true.
 3. Write a builder next to `qwen21_backend` in `l4_frameworks_and_drivers/main.py` and add it to `BACKENDS`. Give it a section in `studio.toml`, and read each setting it cannot do without through `config.required`.
-4. Add a gateway test under `tests/gateways/`, with a `live` test that loads the real weights.
+4. Add a gateway test at the mirrored path under `tests/`, with a `live` test that loads the real weights. Mock the engine for the unit test, so it runs with no model.
 5. Run it with `uv run studio --backend <name>`.
 
 The page knows two mode ids, `generate` and `edit`, and the params `size`, `resolution`, `steps`, `guidance`, `cfg`, `strength` and `negative`. An edit may also carry a marked region: the page appends it as the last image of the run, and replaces the prompt's `[the region you marked]` with that image's number. Only a mode that declares `region_marking` is offered the tool. A backend declares the ones it supports. A new kind of param needs a control in `web/page.html`.
 
 ## Tests
 
+- The tree under `tests/` mirrors the tree under `studio/`. The module `studio/a/b/c.py` is tested by `tests/a/b/c/test_c.py`. A shared helper lives in `tests/support/` and mirrors no module. `tests/e2e/` holds the browser checks and mirrors nothing.
+- Every statement and every branch in `studio/` runs under `uv run pytest`, and that run fails when either number drops. A new module needs its mirrored test file, or the gate stops the commit.
+- Mock the engines. Every engine is imported inside the function that needs it, so `tests/support/heavy.py` puts a stub in `sys.modules` and the real import never runs. No unit test loads a model, reads the weights, or touches the GPU.
 - `prek install` once per clone. Each commit then runs ruff, ty, import-linter and a secret scan, and checks the message against Conventional Commits.
 - `uv run pytest` runs the unit and gateway tests. They need no model.
 - `uv run pytest -m live` loads real weights.
