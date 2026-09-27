@@ -1,0 +1,18 @@
+# The backend the page opens with, and the backends it may offer. The page
+# shows a backend picker only when it may offer more than one. `--backend`
+# on the command line opens on another one and adds it to the list.
+default_backend = "qwen21"
+visible_backends = ["qwen21", "flux2"]
+
+[qwen21]
+quantize = 0                              # 0 is bf16; -q on the command line overrides it
+edit_script = "studio/l3_interface_adapters/gateways/qwen21/qwen21_edit.py"   # the diffusers child that runs edits
+# The prompt rewriters: fine-tuned Qwen3.5-VL 9B, 18.84 GB each, and each is
+# released again before an image engine loads. The text one serves generate, the
+# image one serves edit. Neither is fetched until the toggle is first used.
+rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
+rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
+
+[flux2]
+quantize = 8
+model_dir = "~/Library/Caches/models/mflux-klein-base-9b-uncensored"   # the README has the download
