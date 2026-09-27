@@ -61,9 +61,11 @@ def test_a_cancel_raises_at_the_mflux_step_it_lands_on():
     # generate_image at the current step rather than at the end of the image.
     recorder = Recorder(stop=True)
     hook = StepHook()
-    with hook.watch(recorder.on_step, recorder.should_stop, 25):
-        with pytest.raises(Cancelled, match="stopped at step 5"):
-            hook.call_in_loop(4, 1, "a cat", None, None, None)
+    with (
+        hook.watch(recorder.on_step, recorder.should_stop, 25),
+        pytest.raises(Cancelled, match="stopped at step 5"),
+    ):
+        hook.call_in_loop(4, 1, "a cat", None, None, None)
     assert recorder.steps == []
 
 
