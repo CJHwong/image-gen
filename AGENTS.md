@@ -19,7 +19,7 @@ Run this flow when you add a backend. Also run it when you change one: its capab
 2. **Declare the capabilities** in `gateways/<id>/capabilities.py`.
    - Take the defaults for steps, guidance and size from this model's own recommended settings. Do not copy them from another backend.
    - An edit mode defaults its size to "match", so the output keeps the reference's size.
-   - Put every size on the 16-pixel grid. Keep its named ratio within 1%. Add the new `SIZES` to `test_every_size_keeps_its_named_ratio_on_the_16_pixel_grid` in `tests/gateways/test_qwen21.py`.
+   - Put every size on the 16-pixel grid. Keep its named ratio within 1%. Add the new `SIZES` to `test_every_size_keeps_its_named_ratio_on_the_16_pixel_grid` in `tests/l3_interface_adapters/gateways/qwen21/test_capabilities.py`.
    - Leave out Looks and templates until step 5 proves them on this model.
 3. **Measure the cost.** With the GPU free, measure the seconds per step for each mode at three sizes: about 0.25, 0.6 and 1 MP. For an edit, measure with 1 reference and with the maximum. Fit `step_cost`, `exponent` and `overhead` for the `Estimate`. Put the measured table in a comment next to it, with the machine and the quantization.
 4. **Spike before you build an engine feature**, such as real batching. Measure it on the real engine first, and build it only if it wins. Write the result in the README section "Why it looks like this", whether it wins or not. For example, a batched flux2 run was 2 to 8% slower per image, so a batch stays a chain of single runs.
@@ -32,12 +32,13 @@ Run this flow when you add a backend. Also run it when you change one: its capab
    - Before a full run, tell the user the image count and the time, and wait for approval.
 6. **Wire it in.** Follow "Add a backend" in ARCHITECTURE.md. Add the package to the `backends-independent` contract in `.importlinter`. Then prove that the contract can fail: add one import across adapters, see `lint-imports` fail, and remove the import.
 7. **Test it.**
+   - Put the test at the mirrored path under `tests/`, beside the module it covers. Mock the engine, so the test needs no model.
    - Write unit tests for how the form maps to the engine arguments.
    - Write one `live` test that loads the real weights.
    - Give each fix a test, then remove the fix once and watch that test fail.
 8. **Pass the gates.**
    - Run `prek run --all-files`. It runs ruff, ty, import-linter and the secret scan. `--all-files` skips untracked files; while files are untracked, pass `--files $(git ls-files -co --exclude-standard)` instead.
-   - Run `uv run pytest`, then `uv run pytest -m live -k <id>`.
+   - Run `uv run pytest`, then `uv run pytest -m live -k <id>`. The first one fails when the statement or branch coverage of `studio/` drops below 100%.
 9. **Prove it with real runs.** A green test is a gate, not proof.
    - `tests/e2e/verify_capabilities.py`, which needs no GPU.
    - `tests/e2e/verify_backends.py`, against `uv run studio --port <port> --backend <id>`.
