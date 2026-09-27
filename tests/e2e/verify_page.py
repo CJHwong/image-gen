@@ -1164,6 +1164,23 @@ with sync_playwright() as playwright:
         page.input_value("#size"),
     )
 
+    # Your own words survive a rewrite: `typed` holds the short text you wrote,
+    # while `prompt` stays the paragraph the run was actually given.
+    page.fill("#prompt", "a cat")
+    page.dispatch_event("#prompt", "input")
+    button.click()
+    page.wait_for_function(
+        "() => document.getElementById('prompt').value.indexOf('written for the stub') >= 0", timeout=15000
+    )
+    page.click("#go")
+    wait_idle(page)
+    kept = page.evaluate("() => { const e = gallery[gallery.length - 1]; return e ? [e.typed, e.prompt] : null; }")
+    check(
+        "the card keeps the words you typed, apart from the rewritten prompt",
+        bool(kept) and kept[0] == "a cat" and "written for the stub" in kept[1],
+        f"typed={kept[0]!r} sent={kept[1][:40]!r}" if kept else "no gallery entry",
+    )
+
     # The check that would have caught a panel locked with `disabled`. A disabled
     # field is left out of the form the browser submits, so a locked panel once
     # sent a run with no prompt, no mode and no size.
