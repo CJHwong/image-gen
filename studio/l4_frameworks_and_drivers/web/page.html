@@ -2349,7 +2349,7 @@
         // The user's own words, kept apart so Reuse prompt has them and not the
         // sentence the page composed. A run that is rows only has none, and an empty
         // box is the honest thing to hand back.
-        entry.typed = runLook.prompt;
+        entry.typed = runLook.typed || runLook.prompt;
         entry.negative = runLook.negative;
         if (runLook.labels.length) entry.look = runLook;
       }
@@ -3668,7 +3668,7 @@
     runSources = references.map(function (reference) { return reference.source; });
     const own = promptInput.value.trim();
     runLook = {
-      prompt: own, sent: withLook(own), adds: lookText(), labels: lookLabels(),
+      prompt: own, typed: rewrittenFrom || own, sent: withLook(own), adds: lookText(), labels: lookLabels(),
       picks: JSON.parse(JSON.stringify(look)), negative: typedNegative(),
     };
     event.detail.parameters.prompt = runLook.sent;
@@ -3836,6 +3836,10 @@
   // reads this as it draws, so a declaration further down is in its dead zone.
   let rewriting = false;
 
+  // The text you typed before a rewrite replaced the box. Held apart so the card
+  // keeps your own words, which the rewritten paragraph otherwise overwrites.
+  let rewrittenFrom = null;
+
   applyMode();
   renderLook();
   renderReferences();
@@ -3943,6 +3947,7 @@
   }
 
   async function rewritePrompt() {
+    const typed = promptInput.value.trim();
     const body = new URLSearchParams();
     body.set('mode', currentMode().id);
     body.set('prompt', withLook(promptInput.value));
@@ -3958,6 +3963,7 @@
       throw new Error(text || answer.statusText);
     }
     if (result.error) throw new Error(result.error);
+    rewrittenFrom = typed;
     promptInput.value = result.prompt;
     growPrompt();
     // A shape the rewriter suggested is applied, so the run renders what it
@@ -3983,7 +3989,10 @@
 
   // The prompt box carries an instruction the button depends on, so its state is
   // refreshed as it is typed. refreshForm already runs on input for other reasons.
-  promptInput.addEventListener('input', renderRewriteButton);
+  promptInput.addEventListener('input', function () {
+    rewrittenFrom = null;   // typing again is your own words, not the rewrite's
+    renderRewriteButton();
+  });
 
   renderRewriteButton();
 
