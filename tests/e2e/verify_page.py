@@ -703,9 +703,12 @@ with sync_playwright() as playwright:
         return white; }""")
     check("drawing paints the print", covered > 100, str(covered))
     after = page.evaluate("() => stepSeconds()")
+    # The mask is one more image, so the run costs more per step than the picture
+    # alone. Measured 2026-09-27: it multiplies the step cost by about 1.175, so
+    # the bar is a tenth rather than the third the old 0.6 constant implied.
     check(
         "the estimate counts the mask as one more image",
-        before > 0 and after > before * 1.3,
+        before > 0 and after > before * 1.1,
         f"{before:.2f} s per step with no region, {after:.2f} with one",
     )
     check("one row per marked colour", page.locator("#region-rows .region-row").count() == 1)
@@ -1135,6 +1138,48 @@ with sync_playwright() as playwright:
         return name;
     }""")
     check("normal motion animates", normal == "join", normal)
+
+    # The prompt rewriter. The stub reports it for both modes and answers with a
+    # longer prompt, so the whole path is checkable with no GPU.
+    page.reload()
+    wait_idle(page)
+    button = page.locator("#rewrite-toggle")
+    check("the rewrite button is offered where the backend has a rewriter", button.is_visible())
+    page.fill("#prompt", "a cat")
+    page.dispatch_event("#prompt", "input")
+    button.click()
+    page.wait_for_function(
+        "() => document.getElementById('prompt').value.indexOf('written for the stub') >= 0", timeout=15000
+    )
+    check(
+        "pressing it puts the rewritten prompt in the box",
+        "written for the stub" in page.input_value("#prompt"),
+        page.input_value("#prompt")[:60],
+    )
+    # The stub answers with 3:2, and the page applies it: one of the mode's own
+    # sizes, chosen because its shape matches.
+    check(
+        "a shape from the rewriter is applied to the size menu",
+        page.input_value("#size") == "1152x768",
+        page.input_value("#size"),
+    )
+
+    # The check that would have caught a panel locked with `disabled`. A disabled
+    # field is left out of the form the browser submits, so a locked panel once
+    # sent a run with no prompt, no mode and no size.
+    posted = {}
+    page.on("request", lambda request: posted.update(parse_post(request)) if "/generate" in request.url else None)
+    page.evaluate("setSelect(document.getElementById('size'), '512x512')")
+    page.fill("#prompt", "a cat")
+    page.dispatch_event("#prompt", "input")
+    page.click("#go")
+    wait_idle(page)
+    absent = [field for field in ("prompt", "mode", "size", "steps") if not posted.get(field)]
+    check(
+        "a run carries every field while the panel is held",
+        not absent,
+        "absent: " + ", ".join(absent) if absent else "prompt, mode, size and steps all present",
+    )
 
     check("no console errors", not errors, "; ".join(errors))
     browser.close()

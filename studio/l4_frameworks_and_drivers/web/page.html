@@ -777,8 +777,12 @@
         <div class="field prompt-field">
           <div class="field-head">
             <label for="prompt"><span class="generate-only">Prompt</span><span class="edit-only">What to change</span></label>
+            <div class="head-actions">
             <button type="button" class="pill" id="templates-toggle" aria-expanded="false"
               aria-controls="templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
+            <button type="button" class="pill" id="rewrite-toggle" hidden
+              title="Rewrite the prompt into a longer instruction before generating"><svg class="icon"><use href="#i-sparkle"/></svg>Rewrite</button>
+            </div>
           </div>
           <div class="menu" id="templates" role="menu" hidden></div>
           <textarea id="prompt" name="prompt" autofocus rows="4"></textarea>
@@ -2030,6 +2034,7 @@
     renderSize();
     renderAdvancedValues();
     renderRunButton();
+    renderRewriteButton();
   }
 
   function growPrompt() {
@@ -3826,11 +3831,162 @@
   setupBackends();
   setupThemes();
   buildSizeControls();
+  // Whether a rewrite is in flight. Declared up here, above the first call into
+  // refreshForm: the form draws itself during startup and renderRewriteButton
+  // reads this as it draws, so a declaration further down is in its dead zone.
+  let rewriting = false;
+
   applyMode();
   renderLook();
   renderReferences();
   renderStrip();
   renderStage();
+  // Rewrite the prompt into a longer instruction.
+  //
+  // The rewriter is a second model in the backend and it costs about 30s, so it
+  // is a button rather than something a run does on its own: the rewritten text
+  // lands in the box, where it can be read and edited before any image time is
+  // spent. It is offered only where the backend declares a rewriter for the mode
+  // on screen, and it sends the prompt WITH the Look sentences, because the Look
+  // is part of what the user asked for and the rewriter's job is to write all of
+  // it out at length.
+  //
+  // A toggle that rewrote each run was tried first. It cannot be built this way:
+  // htmx handles the submit from a listener of its own, and a listener added
+  // later never gets to hold the request.
+  function rewriteOffered() {
+    return (STUDIO.rewrite_modes || []).indexOf(currentMode().id) >= 0;
+  }
+
+  // A run and a rewrite both hold the panel still: the inputs carry the values the
+  // job is using, so changing one mid-flight would leave the card disagreeing with
+  // what was actually sent. Each locked control says which job holds it. The locks
+  // nest, because a rewrite can finish while a run is starting.
+  //
+  // The Run button is never locked: during a run it is Cancel, and locking it would
+  // trap the user with no way out.
+  const holds = new Set();
+  let held = [];
+
+  function holdPanel(reason, on) {
+    if (on) holds.add(reason);
+    else holds.delete(reason);
+    if (holds.size && !held.length) applyHold();
+    else if (!holds.size && held.length) releaseHold();
+  }
+
+  // `disabled` is the obvious way to hold a field and it is the wrong one: the
+  // browser leaves a disabled field out of the form it submits, so a panel locked
+  // that way once arrived at the server with no prompt, no mode and no size.
+  // `readonly` keeps the value in the request, and a pointer-events block covers
+  // the controls readonly cannot reach, which is the selects and the buttons.
+  function applyHold() {
+    const reason = Array.from(holds).join(' ');
+    held = [];
+    form.querySelectorAll('input, textarea, select, button').forEach(function (control) {
+      // The Run button is Cancel while a run is going, so holding it would trap
+      // the user with no way out.
+      if (control.id === 'go') return;
+      const text = control.tagName === 'TEXTAREA' || (control.tagName === 'INPUT' && control.type === 'text');
+      if (text) {
+        if (control.readOnly) return;
+        control.readOnly = true;
+        held.push([control, 'readOnly']);
+      } else {
+        control.style.pointerEvents = 'none';
+        held.push([control, 'pointer']);
+      }
+      control.dataset.heldTitle = control.getAttribute('title') || '';
+      control.title = reason;
+    });
+  }
+
+  function releaseHold() {
+    held.forEach(function (entry) {
+      const control = entry[0];
+      if (entry[1] === 'readOnly') control.readOnly = false;
+      else control.style.pointerEvents = '';
+      if (control.dataset.heldTitle) control.title = control.dataset.heldTitle;
+      else control.removeAttribute('title');
+      delete control.dataset.heldTitle;
+    });
+    held = [];
+    // The page's own rules decide which controls stay disabled, so they are asked
+    // again rather than trusting the state this put back.
+    refreshForm();
+  }
+
+  // Watching the class the page already sets for a run keeps this out of the run's
+  // own start and stop paths, which are easy to get wrong.
+  new MutationObserver(function () {
+    holdPanel('Locked while the image is being made.', busy());
+  }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+  function renderRewriteButton() {
+    const button = document.getElementById('rewrite-toggle');
+    if (!button) return;
+    button.hidden = !rewriteOffered();
+    const empty = !promptInput.value.trim();
+    button.disabled = rewriting || busy() || empty;
+    button.title = rewriting
+      ? 'Locked while the prompt is being rewritten.'
+      : empty
+        ? 'Write a prompt to rewrite first. A marked run takes its instruction in the region rows.'
+        : 'Rewrite the prompt into a longer instruction before generating';
+    // The readout belongs to a run while one is going, so a rewrite only borrows
+    // it when nothing else is. Without this a press looks like nothing happened
+    // for half a minute, and the button stays live for a second press.
+    if (busy()) return;
+    const status = document.getElementById('status');
+    status.hidden = !rewriting;
+    if (rewriting) statusText.textContent = 'Rewriting the prompt, about 30s';
+  }
+
+  async function rewritePrompt() {
+    const body = new URLSearchParams();
+    body.set('mode', currentMode().id);
+    body.set('prompt', withLook(promptInput.value));
+    // The pictures the run carries, and not the mask: the mask is a technical
+    // picture, and the rewriter is asked about the scene.
+    body.set('references', JSON.stringify(references.map(function (reference) { return reference.b64; })));
+    const answer = await fetch('/rewrite', { method: 'POST', body: body });
+    const text = await answer.text();
+    let result;
+    try {
+      result = JSON.parse(text);
+    } catch (error) {
+      throw new Error(text || answer.statusText);
+    }
+    if (result.error) throw new Error(result.error);
+    promptInput.value = result.prompt;
+    growPrompt();
+    // A shape the rewriter suggested is applied, so the run renders what it
+    // described. It arrives as one of this mode's own sizes, or as nothing.
+    if (result.size) setSelect(sizeSelect, result.size);
+    refreshForm();
+    return result;
+  }
+
+  document.getElementById('rewrite-toggle').addEventListener('click', function () {
+    if (rewriting || busy() || !promptInput.value.trim()) return;
+    rewriting = true;
+    holdPanel('Locked while the prompt is being rewritten.', true);
+    renderRewriteButton();
+    rewritePrompt()
+      .catch(function (error) { showToast('error', 'The rewrite failed: ' + error.message); })
+      .then(function () {
+        rewriting = false;
+        holdPanel('Locked while the prompt is being rewritten.', false);
+        renderRewriteButton();
+      });
+  });
+
+  // The prompt box carries an instruction the button depends on, so its state is
+  // refreshed as it is typed. refreshForm already runs on input for other reasons.
+  promptInput.addEventListener('input', renderRewriteButton);
+
+  renderRewriteButton();
+
   loadKept();
 </script>
 </body>

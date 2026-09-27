@@ -7,6 +7,10 @@ dependencies = [
     # The same commit the qwen21 CLI pins. It carries the qwen21, flux2 and krea2 ports.
     "mflux @ git+https://github.com/mflux-community/mflux@8c00dab2505a96019df9d30bc9c223bf20d733c4",
     "pillow",
+    # The prompt rewriters, a second model per mode. MLX like mflux, so it shares
+    # this process and needs no child; the import is deferred to the first
+    # rewrite, so a studio that never rewrites never pays for it.
+    "mlx-vlm>=0.7.3",
 ]
 
 [project.scripts]

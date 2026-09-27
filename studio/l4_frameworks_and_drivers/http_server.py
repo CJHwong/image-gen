@@ -1,5 +1,6 @@
 """The HTTP routes. Each one hands the form to the controller and its answer to the presenter."""
 
+import json
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs
 
@@ -33,6 +34,13 @@ def make_handler(controller: FormController, presenter: HtmlPresenter) -> type[B
                 self._send("", status=204, content_type="text/plain")
             elif self.path == "/backend":
                 self._send(self._outcome(lambda: controller.switch(form) or ""))
+            elif self.path == "/rewrite":
+                # The page reads this one as data, so a failure arrives as JSON
+                # too. The other routes send HTML, which the page appends or toasts.
+                self._send(
+                    self._outcome(lambda: presenter.rewrite(controller.rewrite(form)), as_json=True),
+                    content_type="application/json",
+                )
             else:
                 self._send("not found", status=404, content_type="text/plain")
 
@@ -53,10 +61,12 @@ def make_handler(controller: FormController, presenter: HtmlPresenter) -> type[B
             return host in (f"{bound}:{port}", f"[{bound}]:{port}", f"localhost:{port}")
 
         @staticmethod
-        def _outcome(action) -> str:
+        def _outcome(action, as_json: bool = False) -> str:
             try:
                 return action()
             except Exception as error:  # every failure reaches the page as one line
+                if as_json:
+                    return json.dumps({"error": f"{type(error).__name__}: {error}"}, ensure_ascii=False)
                 return presenter.failure(error)
 
         def _read_form(self) -> dict[str, str]:

@@ -12,6 +12,7 @@ from dataclasses import asdict
 from studio.l1_entities.errors import Cancelled, InvalidJob, StudioError
 from studio.l1_entities.run_progress import RunProgress
 from studio.l2_use_cases.describe_studio_use_case import StudioView
+from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
 from studio.l2_use_cases.run_image_use_case import NextRun, RunImageResponse
 
 ITEM = """<div class="item" data-seed="{seed}" data-width="{width}" data-height="{height}"
@@ -46,6 +47,9 @@ class HtmlPresenter:
             },
             "backends": [list(backend) for backend in view.backends],
             "modes": [asdict(mode) for mode in active.modes],
+            # Which modes a prompt rewriter serves. Empty leaves the page's
+            # toggle out, so a backend without one offers no dead button.
+            "rewrite_modes": list(view.rewrite_modes),
         }
         # The JSON sits in a script tag, where "</" would end the tag early.
         data = json.dumps(studio, ensure_ascii=False).replace("</", "<\\/")
@@ -70,6 +74,15 @@ class HtmlPresenter:
             mode=response.mode,
         )
         return item + (self._chain(response.next_run) if response.next_run else "")
+
+    @staticmethod
+    def rewrite(response: RewriteResponse) -> str:
+        """JSON, not HTML. Every other fragment is appended to the page; this one
+        is data the page reads into the prompt box and the size menu."""
+        return json.dumps(
+            {"prompt": response.prompt, "size": response.size, "elapsed": round(response.elapsed, 1)},
+            ensure_ascii=False,
+        )
 
     @staticmethod
     def _chain(next_run: NextRun) -> str:

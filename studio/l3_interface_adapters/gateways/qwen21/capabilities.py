@@ -31,6 +31,18 @@ SIZES = (
     ("672 x 896 (3:4)", 672, 896),
     ("864 x 1152 (3:4)", 864, 1152),
     ("1104 x 1472 (3:4)", 1104, 1472),
+    # 3:2 and 2:3 were missing until the prompt rewriters arrived. Measured
+    # 2026-09-27: three of four rewrites asked for 3:2, and the page could not
+    # render it. Both ratios divide exactly on the 16 pixel grid, which is why
+    # 1152x768 is 3:2 to the pixel rather than to within one percent.
+    ("768 x 512 (3:2)", 768, 512),
+    ("960 x 640 (3:2)", 960, 640),
+    ("1152 x 768 (3:2)", 1152, 768),
+    ("1536 x 1024 (3:2)", 1536, 1024),
+    ("512 x 768 (2:3)", 512, 768),
+    ("640 x 960 (2:3)", 640, 960),
+    ("768 x 1152 (2:3)", 768, 1152),
+    ("1024 x 1536 (2:3)", 1024, 1536),
 )
 
 # The edit pipeline treats output_resolution as an area budget, not a side: it
@@ -45,47 +57,48 @@ EDIT_RESOLUTIONS = (1024, 768, 512, 1328)
 # past anything this machine renders in reasonable time.
 EDIT_MATCH_CAP = 1328
 
-# Cost, before you spend it. Measured seconds per step on an M5 Pro, 64 GB:
+# Cost, before you spend it. Measured 2026-09-27 on an M5 Pro, 64 GB, three
+# repeats at each point, one step and twenty steps apart so the fixed cost and
+# the per-step cost separate:
 #
-#   megapixels   0.26   0.59   1.05   1.60   1.75
-#   mflux t2i    1.01   1.79   3.32      -   6.14
-#   edit         0.76   1.87   3.52   7.95   7.40
+#   seconds per step   0.26 MP   0.59 MP   1.05 MP
+#   mflux t2i             0.69      3.37      5.76
+#   edit, 1 reference     1.31      3.77      9.90
 #
-# The cost is superlinear in pixels, because attention is quadratic in token
-# count. A flat rate per pixel fit the small sizes and then under-promised
-# badly at the top: it called a run 4 minutes that took 345 seconds. An
-# exponent of 1.25 holds both engines inside 3.3 to 4.4, so one curve covers
-# both. The constant sits at the high end on purpose, because an estimate that
-# runs short is worse than one that runs long. The page replaces it with the
-# rate it sees once a run is under way.
+# The two engines are not one curve. They were, until this measurement: a single
+# STEP_COST of 4.0 at exponent 1.25 fitted the small end and ran 39% short at
+# 0.59 MP and 57% short at 1.05 MP on the edit side. Each engine now has its own
+# pair. The cost is superlinear in pixels because attention is quadratic in
+# token count, which is what the exponent carries.
 #
-# More references cost more, because each is a second vision context. Measured
-# again 2026-09-26 on the same machine, edit mode alone, 20 steps, one seed:
-#
-#   megapixels    0.26   0.59   1.05
-#   1 reference   0.83   1.80   4.23
-#   2 references  1.21   2.67   5.71
-#   10 references 2.99      -      -
-#
-# A second image multiplies the step cost by 1.35 to 1.48, so per_reference is
-# 0.45. Ten came in at 3.6 times where a straight line predicts 5.05, so the
-# line runs long rather than short, which is the side to be wrong on. A marked
-# region is one more image, and that is what a marked run sends. This run put
-# 1.05 megapixels at 4.23 against the 3.52 in the table above, and the same
-# shape has taken 130 s and 207 s in one session, so the constant stays as the
-# first table fitted it rather than moving on one shape.
-STEP_COST = 4.0
-STEP_EXPONENT = 1.25
-# Measured 2026-09-26 by timing the child's own steps, so the encode is separated from the
+# Run-to-run spread on this machine is large: three runs of one size and one
+# seed differ by up to 20% at 1.05 MP, and the 0.59 MP generate point spread
+# 44.7s to 76.5s. The edit fit lands inside 9% at all three sizes. The generate
+# fit lands inside 20%, and only that one point disagrees, so it is fitted
+# across all three rather than around it.
+GENERATE_STEP_COST = 6.1
+GENERATE_STEP_EXPONENT = 1.55
+EDIT_STEP_COST = 8.8
+EDIT_STEP_EXPONENT = 1.44
+# Measured 2026-09-27 by timing the child's own steps, so the encode is separated from the
 # denoising. Between step 0, which says the engine started, and step 1 sits the prompt and
 # image encode, and it is 30 to 90 seconds whatever the reference's size, because the
 # processor resizes to a token budget. The mask is a second image and it costs about half
 # again: at 1024 output, per step 3.57 becomes 5.66 with it, and the encode 28.6 becomes
-# 70.5. So one more reference adds 0.6 of the step cost, and the encode rides in the
+# 70.5. So one more reference adds a share of the step cost, and the encode rides in the
 # overhead, counted per image rather than per batch because every image encodes its own.
-REFERENCE_STEP_GROWTH = 0.6  # one more reference adds this share to the step cost
+#
+# The same matrix measured the two parts of that. At 0.59 MP a second reference took the
+# step cost from 3.77 to 4.43, a factor of 1.175, so the share is 0.175 rather than the
+# 0.6 an earlier single-reference measurement gave.
+REFERENCE_STEP_GROWTH = 0.175  # one more reference multiplies the step cost by 1 + this
 GENERATE_OVERHEAD = 3  # per image; the model is already resident
-EDIT_OVERHEAD = 100  # per image: the pipeline build, then the encode before step 1
+# The encode before step 1, with the pipeline already built. It was 100, which
+# counted a pipeline build that is paid once per child rather than once per
+# image, and the matrix measured it at 4.1s, 10.2s and 19.9s for 0.26, 0.59 and
+# 1.05 MP. 20 is the top of that range: a flat number cannot follow a size, and
+# this is the side to be wrong on.
+EDIT_OVERHEAD = 20
 
 STEPS = ParamSpec(id="steps", kind="number", default=40, minimum=1, maximum=100, integer=True, step=1)
 NEGATIVE = ParamSpec(id="negative", kind="text", default="")
@@ -125,7 +138,7 @@ GENERATE = ModeSpec(
     prompt_hint="Describe the image. Put any text you want rendered in quotes.",
     looks=GENERATE_LOOKS,
     templates=GENERATE_TEMPLATES,
-    estimate=Estimate(STEP_COST, STEP_EXPONENT, GENERATE_OVERHEAD, overhead_per_image=True),
+    estimate=Estimate(GENERATE_STEP_COST, GENERATE_STEP_EXPONENT, GENERATE_OVERHEAD, overhead_per_image=True),
 )
 EDIT = ModeSpec(
     id="edit",
@@ -137,8 +150,8 @@ EDIT = ModeSpec(
     prompt_required="An edit instruction is required.",
     templates=EDIT_TEMPLATES,
     estimate=Estimate(
-        STEP_COST,
-        STEP_EXPONENT,
+        EDIT_STEP_COST,
+        EDIT_STEP_EXPONENT,
         EDIT_OVERHEAD,
         # Every image of a batch is its own run through the child, so each one pays the
         # encode before its first step. The pipeline build is paid once and counted here
