@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
 from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
 from studio.l4_frameworks_and_drivers.main import assemble_studio, build_backends
 from tests.unit.fakes import FakeBackendGateway
@@ -55,7 +56,7 @@ def served():
     """A real server on a free port, over a backend whose run lasts until it is cancelled."""
     started = threading.Event()
     backend = FakeBackendGateway(stop_check=lambda step: started.set() or time.sleep(0.2))
-    studio = assemble_studio({"fake": backend}, "fake", ("fake",))
+    studio = assemble_studio({"fake": backend}, {"fake": NoPromptRewriter()}, "fake", ("fake",))
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield studio, server, backend, started

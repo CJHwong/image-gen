@@ -6,6 +6,7 @@ from studio.l1_entities.errors import BackendBusy, UnknownBackend
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase
 from studio.l2_use_cases.switch_backend_use_case import SwitchBackendUseCase
 from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
+from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
 from tests.unit.fakes import FakeBackendGateway
 
 
@@ -24,9 +25,10 @@ def parts():
 
 def test_the_page_sees_the_active_backend_and_the_visible_ones(parts):
     catalog, _, _, _ = parts
-    view = DescribeStudioUseCase(catalog).execute()
+    view = DescribeStudioUseCase(catalog, NoPromptRewriter()).execute()
     assert view.active.backend_id == "first"
     assert view.backends == (("first", "First"), ("second", "Second"))
+    assert view.rewrite_modes == ()
 
 
 def test_a_switch_frees_the_old_backend_before_the_new_one_loads(parts):

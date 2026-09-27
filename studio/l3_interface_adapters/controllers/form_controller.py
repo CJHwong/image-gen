@@ -14,6 +14,7 @@ from studio.l1_entities.run_progress import RunProgress
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase, StudioView
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
+from studio.l2_use_cases.rewrite_prompt_use_case import RewritePromptUseCase, RewriteRequest, RewriteResponse
 from studio.l2_use_cases.run_image_use_case import RunImageRequest, RunImageResponse, RunImageUseCase
 from studio.l2_use_cases.switch_backend_use_case import SwitchBackendUseCase
 
@@ -26,18 +27,23 @@ class FormController:
         read_progress: ReadProgressUseCase,
         cancel: CancelRunUseCase,
         switch: SwitchBackendUseCase,
+        rewrite: RewritePromptUseCase,
     ):
         self._describe = describe
         self._run = run
         self._read_progress = read_progress
         self._cancel = cancel
         self._switch = switch
+        self._rewrite = rewrite
 
     def page(self) -> StudioView:
         return self._describe.execute()
 
     def run(self, form: Mapping[str, str]) -> RunImageResponse:
         return self._run.execute(run_request(form))
+
+    def rewrite(self, form: Mapping[str, str]) -> RewriteResponse:
+        return self._rewrite.execute(rewrite_request(form))
 
     def progress(self) -> RunProgress:
         return self._read_progress.execute()
@@ -62,6 +68,19 @@ def run_request(form: Mapping[str, str]) -> RunImageRequest:
         total=_whole(form.get("total") or form.get("count") or "1", "count"),
         index=_whole(form.get("index") or "1", "index"),
         backend=form.get("backend", "").strip(),
+    )
+
+
+def rewrite_request(form: Mapping[str, str]) -> RewriteRequest:
+    """A rewrite carries the same prompt the run would send, and the pictures it would carry.
+
+    The page leaves the mask out: it is a technical picture, and the rewriter is
+    asked about the scene the run is of.
+    """
+    return RewriteRequest(
+        prompt=form.get("prompt", ""),
+        mode=form.get("mode") or "generate",
+        references=_references(form.get("references") or "[]"),
     )
 
 
