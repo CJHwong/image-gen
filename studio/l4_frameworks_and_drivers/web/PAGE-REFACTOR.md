@@ -71,6 +71,7 @@ component is behaviour rather than a tree brings the case the way this one came.
       page.css             the CSS, moved out whole
       lib/
         state.js           the store, its fields, and the redraw it triggers
+        form.js            the form's model: mode, params, Look, size and cost
         htmx.js            the progress poll and the run post
         theme.js           the theme's menu and pick, after the first paint
         store.js           IndexedDB: keep, clear, download, and the failures
@@ -79,7 +80,7 @@ component is behaviour rather than a tree brings the case the way this one came.
         region-mark.js     Marking a region
         size-chips.js      Size and resolution
         advanced-panel.js  Count, steps, seed
-        run-button.js      The estimate and the run button
+        run-button.js      The run button's four labels, one of them shown
         look-rows.js       Look
         image-strip.js     Gallery, selection and compare
         kept-images.js     Kept images
@@ -92,9 +93,10 @@ Fifteen files for 3,085 lines. The cost is not spread evenly: the region canvas
 is about 515 lines and the gallery about 630, so more than a third of the
 JavaScript sits in two components. Plan the effort there.
 
-`lib/htmx.js` is the one file in that tree no slice has written. The run
-wiring's state is what `verify_page.py` drives, so it stays in the page until
-the last slice. Slice 9 says why.
+`kept-images.js` was folded into `lib/store.js` in slice 9: the database and the
+channel are one concern, so they are one file. `lib/form.js` was added in slice
+10: the form's model is not a tree any one component draws, and it is what every
+component the form is drawn from reads.
 
 `theme.js` is not the early script. An inline script runs before the first paint, and an ES module is deferred, so the read of the saved theme stays inline in `page.html` and `theme.js` holds the menu. Moving that read out brings the flash back, and no check in this repo can see it.
 
@@ -542,6 +544,105 @@ The conversions were proved without a GPU: `verify_page.py` runs against the
 stub at 179 of 180, and the one check it cannot make there is the mask's colour
 at the reference's size, which needs real pixels. So a change to this net can be
 checked in seconds before it costs a run, with the run left to prove the engine.
+
+### Slice 10: the stage, the run and the form
+
+The stage and full screen moved to `components/stage.js`, the run wiring and the
+server's answers to `lib/htmx.js`, and the form's model to `lib/form.js`.
+`page.html` is 921 lines: the markup, the htmx attributes, and a classic script
+of 658 lines. The inline script fell from 2,213 lines to 658, and the functions
+the coverage report counts in it from 263 to 114.
+
+The form module is declared first of the modules, because every later door is
+handed on to it: `size-chips-ready`, `advanced-panel-ready`, `look-rows-ready`
+and `reference-list-ready` all reach the form, and a component the form is drawn
+from reads the form's own values rather than a second copy of them. The stage
+and the run take what they need from the form the same way, on their own doors.
+
+What the classic script is now, and why each part cannot leave.
+
+1. **The pre-paint theme read**, in its own `<script>` above the modules. An
+   inline script runs before the first paint and a deferred module does not, so
+   it stays where it is. That is the measurement in "The first paint, measured".
+2. **`STUDIO` and what is derived from it**: `MODES`, `MAX_BATCH` and
+   `EDGE_NAME`. The server substitutes `__STUDIO__` into `page.html`, and the
+   static route serves a file's bytes verbatim, so no module can be handed it.
+   Every module takes the derived values on its door instead.
+3. **The page's element references**: `form`, `go`, `go-sub`, `prompt`,
+   `count`, `size`, `resolution`, `progress`, `incoming`, `reference`, `refs`,
+   `count-toggle`, `count-menu`, `templates-toggle`, `templates`, `canvas`,
+   `stage-bar` and `status-text`. A Lit render replaces what is under it, so the
+   page takes each one while the markup is parsed and hands it over; a component
+   that owned one would leave the page writing to a detached node.
+4. **The door registrations.** A classic script cannot import a module, and it
+   cannot call one's exports while the markup is parsed either. So the page
+   registers a listener per module here, and each module fires its own event
+   while it is evaluated. Fourteen doors, each one forwarding to the module
+   that owns the section.
+5. **The references array**, because `verify_capabilities.py` reads it by
+   name out of the page's global scope: `references.length`,
+   `references[0].source` and `references[0].width`, beside `view`. The array is
+   the page's and the form reassigns it through a setter on its door. A first cut
+   moved it into the form module, which broke that check with a `ReferenceError`
+   the UI suite cannot see. Real consumers decide, and this one reads the page.
+6. **Three names `verify_page.py` reads out of the page's global scope**:
+   `learnedCost`, `costKey` and `stepSeconds`. The check is frozen, and what it
+   asserts is an exact step rate that the estimate sentence does not carry in
+   the state it reads. So the three stay the page's own names: `learnedCost` is
+   the page's object, which the form reads and the run writes, and the other two
+   answer with the form's own numbers.
+7. **The document's own keys**: `F` for full screen and the arrows for the
+   strip, plus Cmd+Enter to run. Two modules share each key, so the key is the
+   composition root's.
+8. **htmx's own wiring**, in the markup as attributes: `hx-post`, `hx-target`,
+   `hx-swap` and the `hx-vals` the chain placeholders carry.
+
+The rest of the remaining script is the page's own state, which a run, the stage
+and the strip all read: the gallery array, the shown frame, the arrival, the
+frame counter and the shape in flight. Each is asked for through a getter on the
+door of the module that needs it.
+
+Four rules came out of this slice.
+
+1. **The first draw runs inside a module's `configure`, so a page callback it
+   uses must tolerate a null handle.** The form draws itself when its module is
+   evaluated, which is before the page has assigned the handle that `configure`
+   returns. The first draw reached a page function that went back through that
+   handle and threw. The page's own callbacks on that path are guarded, and the
+   store is seeded again on its own door.
+2. **A helper the page has moved is passed as a call, not as a name.** A door's
+   helper object is evaluated by the page, so a name the page no longer declares
+   throws before `configure` is reached, and the module's handle never arrives.
+   One such name cost the run, the stage and every door after them their wiring,
+   and it raised no error of its own.
+3. **A name a frozen check reads is a shim, not a copy of the code.** The three
+   names above are the page's, and they answer with the module's numbers rather
+   than with a second implementation that could drift.
+4. **The other suites in `tests/e2e/` are consumers too.** `verify_ui.py` is not
+   the only check that reaches into the page: `verify_capabilities.py` reads
+   `references` and `view` out of the page's global scope, and it lives outside
+   this design's contract. State a slice moves has to be checked against every
+   script in that directory, not only the one this document is the contract for.
+   `verify_capabilities.py`, `verify_storage.py` and `verify_page.py`'s own
+   bindings are all worth a run before the move is called done.
+
+`tests/e2e/js_coverage.py` reports the page's code in two lines, the inline
+script and the modules. The inline line will never say "none left": the four
+things above are code, and they stay. It reads 111 of 114 functions against the
+stub suite, and the modules 518 of 522, which is what "the code has moved" looks
+like for a page that has a composition root.
+
+The suite grew no checks: this slice moves code and changes no behaviour, and
+the 137 checks that pin that behaviour were the gate at every step. What was
+proved instead is that the checks still bite on the moved code. Three mutations,
+each served from a copy of the page directory, and one control with nothing
+mutated:
+
+| Mutation | Where | What the suite caught |
+|---|---|---|
+| the frame number loses its zero pad | `components/stage.js` | 3 checks, all of them read a frame number |
+| the Look stops reaching the sent prompt | `lib/form.js` | 1 check: the posted prompt carries the Look |
+| the double-click guard widens to 30 s | `lib/htmx.js` | 2 checks: Cancel stops the run, and puts back what Run emptied |
 
 ## Non-goals
 

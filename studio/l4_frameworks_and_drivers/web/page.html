@@ -17,7 +17,10 @@
 </script>
 <!-- The theme menu, after that first paint. A module is deferred, so it cannot
      hold the early read above without letting the default theme flash. -->
+<script type="module" src="/page/lib/form.js"></script>
 <script type="module" src="/page/components/popup-menu.js"></script>
+<script type="module" src="/page/components/stage.js"></script>
+<script type="module" src="/page/lib/htmx.js"></script>
 <script type="module" src="/page/lib/theme.js"></script>
 <script type="module" src="/page/components/size-chips.js"></script>
 <script type="module" src="/page/components/advanced-panel.js"></script>
@@ -270,68 +273,10 @@
   const resolutionSelect = document.getElementById('resolution');
   const progressSlot = document.getElementById('progress');
   const incoming = document.getElementById('incoming');
-
-  function icon(name) {
-    return '<svg class="icon" aria-hidden="true"><use href="#i-' + name + '"/></svg>';
-  }
-
-  function editing() {
-    return document.getElementById('mode-edit').checked;
-  }
-
-  function currentMode() {
-    return MODES[editing() ? 'edit' : 'generate'];
-  }
-
-  function paramSpec(id) {
-    return currentMode().params.find(function (param) { return param.id === id; });
-  }
-
-  function maxReferences() {
-    return currentMode().max_references;
-  }
-
-  // A choice param fills its hidden select, so the request stays a plain form.
-  function fillSelect(select, id) {
-    const spec = STUDIO.modes.map(function (mode) {
-      return mode.params.find(function (param) { return param.id === id; });
-    }).find(Boolean);
-    if (!spec) return;
-    spec.choices.forEach(function (choice) { select.add(new Option(choice.label, choice.value)); });
-    select.value = spec.default;
-  }
-  fillSelect(document.getElementById('size'), 'size');
-  fillSelect(document.getElementById('resolution'), 'resolution');
-
-  // A number param takes its range from the spec of the mode in use. The value
-  // carries over a mode switch when it still fits the new range. An input takes
-  // its default the first time a mode applies it, because a range input never
-  // starts empty: it reads as the middle of its range, and the new range clamps
-  // that to a value that fits, such as 10 for a guidance of 1 to 10. A
-  // choice param takes the mode's default on every switch, because a mode
-  // switch starts over: an edit keeps the image's shape, a generate is square.
-  function applyParams() {
-    form.querySelectorAll('[data-param]').forEach(function (node) {
-      node.hidden = !paramSpec(node.dataset.param);
-    });
-    document.getElementById('size-field').hidden = !paramSpec('size') && !paramSpec('resolution');
-    currentMode().params.filter(function (param) { return param.kind === 'number'; }).forEach(function (param) {
-      const input = document.getElementById(param.id);
-      if (!input) return;
-      input.min = param.minimum === null ? '' : param.minimum;
-      input.max = param.maximum === null ? '' : param.maximum;
-      input.step = param.step === null ? 'any' : param.step;
-      const value = Number(input.value);
-      const fits = input.value !== '' && (param.minimum === null || value >= param.minimum)
-        && (param.maximum === null || value <= param.maximum);
-      if (!fits || !input.dataset.applied) input.value = param.default;
-      input.dataset.applied = '1';
-    });
-    currentMode().params.filter(function (param) { return param.kind === 'choice'; }).forEach(function (param) {
-      const select = document.getElementById(param.id);
-      if (select) select.value = param.default;
-    });
-  }
+  const countToggle = document.getElementById('count-toggle');
+  const countMenu = document.getElementById('count-menu');
+  const templatesToggle = document.getElementById('templates-toggle');
+  const templatesMenu = document.getElementById('templates');
 
   function busy() {
     return document.body.classList.contains('busy');
@@ -353,89 +298,67 @@
     document.getElementById('run-labels').dataset.state = go.dataset.state;
   }
 
-  function spell(seconds) {
-    if (seconds < 90) return Math.max(5, Math.round(seconds / 5) * 5) + 's';
-    const minutes = Math.floor(seconds / 60);
-    const rest = Math.round((seconds % 60) / 15) * 15;
-    if (rest && rest < 60) return minutes + ' min ' + rest + 's';
-    return (minutes + (rest ? 1 : 0)) + ' min';
-  }
-
-  // ---- References ---------------------------------------------------------
-  // References live in one array, whatever put them there: the picker, a drop,
-  // a paste, or "Use as reference" on a result. Each mode sets how many it
-  // takes. When a mode takes one, a new one replaces the old. Files are read here and posted as base64 in a normal
-  // form field, which keeps the server off multipart parsing that the standard
-  // library no longer ships.
+  // ---- The form ---------------------------------------------------------------
+  // The mode in force, the params, the size derivations, the Look picks, the
+  // negative, the cost of a run and the sentence on the run button all belong to
+  // lib/form.js. It is declared first of the modules, because every later door is
+  // handed on to it: the components the form is drawn from take what they cannot
+  // read for themselves from there.
   //
-  // The list is drawn by components/reference-list.js from the store, which this
-  // mirrors on every change. What stays here is the list itself, the zone that
-  // fills it, and the three things the page owns: the form's flag, the file
-  // input's `multiple`, and the Remove all button.
+  // What the page keeps is the state a run and the stage share: the references,
+  // the gallery array, the shown frame, the arrival, the frame counter and the
+  // shape in flight. The form asks for each through the getters on its door.
   const referenceInput = document.getElementById('reference');
   const refsZone = document.getElementById('refs');
+
+  // The references are the page's array, not the form's, because a run posts it
+  // and `verify_capabilities.py` reads it by name out of the page's global
+  // scope. The form asks for it and reassigns through the two helpers below.
   let references = [];
 
-  function referenceLimit() {
-    return maxReferences();
-  }
-
-  function lastReference() {
-    return references[references.length - 1];
-  }
-
-  // The follow-ups a new list needs. The tree itself is the module's: this
-  // pushes the array into the store, which is what redraws it.
-  function renderReferences() {
-    const count = references.length;
-    form.classList.toggle('has-ref', count > 0);
-    referenceInput.multiple = editing();
-    document.getElementById('clear-reference').hidden = count < 2;
-    pushReferences();
-    refreshForm();
-    region.sync();
-    // An empty stage says what to do next, and that depends on the references.
-    if (view === null) renderStage();
-  }
-
-  // The estimate, the "Match" size, the progress card's shape and the region
-  // canvas all need the pixel size, so it is read once here. Reading it is
-  // asynchronous, which is why the size is checked rather than assumed.
-  function probeSize(entry) {
-    if (entry.width) return;
-    const probe = new Image();
-    probe.onload = function () {
-      entry.width = probe.naturalWidth;
-      entry.height = probe.naturalHeight;
-      renderReferences();
-    };
-    probe.src = 'data:image/png;base64,' + entry.b64;
-  }
-
-  // `source` is the id of the frame the image came from; an upload has none.
-  function addReference(b64, name, source) {
-    if (referenceLimit() === 1) references = [];
-    if (references.length >= referenceLimit()) {
-      showToast('info', 'Edit takes at most ' + maxReferences() + ' images.');
-      return;
-    }
-    const entry = { b64: b64, name: name, width: 0, height: 0, source: source || null };
-    references.push(entry);
-    probeSize(entry);
-    renderReferences();
-  }
-
-  function addFiles(files) {
-    Array.from(files).filter(function (file) {
-      return file.type.startsWith('image/');
-    }).forEach(function (file) {
-      const reader = new FileReader();
-      reader.onload = function () {
-        addReference(reader.result.split(',')[1], file.name);
-      };
-      reader.readAsDataURL(file);
+  let formApi = null;
+  document.addEventListener('form-ready', function (event) {
+    formApi = event.detail.configure({
+      studio: STUDIO,
+      modes: MODES,
+      maxBatch: MAX_BATCH,
+      learnedCost: learnedCost,
+      el: {
+        form: form,
+        go: go,
+        goSub: goSub,
+        promptInput: promptInput,
+        countInput: countInput,
+        sizeSelect: sizeSelect,
+        resolutionSelect: resolutionSelect,
+        referenceInput: referenceInput,
+        refsZone: refsZone,
+        countToggle: countToggle,
+        countMenu: countMenu,
+        templatesToggle: templatesToggle,
+        templatesMenu: templatesMenu,
+        statusText: statusText,
+      },
+      notify: showToast,
+      busy: busy,
+      region: function () { return region; },
+      menus: function () { return menus; },
+      store: function () { return formState; },
+      gallery: function () { return gallery; },
+      view: function () { return view; },
+      references: function () { return references; },
+      setReferences: function (next) { references = next; },
+      renderStage: renderStage,
+      renderStrip: renderStrip,
     });
-  }
+  });
+
+  // Three names verify_page.py reads straight out of the page's global scope:
+  // `learnedCost` below, and these two. That check is frozen, and the exact step
+  // rate is what it asserts, so they stay the page's own names and answer with
+  // the form's own numbers.
+  function costKey() { return formApi.costKey(); }
+  function stepSeconds() { return formApi.stepSeconds(); }
 
   // ---- Marking a region -------------------------------------------------------
   // The brush, the overlay on the print, the magnifier, the mask, the tools and
@@ -465,567 +388,34 @@
       // asks for it rather than keeping a second copy that could drift.
       references: function () { return references; },
       view: function () { return view; },
-      editing: editing,
+      editing: formApi.editing,
       // The mode in force declares whether it takes a region at all.
-      regionMarking: function () { return Boolean(currentMode().region_marking); },
+      regionMarking: function () { return Boolean(formApi.currentMode().region_marking); },
       prompt: function () { return promptInput.value; },
       // The stage and the sidebar are the page's. The module asks for their
       // redraws and never sequences a render it does not own.
       redraw: renderStage,
-      refresh: refreshForm,
+      refresh: function () { return formApi.refreshForm(); },
       notify: showToast,
-      iconButton: iconButton,
+      iconButton: stage.iconButton,
     });
   });
 
-
-  referenceInput.addEventListener('change', function () {
-    addFiles(referenceInput.files);
-    referenceInput.value = '';
-  });
-  refsZone.addEventListener('click', function () { referenceInput.click(); });
-  refsZone.addEventListener('keydown', function (event) {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    referenceInput.click();
-  });
-  refsZone.addEventListener('dragover', function (event) {
-    event.preventDefault();
-    refsZone.classList.add('over');
-  });
-  refsZone.addEventListener('dragleave', function () { refsZone.classList.remove('over'); });
-  refsZone.addEventListener('drop', function (event) {
-    event.preventDefault();
-    refsZone.classList.remove('over');
-    addFiles(event.dataTransfer.files);
-  });
-  document.addEventListener('paste', function (event) {
-    const files = event.clipboardData ? event.clipboardData.files : [];
-    if (!files.length) return;  // a text paste goes to the field as usual
-    event.preventDefault();
-    addFiles(files);
-  });
-  document.getElementById('clear-reference').addEventListener('click', function () {
-    references = [];
-    renderReferences();
-  });
-
-  // ---- Size -----------------------------------------------------------------
-  // The hidden selects stay the form fields, filled by the server as before.
-  // The chips only drive them, so the request is exactly what it was.
-  const sizeOptions = Array.from(sizeSelect.options).filter(function (option) {
-    return option.value !== 'match';
-  }).map(function (option) {
-    const parts = option.value.split('x').map(Number);
-    const named = option.textContent.match(/\((\d+:\d+)\)/);
-    return { value: option.value, width: parts[0], height: parts[1],
-             ratio: parts[0] === parts[1] ? '1:1' : (named ? named[1] : parts[0] + ':' + parts[1]) };
-  });
-  const ratios = [];
-  sizeOptions.forEach(function (option) {
-    if (ratios.indexOf(option.ratio) < 0) ratios.push(option.ratio);
-  });
-
-  function currentOption() {
-    return sizeOptions.find(function (option) { return option.value === sizeSelect.value; });
-  }
-
-  function setSelect(select, value) {
-    select.value = value;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
-  // A resolution param sets pixels only, and the shape follows the reference.
-  // A size param sets both. Which one a mode has decides the size, not the mode.
-  function followsReference() {
-    return Boolean(paramSpec('resolution'));
-  }
-
-  function editResolution() {
-    const chosen = resolutionSelect.value;
-    if (chosen !== 'match') return Number(chosen);
-    const reference = lastReference();
-    if (!reference || !reference.width) return 1024;
-    const side = Math.round(Math.sqrt(reference.width * reference.height));
-    const cap = currentMode().estimate && currentMode().estimate.match_cap;
-    return cap ? Math.min(side, cap) : side;
-  }
-
-  // The shape the next image will have, for the progress card and its frame.
-  function targetRatio() {
-    const reference = lastReference();
-    const referenceRatio = reference && reference.width ? reference.width / reference.height : 1;
-    if (followsReference()) return referenceRatio;
-    const current = currentOption();
-    return current ? current.width / current.height : referenceRatio;
-  }
-
-  // ---- Count, steps, seed ------------------------------------------------------
-  const countToggle = document.getElementById('count-toggle');
-  const countMenu = document.getElementById('count-menu');
-
-  function clampCount() {
-    const value = Math.min(MAX_BATCH, Math.max(1, parseInt(countInput.value, 10) || 1));
-    countInput.value = value;
-    document.getElementById('count-shown').textContent = '×' + value;
-    countToggle.setAttribute('aria-label', value + (value === 1 ? ' image' : ' images') + ', change the count');
-    return value;
-  }
-
-  // The count is part of the run button, so it reads as "Generate ×2". The menu
-  // opens on the current count, marked with a check.
-  function openCount() {
-    const current = clampCount();
-    countMenu.replaceChildren();
-    for (let count = 1; count <= MAX_BATCH; count++) {
-      const option = menus.menuItem('check', count + (count === 1 ? ' image' : ' images'), function () {
-        countInput.value = count;
-        clampCount();
-        refreshForm();
-        countToggle.focus();
-      });
-      option.setAttribute('role', 'menuitemradio');
-      option.setAttribute('aria-checked', String(count === current));
-      countMenu.append(option);
-    }
-    menus.toggleMenu(countMenu);
-    if (!countMenu.hidden) countMenu.querySelector('[aria-checked=true]').focus();
-  }
-  countToggle.addEventListener('click', openCount);
-
-  document.getElementById('clear-seed').addEventListener('click', function () {
-    document.getElementById('seed').value = '';
-    refreshForm();
-  });
-
-  // The advanced panel's own readouts belong to components/advanced-panel.js,
-  // which draws them from the store. Two things stay here. The reference
-  // strength is not part of that panel. And Clear is a real button, so it stays
-  // in the page's markup, where a screen reader and the keyboard reach it.
-  function renderStrength() {
-    const steps = document.getElementById('steps').value;
-    document.getElementById('strength-value').textContent =
-      Number(document.getElementById('strength').value).toFixed(2);
-    document.getElementById('strength-hint').textContent = 'Runs ' + stepsToRun() + ' of ' + steps +
-      ' steps. Higher stays closer to the starting image.';
-  }
-
-  function renderClearSeed() {
-    document.getElementById('clear-seed').hidden = !document.getElementById('seed').value.trim();
-  }
-
-  // mflux skips the start of the schedule for a starting image:
-  // init_time_step = max(1, int(steps * strength)). Only the rest runs.
-  function stepsToRun() {
-    const steps = Number(document.getElementById('steps').value) || 0;
-    const strength = Number(document.getElementById('strength').value) || 0;
-    return steps - Math.max(1, Math.floor(steps * strength));
-  }
-
-  // ---- Estimate and the run button -----------------------------------------
-  // Cost, before you spend it. The backend gives seconds per step at one
-  // megapixel and how that grows with size; its adapter holds the measurements.
-  // A mode without an estimate shows no time.
-
+  // ---- What the cost is learned from -------------------------------------------
   // The backend's constants fit one machine. Once a run shows its real step
   // rate, that rate, brought back to one megapixel, replaces the constant for
   // the next estimate on this device. It comes from the live steps, not from
   // the time an image took, which also holds one-off loads. Guidance above 1
   // runs two passes per step, so those runs learn apart. Tab memory only.
-  const learnedCost = {};
-  let runKey = null;
-  let runPixels = 0;
-  let runEstimate = null;   // the estimate model of the mode in flight
-  let runStepSeconds = 0;   // the pre-run guess per step, until real steps arrive
-  let runRatio = 1;         // the shape of the image in flight, whatever the form says now
-
-  // The mode's guidance scale, whichever of the two names it declares.
-  function scaleParam() {
-    return paramSpec('cfg') ? 'cfg' : paramSpec('guidance') ? 'guidance' : '';
-  }
-
-  // A backend with a negative prompt runs the second pass only for a set
-  // negative: qwen21 at guidance 2.5 and a blank negative takes the time of
-  // guidance 1. A backend without one runs it for any guidance above 1.
-  function twoPass() {
-    const id = scaleParam();
-    if (!id || Number(document.getElementById(id).value) <= 1) return false;
-    return !paramSpec('negative') || Boolean(negativeText());
-  }
-
-  function costKey() {
-    return STUDIO.backend.id + ' ' + currentMode().id + ' ' + sentReferences() + ' images'
-      + (twoPass() ? ' two-pass' : '');
-  }
-
-  // The images a run will carry: the references, and the mask when one is drawn.
-  // Each one is encoded and attended to, so the count is part of the cost.
-  function sentReferences() {
-    return references.length + (region.count() ? 1 : 0);
-  }
-
-  // One more image costs more per step, by the factor the backend measured. It
-  // scales the constants only: a rate this device has shown already has the shape
-  // it was shown for, because the key carries the count.
-  function referenceFactor(model) {
-    if (!model.per_reference) return 1;
-    return 1 + model.per_reference * Math.max(0, sentReferences() - 1);
-  }
-
-  function targetPixels() {
-    if (followsReference()) return Math.pow(editResolution(), 2);
-    const current = currentOption();
-    return current ? current.width * current.height : 1024 * 1024;
-  }
-
-  // Seconds per step for the form as it stands, from what this device has
-  // shown so far or else from the backend's constants.
-  function stepSeconds() {
-    const model = currentMode().estimate;
-    if (!model) return 0;
-    // The constant holds the passes it was measured with, so rescale it to the
-    // passes the form asks for. A learned rate is already per pass count.
-    const passes = (twoPass() ? 2 : 1) / (model.two_pass ? 2 : 1);
-    const learned = learnedCost[costKey()];
-    const cost = learned === undefined
-      ? model.step_cost * passes * referenceFactor(model) : learned;
-    return cost * Math.pow(targetPixels() / 1e6, model.exponent);
-  }
-
-  function estimate() {
-    const count = clampCount();
-    const images = count > 1 ? count + ' images' : '';
-    const model = currentMode().estimate;
-    if (!model || !paramSpec('steps')) return images;
-    const steps = Number(document.getElementById('steps').value) || 0;
-    const perStep = stepSeconds();
-    const overhead = model.overhead_per_image ? count * model.overhead : model.overhead;
-    const time = 'about ' + spell(count * steps * perStep + overhead);
-    return images ? images + ', ' + time : time;
-  }
-
-  // What stops a run, said on the button itself rather than as an error after.
-  function blocker() {
-    if (editing() && !references.length) return 'Add an image to edit';
-    // With a region marked, the per area rows are the prompt, so the field is not
-    // asked for one.
-    const regions = region.count();
-    if (!regions && !promptInput.value.trim()) return editing() ? 'Describe the change' : 'Write a prompt';
-    // The region token is not the user's to fill: the page replaces it with the
-    // number of the image carrying the mask. Without a drawn region there is no
-    // such image, so the run waits for one. With the tool off, the wait would never
-    // end, so that case names the way out instead.
-    if (region.mentions(promptInput.value) && !regions) {
-      return region.markable() ? 'Draw the region this prompt names' : 'Remove all but one image, to draw a region';
-    }
-    const typed = region.withoutMarker(promptInput.value);
-    if (PLACEHOLDER.test(typed)) return 'Fill in the [brackets]';
-    if (regions) {
-      // The prompt may name the region itself, from the template, and then a row is a
-      // second way to say the same thing rather than the only way. The page writes
-      // whichever the user filled, and asks for a row only when nothing else says what
-      // changes.
-      const named = region.mentions(promptInput.value);
-      const silent = region.colours().filter(function (colour) { return !region.text(colour).trim(); });
-      if (!named && silent.length) return 'Say what changes in the ' + region.name(silent[0]) + ' area';
-      // The page writes a sentence around the row, so a bare phrase is a fragment:
-      // "to green" would read as "to green in the orange area of <image2>". A comma
-      // means the row carries its own clause, and an instruction may open with a
-      // preposition: "in the corner, add a lamp" is a whole one.
-      const fragment = region.colours().filter(function (colour) {
-        const typed = region.text(colour).trim();
-        return /^(to|for|in|with|as)\b/i.test(typed) && typed.indexOf(',') < 0;
-      });
-      if (fragment.length) {
-        return 'Write a whole instruction for the ' + region.name(fragment[0])
-          + ' area, for example: change the cloth to green';
-      }
-    }
-    return '';
-  }
-
-  function renderRunButton() {
-    if (busy()) return;
-    const reason = blocker();
-    go.disabled = Boolean(reason);
-    goSub.textContent = reason || estimate();
-  }
-
-  // A negative prompt works only through a guidance above 1, and the spec
-  // names the value it needs in `with_negative`. So when a negative prompt
-  // appears, the page raises the scale to that value. When it goes, the page
-  // puts the old value back, unless the scale was moved by hand in between.
-  // A scale moved below 1 by hand stays there, with a note.
-  let hadNegative = false;
-  let raisedFrom = null;    // the scale's value before the page raised it
-
-  // The negative the model gets: the typed one, then the avoid parts of the
-  // picked Looks. Only the typed one is the user's own text.
-  function typedNegative() {
-    return paramSpec('negative') ? document.getElementById('negative').value.trim() : '';
-  }
-
-  function negativeText() {
-    return [typedNegative(), lookAvoids()].filter(Boolean).join(', ');
-  }
-
-  function followNegative() {
-    const id = scaleParam();
-    const spec = id ? paramSpec(id) : null;
-    const note = document.getElementById('negative-note');
-    const wanted = Boolean(negativeText());
-    if (!spec || spec.with_negative === null) {
-      note.hidden = true;
-      hadNegative = wanted;
-      return;
-    }
-    const input = document.getElementById(id);
-    if (wanted && !hadNegative && Number(input.value) < spec.with_negative) {
-      raisedFrom = input.value;
-      input.value = spec.with_negative;
-    }
-    if (!wanted && hadNegative && raisedFrom !== null && Number(input.value) === spec.with_negative) {
-      input.value = raisedFrom;
-    }
-    if (!wanted) raisedFrom = null;
-    hadNegative = wanted;
-    note.hidden = !wanted;
-    note.textContent = Number(input.value) > 1
-      ? 'Guidance is ' + input.value + ' for the negative prompt. Each image takes about twice as long.'
-      : 'A negative prompt works only with guidance above 1. Each image then takes about twice as long.';
-  }
-
-  // The field keeps the user's own text, as the prompt field does. What the
-  // Look adds shows under it, so the field never looks empty while a
-  // negative prompt is sent.
-  function renderNegativeLook() {
-    const line = document.getElementById('negative-look');
-    const avoids = lookAvoids();
-    line.hidden = !avoids;
-    line.textContent = avoids ? 'Look adds: ' + avoids : '';
-  }
-
-  function refreshForm() {
-    region.preview();
-    renderNegativeLook();
-    // The negative raises the scale, so it runs before the fields are mirrored
-    // and the panel draws the value the run will use.
-    followNegative();
-    renderStrength();
-    renderClearSeed();
-    pushForm();
-    renderRunButton();
-    renderRewriteButton();
-  }
-
-  // Every field the drawn components read is mirrored into the store here, in
-  // one place, so a component redraws when a field of its own changes and
-  // nothing draws itself because something else happened to run first. The page
-  // still reads the fields straight from the DOM for its own work; the store is
-  // the components' copy. `negative` is the prompt the model will get, so a Look
-  // that adds an avoid part moves it.
-  function pushForm() {
-    if (!formState) return;
-    formState.set('mode', editing() ? 'edit' : 'generate');
-    formState.set('size', sizeSelect.value);
-    formState.set('resolution', resolutionSelect.value);
-    formState.set('steps', document.getElementById('steps').value);
-    formState.set('guidance', document.getElementById('guidance').value);
-    formState.set('cfg', document.getElementById('cfg').value);
-    formState.set('seed', document.getElementById('seed').value);
-    formState.set('negative', negativeText());
-  }
-
-  // The references are an array the page mutates in place, so the store gets a
-  // copy: the store compares by identity, and a push that does not change it
-  // would leave the caption and the panel reading a stale list.
-  function pushReferences() {
-    if (!formState) return;
-    formState.set('references', references.slice());
-  }
-
-  // The picks are an object the page mutates in place, so the store gets a copy
-  // for the same reason the references do. The Look trees redraw on it.
-  function pushLook() {
-    if (!formState) return;
-    formState.set('looks', Object.assign({}, look));
-  }
-
-  // The gallery is an array the page mutates in place too, and the strip draws
-  // from the store, so it reaches the store as a copy for the same reason. The
-  // shown frame and the run state travel with it: a frame's waiting card and the
-  // frame in front of it are the same redraw.
-  function pushGallery() {
-    if (!formState) return;
-    formState.set('gallery', gallery.slice());
-    formState.set('view', view);
-    formState.set('busy', busy());
-  }
-
-  function growPrompt() {
-    promptInput.style.height = 'auto';
-    promptInput.style.height = Math.min(promptInput.scrollHeight + 2, 320) + 'px';
-  }
-  promptInput.addEventListener('input', growPrompt);
-
-  // Templates come from the backend, tuned on its model.
-  const PLACEHOLDER = /\[[^\]\n]+\]/;
-  const templatesToggle = document.getElementById('templates-toggle');
-  const templatesMenu = document.getElementById('templates');
-
-  // The list is rebuilt on each open, because it follows the current mode. The
-  // header and the hint are not items, so arrow keys and Tab skip them.
-  function openTemplates() {
-    templatesMenu.replaceChildren();
-    const head = document.createElement('div');
-    head.className = 'menu-head';
-    head.textContent = editing() ? 'Start an edit from a template' : 'Start from a template';
-    templatesMenu.append(head);
-    currentMode().templates.forEach(function (template) {
-      // A template that names the region token needs the draw tool, so it is not
-      // offered where the tool is off. With more than one reference there is no
-      // print to draw on, and the run would wait for a region that cannot exist.
-      if (region.mentions(template.text) && !region.markable()) return;
-      const option = menus.menuItem('', template.name, function () { useTemplate(template.text); });
-      const note = document.createElement('span');
-      note.className = 'item-note';
-      note.textContent = template.hint;
-      option.querySelector('.item-text').append(note);
-      templatesMenu.append(option);
-    });
-    const foot = document.createElement('div');
-    foot.className = 'menu-foot';
-    foot.textContent = 'Press Tab to jump to the next [bracket].';
-    templatesMenu.append(foot);
-    menus.toggleMenu(templatesMenu);
-  }
-
-  function useTemplate(text) {
-    promptInput.value = text;
-    growPrompt();
-    refreshForm();
-    promptInput.focus();
-    selectPlaceholder(0);
-  }
-
-  // Selects the next [placeholder] at or after a position, so typing replaces
-  // it. Returns false when none is left, and Tab then moves focus as usual.
-  function selectPlaceholder(from) {
-    const found = PLACEHOLDER.exec(promptInput.value.slice(from));
-    if (!found) return false;
-    promptInput.setSelectionRange(from + found.index, from + found.index + found[0].length);
-    return true;
-  }
-
-  templatesToggle.addEventListener('click', function () {
-    if (templatesMenu.hidden) openTemplates(); else menus.closeMenus();
-  });
-  promptInput.addEventListener('keydown', function (event) {
-    if (event.key !== 'Tab' || event.shiftKey) return;
-    if (selectPlaceholder(promptInput.selectionEnd)) event.preventDefault();
-  });
-  form.addEventListener('input', refreshForm);
-  form.addEventListener('change', refreshForm);
-
-  // The mode only changes what the form looks like. The route stays /generate,
-  // which dispatches on the mode field. Swapping hx-post here does not work:
-  // htmx resolves the route when it first processes the element, so a later
-  // setAttribute is ignored and every edit went to the generate engine.
-  // The references are cleared, because the two modes read them differently:
-  // a list built for an edit would silently shrink to its first image. The
-  // prompt is cleared too: a scene description is not an edit instruction.
-  // ---- Look -------------------------------------------------------------------
-  // Each choice adds one sentence after the prompt, at run time only, so the
-  // prompt field keeps the user's own text and a pick stays one click to undo.
-  // The sentence shows under the field, and the caption shows it muted. The
-  // rows and their wording come from the backend, tuned on its model.
   //
-  // The rows, the summary's read-back and the chips under the prompt are
-  // components/look-rows.js. The picks stay here, because the run posts them
-  // inside the prompt; the page mirrors them into the store, which is what
-  // redraws those trees. The door below hands over the rows and the pick.
-  let look = {};            // row name to the labels picked in it
-
-  function lookRows() {
-    return currentMode().looks;
-  }
-
-  function lookText() {
-    return lookRows().map(function (row) {
-      const picked = row.options.find(function (option) { return (look[row.name] || []).includes(option[0]); });
-      return picked ? picked[1] : '';
-    }).filter(Boolean).join(' ');
-  }
-
-  function lookAvoids() {
-    if (!paramSpec('negative')) return '';
-    return lookRows().map(function (row) {
-      const picked = (row.avoids || []).find(function (avoid) { return (look[row.name] || []).includes(avoid[0]); });
-      return picked ? picked[1] : '';
-    }).filter(Boolean).join(', ');
-  }
-
-  function lookLabels() {
-    return lookRows().flatMap(function (row) { return look[row.name] || []; });
-  }
-
-  // A pick replaces the row's pick, so a second click on the chip in force
-  // takes it back off. The trees read it back through the store.
-  function pickLook(row, label) {
-    const had = (look[row.name] || []).includes(label);
-    look[row.name] = had ? [] : [label];
-    pushLook();
-    refreshForm();
-  }
-
-  // A copy of the picks if this mode offers every one of them, else null.
-  // Rows differ by mode, so a pick is matched by its row and label.
-  function picksHere(picks) {
-    const fits = Object.keys(picks).filter(function (name) { return picks[name].length; })
-      .every(function (name) {
-        const row = lookRows().find(function (candidate) { return candidate.name === name; });
-        return row && picks[name].every(function (label) {
-          return row.options.some(function (option) { return option[0] === label; });
-        });
-      });
-    return fits ? JSON.parse(JSON.stringify(picks)) : null;
-  }
-
-  // The prompt as the model gets it: the user's text, closed as a sentence,
-  // then the look.
-  function withLook(prompt) {
-    const added = lookText();
-    if (!added) return prompt;
-    return (/[.!?。！？]$/.test(prompt) ? prompt : prompt + '.') + ' ' + added;
-  }
-
-  function applyMode() {
-    form.classList.toggle('mode-edit', editing());
-    form.classList.toggle('mode-generate', !editing());
-    promptInput.placeholder = currentMode().prompt_hint;
-    document.getElementById('templates-toggle').hidden = !currentMode().templates.length;
-    document.getElementById('look').hidden = !currentMode().looks.length;
-    applyParams();
-    // The verb on the run button follows the mode. The store carries the mode to
-    // the button's labels; `refreshForm`, a few lines below in every switch,
-    // mirrors it.
-    hadNegative = false;
-    raisedFrom = null;
-  }
-  form.querySelectorAll('input[name=mode]').forEach(function (radio) {
-    radio.addEventListener('change', function () {
-      applyMode();
-      menus.closeMenus();
-      references = [];
-      promptInput.value = '';
-      look = {};
-      pushLook();
-      growPrompt();
-      renderReferences();
-      // The run in flight is not this form's, so its frame stays as it is.
-      if (view !== 'progress') renderStage();
-    });
-  });
+  // The object is the page's because verify_page.py clears it and reads it back
+  // by name. The form reads it for its estimate, and lib/htmx.js writes what a
+  // run learned into it.
+  const learnedCost = {};
+  // The run's own step rate, pixels, estimate model and start time belong to
+  // lib/htmx.js, with the run. This one stays: the stage fits a plate to it and
+  // the strip draws its waiting frame from it, so it is read across the page.
+  let runRatio = 1;         // the shape of the image in flight, whatever the form says now
 
   // ---- Gallery ----------------------------------------------------------------
   // The server keeps no image after it answers. The browser keeps them, with
@@ -1037,9 +427,6 @@
   let view = null;          // an image id, or 'progress' while a run is shown
   let arrivedId = null;     // the image to fade in once, on arrival
   let nextId = 1;
-  let batchSource = null;   // the source of a one-image edit, for before and after
-  let runLook = null;       // the run's own prompt, look and negative, apart from what the model got
-  let runSources = [];      // per reference of the run: the frame it came from, or null for an upload
 
   // The strip's frames, the wipe and the ways out of the gallery belong to
   // components/image-strip.js. The gallery array stays here, because a run's
@@ -1060,14 +447,14 @@
       setView: function (id) { view = id; },
       // The waiting frame takes its number and its shape from the run in flight.
       pending: function () { return { number: nextId, ratio: runRatio }; },
-      frameNumber: frameNumber,
-      fileName: fileName,
+      frameNumber: stage.frameNumber,
+      fileName: stage.fileName,
       show: show,
       // The strip's own chrome, and the stage, are the page's. The module asks
       // for their redraws and never sequences a render it does not own.
       redraw: renderStrip,
       renderStage: renderStage,
-      release: release,
+      release: run.release,
       // The ways out of the gallery ask the store to forget the image. The
       // store's handle is not here yet when the strip's is: two modules, two
       // doors, and no order between them, so this asks through the page.
@@ -1078,84 +465,10 @@
     });
   });
 
-  // Each image is shown by a blob URL. As a data URL, every img that showed it
-  // made the browser parse megabytes of base64 text again. The base64 stays on
-  // the entry for the moment the image goes back to the server as a reference.
-  function blobUrl(dataUrl) {
-    const comma = dataUrl.indexOf(',');
-    const binary = atob(dataUrl.slice(comma + 1));
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-    const type = dataUrl.slice(5, dataUrl.indexOf(';'));
-    return URL.createObjectURL(new Blob([bytes], { type: type }));
-  }
-
-  // A batch of edits shares one source, so it is freed with the last of them.
-  function release(entry) {
-    URL.revokeObjectURL(entry.src);
-    const shared = entry.before === batchSource || gallery.some(function (other) {
-      return other.before === entry.before;
-    });
-    if (entry.before && !shared) URL.revokeObjectURL(entry.before);
-  }
-
-  function harvest() {
-    incoming.querySelectorAll('.item').forEach(function (node) {
-      const data = node.dataset;
-      const source = node.querySelector('img').src;
-      const entry = {
-        id: nextId++, src: blobUrl(source), b64: source.split(',')[1], seed: data.seed,
-        width: data.width, height: data.height, steps: data.steps, elapsed: data.elapsed,
-        position: data.position, mode: data.mode, prompt: data.prompt, look: null, negative: '',
-        sources: runSources,
-        before: data.mode === 'edit' ? batchSource : null,
-      };
-      if (runLook && data.prompt === runLook.sent) {
-        // The user's own words, so the card does not read back the sentence the
-        // page composed around the region rows. A run that is rows only has no words
-        // of its own, and there the composed sentence is the only record of what the
-        // run asked for, so it stands in, written for a reader.
-        entry.prompt = runLook.prompt || runLook.reader || data.prompt;
-        // The user's own words, kept apart so Reuse prompt has them and not the
-        // sentence the page composed. A run that is rows only has none, and an empty
-        // box is the honest thing to hand back.
-        entry.typed = runLook.typed || runLook.prompt;
-        entry.negative = runLook.negative;
-        if (runLook.labels.length) entry.look = runLook;
-      }
-      gallery.unshift(entry);
-      kept.keep(entry);
-      arrivedId = entry.id;
-      if (view !== 'progress') view = entry.id;
-      node.remove();
-    });
-    incoming.querySelectorAll(':scope > .err, :scope > .hint').forEach(function (node) {
-      showToast(node.classList.contains('err') ? 'error' : 'info', node.textContent);
-      node.remove();
-    });
-    // The last image of a batch arrives by a chain placeholder, and removing it
-    // here detaches the node htmx then fires afterSettle on, so that event never
-    // reaches the body. The run ends here instead, once no link is left.
-    // stopWork renders, and a second render would restart the arrival fade.
-    if (busy() && !incoming.querySelector('.chain')) return stopWork();
-    renderStrip();
-    renderStage();
-  }
-
-  // Answers arrive by several routes: the form's own request, and each chain
-  // placeholder replacing itself. Watching the container catches all of them.
-  new MutationObserver(function (records) {
-    if (records.some(function (record) { return record.addedNodes.length; })) harvest();
-  }).observe(incoming, { childList: true, subtree: true });
-
-  function selected() {
-    return gallery.find(function (entry) { return entry.id === view; });
-  }
-
-  // A frame's number, as printed on the film's edge.
-  function frameNumber(id) {
-    return String(id).padStart(2, '0');
-  }
+  // The blob URLs, the arrival's harvest and the free of a batch's source belong
+  // to lib/htmx.js, with the run that makes them. What the module cannot read for
+  // itself is the gallery array below and the frame counter, and both go over on
+  // its door.
 
   // The pencil loop, the frame's own markup and which frame is shown belong to
   // components/image-strip.js, which draws them from the store. The page keeps
@@ -1169,18 +482,6 @@
   }
 
   const statusText = document.getElementById('status-text');
-
-  function renderTopPlate() {
-    // The readout is for a run: it says what the engine is doing and how long it has
-    // been doing it. "Ready" said nothing, so the line waits for a run and goes with it.
-    const status = document.getElementById('status');
-    status.hidden = !busy();
-    if (!busy()) {
-      statusText.textContent = '';
-    } else if (!progressState) {
-      statusText.textContent = 'Starting';
-    }
-  }
 
   function renderStrip() {
     const wrap = document.getElementById('strip-wrap');
@@ -1196,359 +497,16 @@
     // The arrival is handed over here, before the stage clears it: the strip
     // reads it while it still holds it and adds the frame's entrance once.
     if (arrivedId !== null) strip.arrived(arrivedId);
-    pushGallery();
+    // The first draw runs inside the form module's own configure, before its
+    // handle is assigned, and the store is seeded again on its door.
+    if (formApi) formApi.pushGallery();
     renderProgress();
-  }
-
-  function renderStage() {
-    renderTopPlate();
-    // A mark belongs to the picture it was drawn on: another frame, another
-    // reference, or a mode that does not take a region drops it. A run moves the
-    // stage to its progress card and takes the mark with it, which is the one case
-    // that is not the user's doing, so that one is dropped without a word.
-    region.dropStale(busy() || view === 'progress' ? '' : 'The mark went with its picture.');
-    canvas.innerHTML = '';
-    stageBar.hidden = true;
-    // Cleared, or the last frame's facts stay in this hidden bar. A check read them as the
-    // run's own, which turned an engine failure into a report about the wrong mode.
-    stageBar.innerHTML = '';
-    stageBar.classList.remove('reserved');
-    if (view === 'progress' && busy()) {
-      // The caption's room is kept through the run, so the frame does not
-      // move when the plate turns into the print.
-      stageBar.innerHTML = '';
-      stageBar.hidden = false;
-      stageBar.classList.add('reserved');
-      // The card is components/progress-card.js. htmx keeps `#progress`, the
-      // element the poll swaps, and that module draws this and never touches it.
-      progressCard.mount(canvas, EDGE_NAME, frameNumber(nextId));
-      fitStage();
-      renderProgress();
-      return;
-    }
-    const entry = selected();
-    if (!entry) return renderEmpty();
-    const shot = document.createElement('div');
-    shot.className = 'shot' + (entry.id === arrivedId ? ' arrive' : '');
-    const pic = document.createElement('div');
-    pic.className = 'pic';
-    pic.dataset.ratio = entry.width / entry.height;
-    const image = document.createElement('img');
-    image.src = entry.src;
-    image.alt = entry.prompt;
-    pic.append(image);
-    if (entry.before && strip.comparing()) strip.compare(pic, entry);
-    if (region.onPrint()) region.mount(pic);
-    const edge = document.createElement('div');
-    edge.className = 'edge';
-    edge.innerHTML = '<span>' + EDGE_NAME + '</span><span>' + frameNumber(entry.id) + '</span>';
-    shot.append(pic, edge);
-    if (region.onPrint()) shot.classList.add('marking');
-    // A brush on the print takes the drag that the divided view's divider would
-    // take, since the divider covers the whole print. The divided view goes while
-    // the brush is here, and it is off the print rather than shown dead.
-    canvas.append(shot);
-    arrivedId = null;
-    // The bar takes its height from the stage, so the shot is fitted after it.
-    renderStageBar(entry);
-    fitStage();
-    region.sync();
-  }
-
-  // An empty stage names the next step and offers it as a button.
-  function renderEmpty() {
-    const empty = document.createElement('div');
-    empty.className = 'empty';
-    const title = document.createElement('strong');
-    const line = document.createElement('p');
-    const start = document.createElement('button');
-    start.type = 'button';
-    start.className = 'btn';
-    if (editing() && references.length) {
-      title.textContent = 'Ready to edit';
-      line.textContent = 'Say what to change, then press Edit.';
-      empty.append(title, line);
-      canvas.append(empty);
-      return;
-    }
-    if (editing()) {
-      title.textContent = 'Edit an image';
-      line.textContent = 'Add the image, then say what to change.';
-      start.innerHTML = icon('image-in') + 'Choose an image';
-      start.addEventListener('click', function () { referenceInput.click(); });
-    } else if (!currentMode().templates.length) {
-      title.textContent = 'Nothing here yet';
-      line.textContent = 'Write a prompt and press Generate.';
-      empty.append(title, line);
-      canvas.append(empty);
-      return;
-    } else {
-      title.textContent = 'Nothing here yet';
-      line.textContent = 'Write a prompt and press Generate, or start from a template.';
-      start.innerHTML = icon('layout') + 'Browse templates';
-      start.addEventListener('click', function (event) {
-        event.stopPropagation();  // the click would reach the document and close the menu
-        openTemplates();
-      });
-    }
-    empty.append(title, line, start);
-    canvas.append(empty);
   }
 
   // The wipe itself belongs to components/image-strip.js, which draws it and
   // owns whether it is on. The stage bar asks for the switch and places it.
 
-  function renderStageBar(entry) {
-    stageBar.hidden = false;
-    stageBar.innerHTML = '';
-    const about = document.createElement('div');
-    about.className = 'about';
-    const facts = document.createElement('div');
-    facts.className = 'facts num';
-    facts.append(madeBadge(entry));
-    if (entry.before) facts.append(strip.toggle());
-    // Two groups: which image, then how it was made. A phone puts each on its own line.
-    [[entry.position === '1 image' ? '' : 'Image ' + entry.position, 'Seed ' + entry.seed],
-     [entry.width + ' × ' + entry.height, entry.steps + ' steps', 'Took ' + entry.elapsed + ' s']
-    ].forEach(function (group, index) {
-      if (index) {
-        const lineBreak = document.createElement('span');
-        lineBreak.className = 'break';
-        facts.append(lineBreak);
-      }
-      group.forEach(function (text) {
-        if (!text) return;
-        const fact = document.createElement('span');
-        fact.textContent = text;
-        facts.append(fact);
-      });
-    });
-    // The prompt leads, as the frame's caption; the facts sit quietly under it.
-    // The Look shows as the muted end of the caption, so the facts leave it out.
-    const prompt = document.createElement('p');
-    prompt.className = 'prompt-line';
-    if (entry.look) {
-      const said = document.createElement('span');
-      said.className = 'look-said';
-      said.textContent = entry.look.adds;
-      prompt.append(entry.look.sent.slice(0, -entry.look.adds.length), said);
-    } else {
-      prompt.textContent = entry.prompt;
-    }
-    prompt.addEventListener('click', function () { toggleSheet(prompt, entry); });
-    prompt.addEventListener('keydown', function (event) {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      toggleSheet(prompt, entry);
-    });
-    about.append(prompt, facts);
-
-    // Every action is page state only; nothing is sent until the next run.
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    // Edit this and Download are the two next steps people take; the reuse
-    // actions are rarer, so they wait behind More to keep the row short.
-    const more = document.createElement('div');
-    more.className = 'menu-anchor';
-    const moreToggle = iconButton('more', 'More actions', function () { menus.toggleMenu(moreMenu); });
-    moreToggle.setAttribute('aria-controls', 'more-menu');
-    moreToggle.setAttribute('aria-expanded', 'false');
-    const moreMenu = document.createElement('div');
-    moreMenu.className = 'menu up';
-    moreMenu.id = 'more-menu';
-    moreMenu.setAttribute('role', 'menu');
-    moreMenu.hidden = true;
-    moreMenu.append(
-      menus.menuItem('image-in', 'Use as reference', function () {
-        referFrom(entry);
-      }),
-      menus.menuItem('hash', 'Reuse seed ' + entry.seed, function () {
-        document.getElementById('seed').value = entry.seed;
-        document.getElementById('advanced').open = true;
-        refreshForm();
-      }),
-      menus.menuItem('text', 'Reuse prompt', function () {
-        // A Look this mode cannot show comes back as text, so the prompt still says what
-        // the model got. Otherwise the user's own words come back, which a region run may
-        // have none of: its instruction is the rows, and handing back the composed
-        // sentence would put words in the box the user never wrote. An image kept before
-        // this field existed has no `typed`, so its prompt stands in.
-        const picks = entry.look ? picksHere(entry.look.picks) : {};
-        promptInput.value = picks
-          ? (entry.typed !== undefined ? entry.typed : entry.prompt)
-          : entry.look.sent;
-        look = picks || {};
-        pushLook();
-        if (paramSpec('negative')) document.getElementById('negative').value = entry.negative;
-        growPrompt();
-        refreshForm();
-        promptInput.focus();
-      })
-    );
-    more.append(moreToggle, moreMenu);
-    const download = document.createElement('a');
-    download.className = 'icon-btn';
-    download.href = entry.src;
-    download.download = fileName(entry);
-    download.title = 'Download';
-    download.setAttribute('aria-label', 'Download');
-    download.innerHTML = icon('download');
-    const rule = document.createElement('span');
-    rule.className = 'rule';
-    actions.append(textButton('brush', 'Edit this', function () { editThis(entry); }), more,
-      rule, download,
-      iconButton('trash', 'Remove', function () { strip.remove(entry.id); }, 'danger'));
-    if (document.fullscreenEnabled) {
-      actions.append(document.fullscreenElement
-        ? iconButton('shrink', 'Exit full screen (F)', toggleFullscreen)
-        : iconButton('expand', 'Full screen (F)', toggleFullscreen));
-    }
-    if (region.onPrint()) region.tools(stageBar);
-    stageBar.append(about, actions);
-    captionWatch.disconnect();
-    captionWatch.observe(prompt);
-  }
-
-  // A label is a toggle only while it is cut, or its sheet is open. The watch
-  // marks it again when a resize cuts it or gives it room.
-  const captionWatch = new ResizeObserver(function (entries) {
-    entries.forEach(function (entry) { markCaption(entry.target); });
-  });
-
-  function markCaption(prompt) {
-    const open = Boolean(canvas.querySelector('.sheet'));
-    if (open || prompt.scrollHeight > prompt.clientHeight + 1) {
-      prompt.setAttribute('role', 'button');
-      prompt.tabIndex = 0;
-      prompt.setAttribute('aria-expanded', String(open));
-    } else {
-      prompt.removeAttribute('role');
-      prompt.removeAttribute('tabindex');
-      prompt.removeAttribute('aria-expanded');
-    }
-  }
-
-  // The typed prompt, the Look's sentence and the negative, each named, as the
-  // model got them. Focus goes to Close, and back to the label after.
-  // "Generated", "Edited from 01", "Generated from your image". Kept images
-  // from before the sources were recorded name only the mode.
-  function madeBadge(entry) {
-    const badge = document.createElement('span');
-    badge.className = 'made';
-    badge.append(entry.mode === 'edit' ? 'Edited' : 'Generated');
-    const sources = entry.sources || [];
-    if (!sources.length) return badge;
-    const frameIds = [...new Set(sources.filter(Boolean))];
-    const uploads = sources.filter(function (source) { return !source; }).length;
-    const parts = frameIds.map(function (id) {
-      if (!gallery.some(function (other) { return other.id === id; })) return frameNumber(id);
-      const link = document.createElement('button');
-      link.type = 'button';
-      link.textContent = frameNumber(id);
-      link.setAttribute('aria-label', 'Show frame ' + frameNumber(id));
-      link.addEventListener('click', function () { show(id); });
-      return link;
-    });
-    if (uploads) parts.push(uploads === 1 ? 'your image' : uploads + ' of your images');
-    badge.append(' from ');
-    parts.forEach(function (part, index) {
-      if (index) badge.append(index === parts.length - 1 ? ' and ' : ', ');
-      badge.append(part);
-    });
-    return badge;
-  }
-
-  function toggleSheet(prompt, entry) {
-    if (!prompt.hasAttribute('role')) return;
-    if (canvas.querySelector('.sheet')) return closeSheet();
-    const sheet = document.createElement('div');
-    sheet.className = 'sheet';
-    sheet.id = 'prompt-sheet';
-    sheet.setAttribute('role', 'region');
-    sheet.setAttribute('aria-label', 'The whole prompt');
-    const list = document.createElement('dl');
-    [['Prompt', entry.prompt], ['Look', entry.look ? entry.look.adds : ''], ['Negative', entry.negative]]
-      .forEach(function ([term, text]) {
-        if (!text) return;
-        const name = document.createElement('dt');
-        const value = document.createElement('dd');
-        name.textContent = term;
-        value.textContent = text;
-        list.append(name, value);
-      });
-    const close = iconButton('x', 'Close', closeSheet, 'close');
-    sheet.addEventListener('keydown', function (event) {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      closeSheet();
-    });
-    sheet.append(list, close);
-    canvas.append(sheet);
-    prompt.setAttribute('aria-controls', sheet.id);
-    markCaption(prompt);
-    close.focus();
-  }
-
-  function closeSheet() {
-    const sheet = canvas.querySelector('.sheet');
-    if (!sheet) return;
-    sheet.remove();
-    const prompt = stageBar.querySelector('.prompt-line');
-    if (!prompt) return;
-    markCaption(prompt);
-    prompt.focus();
-  }
-
-  // The studio had no manual, so this is it: short, and about what the page does rather
-  // than about what the model can do. It is the same sheet the prompt opens in, because
-  // that is the shape this page already has for reading something over the print.
-  const GUIDE = [
-    ['Generate, or Edit', 'Generate writes a picture from a prompt. Edit changes one you already have, and needs an image from the strip: click a frame, then Edit this.'],
-    ['Mark a region', "Fill the area you want changed. Do not circle it: the mark's own shape is the shape that comes back repainted."],
-    ['What changes there', 'One row per marked colour says what changes in that area. Or pick the Mark a region template and leave the rows empty.'],
-    ['The brush', 'Three widths, and a loupe follows the brush while you draw. The area you mark is the area that changes, so keep the mark close to what should change.'],
-    ['The wait', 'An edit reads your prompt and images for about a minute before its first step. The line in the top bar counts that time.'],
-    ['Run and Cancel', 'Run empties the form it sent. Cancel puts all of it back, the marked region included.'],
-    ['The strip', 'Images stay in the strip. Download the ones you want before you clear it.'],
-  ];
-
-  function closeGuide() {
-    const sheet = document.getElementById('guide-sheet');
-    if (!sheet) return;
-    sheet.remove();
-    const toggle = document.getElementById('guide-toggle');
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.focus();
-  }
-
-  function openGuide() {
-    if (document.getElementById('guide-sheet')) return closeGuide();
-    const sheet = document.createElement('div');
-    sheet.className = 'sheet';
-    sheet.id = 'guide-sheet';
-    sheet.setAttribute('role', 'region');
-    sheet.setAttribute('aria-label', 'How to use this studio');
-    const list = document.createElement('dl');
-    GUIDE.forEach(function (pair) {
-      const term = document.createElement('dt');
-      const text = document.createElement('dd');
-      term.textContent = pair[0];
-      text.textContent = pair[1];
-      list.append(term, text);
-    });
-    const close = iconButton('x', 'Close', closeGuide, 'close');
-    sheet.addEventListener('keydown', function (event) {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      closeGuide();
-    });
-    sheet.append(list, close);
-    canvas.append(sheet);
-    document.getElementById('guide-toggle').setAttribute('aria-expanded', 'true');
-    close.focus();
-  }
-
-  document.getElementById('guide-toggle').addEventListener('click', openGuide);
+  document.getElementById('guide-toggle').addEventListener('click', function () { stage.openGuide(); });
 
   // ---- Menus -----------------------------------------------------------------
   // The mechanics belong to components/popup-menu.js: one menu open at most, and
@@ -1567,6 +525,62 @@
     setupKeep();
   });
 
+  // ---- The stage, and full screen ---------------------------------------------
+  // The print, the bar under it, the two sheets and full screen belong to
+  // components/stage.js. Same door, same reason: that module is deferred and this
+  // script is not. The form's startup draws the empty stage while its own module
+  // is evaluated, and that module is written before this one, so the page's
+  // redraw request is a no-op by then and the handler below is what draws it.
+  //
+  // The page keeps the state the stage draws from, because a run writes it: the
+  // gallery, the shown frame, the arrival, the frame counter and the shape in
+  // flight. The stage asks for each through the getters below.
+  let stage = null;
+  document.addEventListener('stage-ready', function (event) {
+    stage = event.detail.configure({
+      canvas: canvas,
+      stageBar: stageBar,
+      statusText: statusText,
+      promptInput: promptInput,
+      referenceInput: referenceInput,
+      work: document.querySelector('.work'),
+      backendId: STUDIO.backend.id,
+      edgeName: EDGE_NAME,
+      notify: showToast,
+      busy: busy,
+      editing: formApi.editing,
+      currentMode: formApi.currentMode,
+      paramSpec: formApi.paramSpec,
+      references: function () { return references; },
+      gallery: function () { return gallery; },
+      view: function () { return view; },
+      nextId: function () { return nextId; },
+      runRatio: function () { return runRatio; },
+      arrivedId: function () { return arrivedId; },
+      clearArrived: function () { arrivedId = null; },
+      progressState: function () { return run ? run.progressState() : null; },
+      region: function () { return region; },
+      strip: function () { return strip; },
+      menus: function () { return menus; },
+      progressCard: function () { return progressCard; },
+      picksHere: formApi.picksHere,
+      setLook: formApi.setLook,
+      referFrom: referFrom,
+      editThis: editThis,
+      refreshForm: function () { return formApi.refreshForm(); },
+      growPrompt: function () { return formApi.growPrompt(); },
+      openTemplates: function () { return formApi.openTemplates(); },
+      show: show,
+      renderProgress: renderProgress,
+    });
+    renderStage();
+  });
+
+  // The page's own redraw request for the stage. The module owns the drawing and
+  // this is the page asking for it: the startup's draw is a no-op, and the
+  // handler above makes it once the module is here.
+  function renderStage() { if (stage) stage.renderStage(); }
+
   // ---- The store, and the components the form is drawn from ------------------
   // Same door, same reason: each module is deferred and this script is not, so
   // each arrives on an event of its own, and the listeners below are registered
@@ -1581,53 +595,12 @@
   let formState = null;
   document.addEventListener('state-ready', function (event) {
     formState = event.detail;
-    pushForm();
-    pushReferences();
-    pushLook();
-    pushGallery();
+    formApi.useStore();
   });
-  document.addEventListener('size-chips-ready', function (event) {
-    event.detail.configure({
-      sizes: sizeOptions,
-      ratios: ratios,
-      resolutions: Array.from(resolutionSelect.options).map(function (option) { return option.value; }),
-      setSelect: setSelect,
-      sizeSelect: sizeSelect,
-      resolutionSelect: resolutionSelect,
-      currentOption: currentOption,
-      editResolution: editResolution,
-      followsReference: followsReference,
-      lastReference: lastReference,
-    });
-  });
-  document.addEventListener('advanced-panel-ready', function (event) {
-    event.detail.configure({ scaleParam: scaleParam });
-  });
-  // The Look trees take the rows for the mode in force, the picks themselves,
-  // the three derivations they share with the page, and the pick. The pick is
-  // the page's because it also mirrors the picks and refreshes the form.
-  document.addEventListener('look-rows-ready', function (event) {
-    event.detail.configure({
-      rows: lookRows,
-      picks: function () { return look; },
-      text: lookText,
-      avoids: lookAvoids,
-      labels: lookLabels,
-      pick: pickLook,
-    });
-  });
-  // The reference list takes the two things it cannot read for itself: how many
-  // images the mode takes, and what a remove does. The remove is the page's,
-  // because the page owns the array a run posts.
-  document.addEventListener('reference-list-ready', function (event) {
-    event.detail.configure({
-      limit: maxReferences,
-      remove: function (index) {
-        references.splice(index, 1);
-        renderReferences();
-      },
-    });
-  });
+  document.addEventListener('size-chips-ready', function (event) { formApi.useSizeChips(event.detail); });
+  document.addEventListener('advanced-panel-ready', function (event) { formApi.useAdvanced(event.detail); });
+  document.addEventListener('look-rows-ready', function (event) { formApi.useLookRows(event.detail); });
+  document.addEventListener('reference-list-ready', function (event) { formApi.useReferences(event.detail); });
 
   // Edit mode with this image as the only reference, an empty prompt, and the
   // image's own seed, so a rerun of the same edit gives the same result.
@@ -1643,7 +616,7 @@
       });
     });
     ready.then(function (b64) {
-      addReference(b64, 'Seed ' + entry.seed, entry.id);
+      formApi.addReference(b64, 'Seed ' + entry.seed, entry.id);
     }).catch(function (error) {
       showToast('error', 'The image did not load as a reference: ' + error.message);
     });
@@ -1657,58 +630,13 @@
     }
     references = [];
     promptInput.value = '';
-    growPrompt();
-    look = (entry.look && picksHere(entry.look.picks)) || {};
-    pushLook();
+    formApi.growPrompt();
+    formApi.setLook((entry.look && formApi.picksHere(entry.look.picks)) || {});
     document.getElementById('seed').value = entry.seed;
     referFrom(entry);
     view = entry.id;
     renderStage();
     promptInput.focus();
-  }
-
-  function textButton(name, label, handler) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'btn quiet';
-    button.innerHTML = icon(name) + label;
-    button.addEventListener('click', handler);
-    return button;
-  }
-
-  function iconButton(name, label, handler, extra) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'icon-btn' + (extra ? ' ' + extra : '');
-    button.title = label;
-    button.setAttribute('aria-label', label);
-    button.innerHTML = icon(name);
-    button.addEventListener('click', handler);
-    return button;
-  }
-
-  // The card takes the shape of the coming image, fitted inside the stage the
-  // way the image itself will be.
-  const REBATE_WIDTH = 20;   // the film's left and right rebate together
-  const REBATE_HEIGHT = 34;  // top and bottom, the bottom holding the edge print
-
-  function fitBox(box, ratio, share) {
-    const width = Math.min((canvas.clientWidth - 48 - REBATE_WIDTH) * share,
-      (canvas.clientHeight - 48 - REBATE_HEIGHT) * share * ratio);
-    box.style.width = Math.round(width) + 'px';
-    box.style.height = Math.round(width / ratio) + 'px';
-  }
-
-  function fitStage() {
-    const plate = canvas.querySelector('.card .plate');
-    if (plate) fitBox(plate, runRatio, 1);
-    const pic = canvas.querySelector('.pic');
-    if (pic) fitBox(pic, Number(pic.dataset.ratio), 1);
-  }
-  window.addEventListener('resize', fitStage);
-
-  function fileName(entry) {
-    return STUDIO.backend.id + '-' + entry.mode + '-' + entry.seed + '.png';
   }
 
   // Every way out of the strip is components/image-strip.js's: a removal, a
@@ -1718,11 +646,13 @@
   document.getElementById('clear-gallery').addEventListener('click', function () { strip.clear(); });
 
   // ---- Kept images --------------------------------------------------------------
-  // The database and the channel belong to lib/store.js. Two things stay here,
-  // and both are read before a deferred module can be fetched: the keep
-  // setting, which the strip note above and the leave warning below read while
-  // the page is still parsing, and the gallery array itself. The server allows
-  // one run at a time, so two tabs never number two new images at once.
+  // The database and the channel belong to lib/store.js. Two things stay here.
+  // The keep setting is read from `localStorage` by the page, because the strip
+  // note is drawn by lib/form.js and that module is evaluated before lib/store.js
+  // is: the note cannot wait for the store's handle to say which of the two is in
+  // force. The gallery array is the page's the same way, because a run's answer
+  // lands in it and the strip, the stage and the run all read it. The server
+  // allows one run at a time, so two tabs never number two new images at once.
   const KEEP_KEY = 'studio-keep';
   let keeping = readKeep();
 
@@ -1801,7 +731,7 @@
           renderStrip();
         }
       },
-      frameNumber: frameNumber,
+      frameNumber: stage.frameNumber,
       notify: showToast,
     });
     kept.load();
@@ -1809,8 +739,8 @@
 
   // ---- Toasts -----------------------------------------------------------------
   // The messages are components/toast-host.js, which draws them from its own
-  // list. The page keeps the one name that toasts through: its own code calls
-  // it, and so do the modules that toast while they work, off the global scope.
+  // list. The page keeps the one name that toasts through, because its own code
+  // calls it and every module that toasts while it works takes it on its door.
   //
   // No message is sent before the host is here, and that is measured rather
   // than assumed. The classic script toasts nothing while it starts, and the
@@ -1822,192 +752,89 @@
   function showToast(kind, text) { toastHost.notify(kind, text); }
 
   // ---- Run, progress, cancel --------------------------------------------------
-  // The poller clocks itself off its own response, and stops when the server
-  // says nothing is running. That gap happens between two images of a batch, so
-  // every request the page sends plants a fresh poller.
-  const POLLER = '<div hx-get="/progress" hx-trigger="load"'
-    + ' hx-target="#progress" hx-swap="innerHTML"></div>';
-  let progressState = null;
-  let pace = null;          // how fast this run's steps arrive, for the time left
-
-  // When the run in flight started. The button it belongs to carries it, beside
-  // the run state it already publishes, so the page reads its own state from
-  // the DOM the way the checks do and nothing has to reach into a closure to
-  // put the page in a phase.
-  function startedAt() {
-    return Number(go.dataset.started) || 0;
-  }
-
-  // While a run goes, the run button is Cancel. A click in the first half
-  // second is the second half of a double click on Generate, so it waits.
-  // Enter in a text field also clicks this button (an implicit submit), with
-  // no click count and the focus left in the field; that is not a cancel.
-  go.addEventListener('click', function (event) {
-    if (!busy()) return;
-    event.preventDefault();
-    const implicit = event.detail === 0 && document.activeElement !== go;
-    if (implicit || Date.now() - startedAt() < 500) return;
-    requestCancel();
+  // The poll, the run post, the cancel and everything the stage reads while one
+  // goes belong to lib/htmx.js. Same door, same reason: that module is deferred.
+  // The page keeps the redraws the run asks for and the state it shares with the
+  // stage: the gallery array, the shown frame, the arrival, the frame counter and
+  // the shape in flight.
+  let run = null;
+  document.addEventListener('run-ready', function (event) {
+    run = event.detail.configure({
+      el: {
+        form: form,
+        go: go,
+        goSub: goSub,
+        promptInput: promptInput,
+        countInput: countInput,
+        progressSlot: progressSlot,
+        incoming: incoming,
+        countToggle: countToggle,
+        statusText: statusText,
+      },
+      notify: showToast,
+      busy: busy,
+      editing: formApi.editing,
+      currentMode: formApi.currentMode,
+      paramSpec: formApi.paramSpec,
+      withLook: formApi.withLook,
+      lookText: formApi.lookText,
+      lookLabels: formApi.lookLabels,
+      typedNegative: formApi.typedNegative,
+      negativeText: formApi.negativeText,
+      spell: formApi.spell,
+      learnedCost: learnedCost,
+      costKey: costKey,
+      stepSeconds: stepSeconds,
+      targetPixels: formApi.targetPixels,
+      targetRatio: formApi.targetRatio,
+      applyParams: formApi.applyParams,
+      clampCount: formApi.clampCount,
+      growPrompt: formApi.growPrompt,
+      pushLook: formApi.pushLook,
+      probeSize: formApi.probeSize,
+      refreshForm: formApi.refreshForm,
+      renderReferences: formApi.renderReferences,
+      renderStrip: renderStrip,
+      renderStage: renderStage,
+      renderRunButton: function () { return formApi.renderRunButton(); },
+      syncRunState: syncRunState,
+      clearToasts: function () { toastHost.clear(); },
+      keep: function (entry) { kept.keep(entry); },
+      region: function () { return region; },
+      progressCard: function () { return progressCard; },
+      references: function () { return references; },
+      setReferences: function (next) { references = next; },
+      gallery: function () { return gallery; },
+      view: function () { return view; },
+      setView: function (id) { view = id; },
+      look: function () { return formApi.look(); },
+      setLook: formApi.setLook,
+      keeping: function () { return keeping; },
+      setRunRatio: function (ratio) { runRatio = ratio; },
+      setArrived: function (id) { arrivedId = id; },
+      takeFrameId: function () { return nextId++; },
+      rewrittenFrom: function () { return formApi.rewrittenFrom(); },
+    });
   });
 
-  // ---- Emptying the form on Run, and putting it back on Cancel ---------------
-  // A run takes everything the form holds, so pressing Run empties the form and
-  // the next run starts from a blank one. One copy of what was there is kept, and
-  // Cancel puts it back: a run the user stops should leave the studio as it found
-  // it, prompt, images, region and settings included.
-  let cleared = null;          // what Run emptied, kept for Cancel
-  let cancelRestore = null;    // the copy Cancel asked for, applied once the run ends
+  // The page's own request for the progress readout. The run module draws it and
+  // this is the page asking: the stage and the strip both call it.
+  function renderProgress() { if (run) run.renderProgress(); }
 
-  function snapshotInputs() {
-    const params = {};
-    currentMode().params.forEach(function (param) {
-      const node = document.getElementById(param.id);
-      if (node) params[param.id] = node.value;
-    });
-    return {
-      view: view,
-      prompt: promptInput.value,
-      negative: document.getElementById('negative').value,
-      seed: document.getElementById('seed').value,
-      count: countInput.value,
-      params: params,
-      look: JSON.parse(JSON.stringify(look)),
-      references: references.slice(),
-      region: region.snapshot(),
-    };
-  }
-
-  // The defaults come from the mode, through the same call a mode switch makes,
-  // rather than from a value named here that could drift away from the backend.
-  function clearInputs() {
-    promptInput.value = '';
-    document.getElementById('negative').value = '';
-    document.getElementById('seed').value = '';
-    countInput.value = '1';
-    look = {};
-    region.clearText();
-    references = [];
-    region.putDown();
-    currentMode().params.forEach(function (param) {
-      const node = document.getElementById(param.id);
-      if (node) delete node.dataset.applied;
-    });
-    applyParams();
-    clampCount();
-    growPrompt();
-    pushLook();
-    renderReferences();
-    refreshForm();
-  }
-
-  function restoreInputs(snapshot) {
-    if (!snapshot) return;
-    // The stage the region was drawn on comes back first: a mark only survives on
-    // the frame it was drawn on, so the frame has to be there before the strokes.
-    view = snapshot.view;
-    promptInput.value = snapshot.prompt;
-    document.getElementById('negative').value = snapshot.negative;
-    document.getElementById('seed').value = snapshot.seed;
-    countInput.value = snapshot.count;
-    look = snapshot.look;
-    // The rows read their text from here, so it goes back before they are built.
-    region.setText(snapshot.region.text);
-    references = snapshot.references.slice();
-    region.putDown();
-    applyParams();  // this marks every input as applied, so the values below stick
-    Object.keys(snapshot.params).forEach(function (id) {
-      const node = document.getElementById(id);
-      if (node) node.value = snapshot.params[id];
-    });
-    clampCount();
-    growPrompt();
-    pushLook();
-    references.forEach(probeSize);
-    // This arms the brush again, because a mark belongs to one reference on the
-    // stage. Its stroke list starts empty, so the strokes go back after it.
-    renderReferences();
-    region.setStrokes(snapshot.region.strokes);
-    renderStrip();
-    renderStage();
-    refreshForm();
-  }
-
-  function startWork(element) {
-    const fresh = element === form;
-    document.body.classList.add('busy');
-    syncRunState();
-    go.disabled = false;
-    goSub.textContent = '';
-    countToggle.disabled = true;
-    progressSlot.innerHTML = POLLER;
-    htmx.process(progressSlot);
-    if (fresh) {
-      go.dataset.started = String(Date.now());
-      runKey = costKey();
-      runPixels = targetPixels();
-      runEstimate = currentMode().estimate;
-      runRatio = targetRatio();
-      runStepSeconds = stepSeconds();
-      view = 'progress';
-      progressState = null;
-      pace = null;
-      renderStrip();
-      renderStage();
-    }
-  }
-
-  // The tab title shows the progress, so a run can be watched from another tab.
-  // A run that ends in the background leaves "Done" until the tab is seen.
-  const BASE_TITLE = document.title;
-  document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && !busy()) document.title = BASE_TITLE;
+  // The card belongs to components/progress-card.js, which draws the plate and
+  // owns the exposure on it. htmx keeps `#progress`, the element the poll swaps
+  // and whose children carry the next `hx-get`, and nothing renders over it. The
+  // page keeps the handle, because the run paints it and the stage mounts it.
+  let progressCard = null;
+  document.addEventListener('progress-card-ready', function (event) {
+    progressCard = event.detail;
   });
-
-  function stopWork() {
-    if (!busy()) return;
-    document.title = (document.hidden ? '(Done) ' : '') + BASE_TITLE;
-    document.body.classList.remove('busy', 'stopping');
-    syncRunState();
-    progressSlot.innerHTML = '';
-    progressState = null;
-    countToggle.disabled = false;
-    if (view === 'progress') view = gallery.length ? gallery[0].id : null;
-    renderStrip();
-    renderStage();
-    renderRunButton();
-    // A cancelled run puts back what Run emptied, after the stage has settled.
-    if (cancelRestore) {
-      const snapshot = cancelRestore;
-      cancelRestore = null;
-      restoreInputs(snapshot);
-    }
-  }
-
-  function requestCancel() {
-    if (document.body.classList.contains('stopping')) return;
-    document.body.classList.add('stopping');
-    syncRunState();
-    go.disabled = true;
-    renderProgress();
-    htmx.ajax('POST', '/cancel', { swap: 'none' });
-    // The form comes back once the run has really stopped, not now: the progress
-    // card lives on the stage, and moving the stage mid-run would take it away
-    // from the poller that is still streaming into it.
-    cancelRestore = cleared;
-    cleared = null;
-  }
 
   // ---- Full screen ------------------------------------------------------------
-  // The stage and the sheet fill the screen. F toggles it, and Escape leaves by
-  // the browser's own rule. The arrow keys walk the sheet in and out of it.
-  const work = document.querySelector('.work');
-
-  function toggleFullscreen() {
-    const change = document.fullscreenElement ? document.exitFullscreen() : work.requestFullscreen();
-    change.catch(function (error) { showToast('error', 'Full screen failed: ' + error.message); });
-  }
-  document.addEventListener('fullscreenchange', renderStage);
-
+  // The stage and the sheet fill the screen, and both belong to
+  // components/stage.js. F toggles it, and Escape leaves by the browser's own
+  // rule. This key is the page's, because full screen and the strip share it.
+  //
   // The arrow keys walk the strip, which is the strip's own move: the module
   // keeps the shown frame's box across its own redraw, so the correction lives
   // where the redraw does. The key is the page's, because full screen shares it.
@@ -2017,7 +844,7 @@
     if (document.querySelector('.menu:not([hidden])')) return;
     if (event.key === 'f' && document.fullscreenEnabled && (gallery.length || busy())) {
       event.preventDefault();
-      toggleFullscreen();
+      stage.toggleFullscreen();
     }
     if (event.key === 'ArrowRight') strip.step(1);
     if (event.key === 'ArrowLeft') strip.step(-1);
@@ -2030,211 +857,6 @@
     event.preventDefault();
     if (!go.disabled && !busy()) form.requestSubmit(go);
   });
-
-  new MutationObserver(function () {
-    const node = progressSlot.querySelector('.progress-state');
-    progressState = node ? {
-      stage: node.dataset.stage, step: Number(node.dataset.step), total: Number(node.dataset.total),
-      label: node.dataset.label, stopping: node.dataset.stopping === '1',
-    } : null;
-    trackPace();
-    renderProgress();
-  }).observe(progressSlot, { childList: true, subtree: true });
-
-  // Time left comes from when steps arrive, never from the clock between them:
-  // dividing by "now" made the number climb during every step and drop at the
-  // next. The rate carries across the images of a batch. Until two steps have
-  // arrived, the pre-run guess stands in. An image also needs time after its
-  // last step, to decode and reach the page. That tail is measured on each
-  // finished image; before the first, the backend's overhead stands in.
-  function trackPace() {
-    const state = progressState;
-    if (!state) return;
-    const now = Date.now();
-    if (!pace) pace = { label: null, stepTime: 0, stepsTimed: 0, tail: null };
-    if (state.label !== pace.label) {
-      if (pace.label !== null && pace.lastStepAt) pace.tail = (now - pace.lastStepAt) / 1000;
-      pace.label = state.label;
-      pace.lastStep = 0;
-      pace.lastStepAt = 0;
-    }
-    if (state.stage !== 'running' || state.step <= pace.lastStep) return;
-    if (pace.lastStepAt) {
-      pace.stepTime += (now - pace.lastStepAt) / 1000;
-      pace.stepsTimed += state.step - pace.lastStep;
-    }
-    pace.lastStep = state.step;
-    pace.lastStepAt = now;
-    if (pace.stepsTimed >= 2 && runEstimate) {
-      learnedCost[runKey] = paceRate() / Math.pow(runPixels / 1e6, runEstimate.exponent);
-    }
-  }
-
-  function paceRate() {
-    return pace && pace.stepsTimed >= 2 ? pace.stepTime / pace.stepsTimed : runStepSeconds;
-  }
-
-  function timeLeft() {
-    const state = progressState;
-    const perStep = paceRate();
-    if (!state || !perStep) return '';
-    const tail = pace && pace.tail !== null ? pace.tail : (runEstimate ? runEstimate.overhead : 0);
-    const batch = (state.label || '').match(/(\d+) of (\d+)/);
-    const imagesAfter = batch ? Number(batch[2]) - Number(batch[1]) : 0;
-    const step = state.stage === 'running' ? state.step : 0;
-    const sinceStep = pace && pace.lastStepAt ? (Date.now() - pace.lastStepAt) / 1000 : 0;
-    const thisImage = Math.max(0, perStep * (state.total - step) + tail - sinceStep);
-    const seconds = thisImage + imagesAfter * (perStep * state.total + tail);
-    return seconds < 3 ? 'Almost done' : 'About ' + spell(seconds) + ' left';
-  }
-
-  function progressNow() {
-    const state = progressState;
-    const running = Boolean(state && state.stage === 'running' && state.total);
-    return { running: running, percent: running ? Math.round(state.step / state.total * 100) : 0 };
-  }
-
-  // The card belongs to components/progress-card.js, which draws the plate and
-  // owns the exposure on it. htmx keeps `#progress`, the element the poll swaps
-  // and whose children carry the next `hx-get`, and the module never touches
-  // it. Its handle arrives on the same door as the rest. The page asks it
-  // nothing before a run, and a run needs a click, so the module is always here
-  // first.
-  let progressCard = null;
-  document.addEventListener('progress-card-ready', function (event) {
-    progressCard = event.detail;
-  });
-
-  function renderProgress() {
-    if (!busy()) return;
-    const state = progressState;
-    const stopping = document.body.classList.contains('stopping') || (state && state.stopping);
-    const now = progressNow();
-    const running = now.running;
-    let stepText = 'Starting';
-    // Before step 0 the backend sets up its model: a rebuild, a switch between
-    // generate and edit, or the edit engine's first load. Step 0 is its notice
-    // that the engine started, which first encodes the prompt and images. The
-    // engine may then run fewer steps (a starting image skips part of the
-    // schedule), so the count shows from the first real step.
-    if (state && state.stage === 'preparing') stepText = 'Loading the model';
-    if (running && state.stage === 'running' && state.step === 0) {
-      stepText = runSources.length ? 'Reading the prompt and images' : 'Reading the prompt';
-    }
-    if (running && state.step > 0) stepText = 'Step ' + state.step + ' of ' + state.total;
-    if (stopping) {
-      // An engine inside this process can only stop where it looks, which is a step, and
-      // before the first step there is nothing to look at. So the label says when, not
-      // that it has happened. A child engine is killed outright and this flashes past.
-      stepText = state && state.step > 0
-        ? 'Stopping at the end of this step' : 'Stopping when the first step arrives';
-    }
-
-    // Before the first step the estimate is the only number the page has, and it does
-    // not move: the same sentence, redrawn every second, is what a frozen run looks
-    // like. The elapsed time does move, so the reading phase says how long it has been
-    // reading and a slow engine is visibly still working.
-    const reading = running && state && state.step === 0;
-    const soFar = startedAt() ? spell(Math.max(0, (Date.now() - startedAt()) / 1000)) + ' so far' : '';
-    const left = running && !stopping ? (reading ? soFar : timeLeft()) : '';
-    // While stopping, the phase text says when the stop lands. It used to be a bare
-    // "Stopping", and the sentence built for this case was written and never shown.
-    statusText.textContent = stopping ? stepText : running
-      ? [stepText, state.label ? 'image ' + state.label : '',
-        left.charAt(0).toLowerCase() + left.slice(1)].filter(Boolean).join(', ')
-      : stepText;
-    document.title = (running ? '(' + now.percent + '%) ' : '') + BASE_TITLE;
-    progressCard.paintAll(running, now.percent);
-  }
-
-  function sideChannel(event) {
-    const config = event.detail.requestConfig || event.detail.pathInfo || {};
-    const path = config.path || config.requestPath || '';
-    return path === '/progress' || path === '/cancel';
-  }
-
-  // The references are an array, not a form field, so they are attached here.
-  // Only the form itself carries them: a chain request already has a token.
-  document.body.addEventListener('htmx:configRequest', function (event) {
-    if (event.detail.elt !== form) return;
-    // Only a one-image edit changes that image in place. An edit from several
-    // images composes them, so no single source lines up with the result and
-    // a wipe between them would mislead.
-    batchSource = editing() && references.length === 1
-      ? blobUrl('data:image/png;base64,' + references[0].b64) : null;
-    runSources = references.map(function (reference) { return reference.source; });
-    const own = promptInput.value.trim();
-    runLook = {
-      prompt: own, typed: rewrittenFrom || own, sent: withLook(own), adds: lookText(), labels: lookLabels(),
-      picks: JSON.parse(JSON.stringify(look)), negative: typedNegative(),
-    };
-    event.detail.parameters.prompt = runLook.sent;
-    if (paramSpec('negative')) event.detail.parameters.negative = negativeText();
-    // A marked region rides as the last image, and the prompt names that image,
-    // so the model is told which one carries the mask.
-    const mask = region.mask();
-    if (mask) {
-      // Measured 2026-09-26: one clause per region, each naming the colour the mask
-      // carries, then one line pinning the rest of the picture.
-      event.detail.parameters.prompt = region.composed();
-      // The card's copy, taken while the rows are still here to read.
-      runLook.reader = region.composed(true);
-    }
-    // `sent` is what the model got, so it is recorded after every override. A
-    // masked run sends the composed sentence, and the match in harvest() looked
-    // for the pre-composition prompt, so the card lost the user's own words.
-    runLook.sent = event.detail.parameters.prompt;
-    event.detail.parameters.references = JSON.stringify(references.map(function (r) {
-      return r.b64;
-    }).concat(mask ? [mask.split(',')[1]] : []));
-  });
-  document.body.addEventListener('htmx:beforeRequest', function (event) {
-    if (sideChannel(event)) return;
-    const fresh = event.detail.elt === form;
-    if (fresh) {
-      toastHost.clear();
-      // The copy comes first: startWork moves the stage to the progress card, and
-      // the frame the region was drawn on is part of what Cancel has to put back.
-      cleared = snapshotInputs();
-    }
-    startWork(event.detail.elt);
-    // The form empties after startWork, which reads it for the run's cost, shape
-    // and step time. A chain request carries its own token and never reads the
-    // form, so only the form's own request clears.
-    if (fresh) clearInputs();
-  });
-  document.body.addEventListener('htmx:afterSettle', function (event) {
-    // A /progress response settles once a second. It is not the end of the run,
-    // and treating it as one used to clear the busy state mid-generation.
-    if (sideChannel(event)) return;
-    if (!document.querySelector('.chain')) stopWork();
-  });
-  document.body.addEventListener('htmx:responseError', stopWork);
-  document.body.addEventListener('htmx:sendError', function () {
-    stopWork();
-    showToast('error', 'The server did not answer. Check that the studio server is still running.');
-  });
-
-  // A run, or images kept only in this tab, would be lost to a reload or a close.
-  // Browsers show their own fixed text here; the page cannot set it.
-  window.addEventListener('beforeunload', function (event) {
-    if (!busy() && (keeping || !gallery.length)) return;
-    event.preventDefault();
-    event.returnValue = '';
-  });
-
-  // A mode the backend lacks stays in view, disabled, so the page keeps its shape.
-  function setupModes() {
-    form.querySelectorAll('input[name=mode]').forEach(function (radio) {
-      const spec = MODES[radio.value];
-      const label = form.querySelector('label[for=' + radio.id + ']');
-      radio.disabled = !spec;
-      if (spec) label.lastChild.textContent = spec.label;
-      else label.title = STUDIO.backend.name + ' has no ' + label.textContent.trim().toLowerCase() + ' mode';
-    });
-    const first = form.querySelector('input[name=mode]:not(:disabled)');
-    if (form.querySelector('input[name=mode]:checked').disabled) first.checked = true;
-  }
 
   // The title is the switch, and only when there is a choice. A switch frees
   // the old backend and loads the new one, then the page reloads with its
@@ -2291,174 +913,6 @@
     menu.append(head, keep);
     markKeep();
   }
-
-  setupModes();
-  // The menus, the size controls, the advanced readouts and the run button's
-  // labels are drawn by their own modules, on the doors above.
-  // Whether a rewrite is in flight. Declared up here, above the first call into
-  // refreshForm: the form draws itself during startup and renderRewriteButton
-  // reads this as it draws, so a declaration further down is in its dead zone.
-  let rewriting = false;
-
-  // The text you typed before a rewrite replaced the box. Held apart so the card
-  // keeps your own words, which the rewritten paragraph otherwise overwrites.
-  let rewrittenFrom = null;
-
-  applyMode();
-  pushLook();
-  renderReferences();
-  renderStrip();
-  renderStage();
-  // Rewrite the prompt into a longer instruction.
-  //
-  // The rewriter is a second model in the backend and it costs about 30s, so it
-  // is a button rather than something a run does on its own: the rewritten text
-  // lands in the box, where it can be read and edited before any image time is
-  // spent. It is offered only where the backend declares a rewriter for the mode
-  // on screen, and it sends the prompt WITH the Look sentences, because the Look
-  // is part of what the user asked for and the rewriter's job is to write all of
-  // it out at length.
-  //
-  // A toggle that rewrote each run was tried first. It cannot be built this way:
-  // htmx handles the submit from a listener of its own, and a listener added
-  // later never gets to hold the request.
-  function rewriteOffered() {
-    return (STUDIO.rewrite_modes || []).indexOf(currentMode().id) >= 0;
-  }
-
-  // A run and a rewrite both hold the panel still: the inputs carry the values the
-  // job is using, so changing one mid-flight would leave the card disagreeing with
-  // what was actually sent. Each locked control says which job holds it. The locks
-  // nest, because a rewrite can finish while a run is starting.
-  //
-  // The Run button is never locked: during a run it is Cancel, and locking it would
-  // trap the user with no way out.
-  const holds = new Set();
-  let held = [];
-
-  function holdPanel(reason, on) {
-    if (on) holds.add(reason);
-    else holds.delete(reason);
-    if (holds.size && !held.length) applyHold();
-    else if (!holds.size && held.length) releaseHold();
-  }
-
-  // `disabled` is the obvious way to hold a field and it is the wrong one: the
-  // browser leaves a disabled field out of the form it submits, so a panel locked
-  // that way once arrived at the server with no prompt, no mode and no size.
-  // `readonly` keeps the value in the request, and a pointer-events block covers
-  // the controls readonly cannot reach, which is the selects and the buttons.
-  function applyHold() {
-    const reason = Array.from(holds).join(' ');
-    held = [];
-    form.querySelectorAll('input, textarea, select, button').forEach(function (control) {
-      // The Run button is Cancel while a run is going, so holding it would trap
-      // the user with no way out.
-      if (control.id === 'go') return;
-      const text = control.tagName === 'TEXTAREA' || (control.tagName === 'INPUT' && control.type === 'text');
-      if (text) {
-        if (control.readOnly) return;
-        control.readOnly = true;
-        held.push([control, 'readOnly']);
-      } else {
-        control.style.pointerEvents = 'none';
-        held.push([control, 'pointer']);
-      }
-      control.dataset.heldTitle = control.getAttribute('title') || '';
-      control.title = reason;
-    });
-  }
-
-  function releaseHold() {
-    held.forEach(function (entry) {
-      const control = entry[0];
-      if (entry[1] === 'readOnly') control.readOnly = false;
-      else control.style.pointerEvents = '';
-      if (control.dataset.heldTitle) control.title = control.dataset.heldTitle;
-      else control.removeAttribute('title');
-      delete control.dataset.heldTitle;
-    });
-    held = [];
-    // The page's own rules decide which controls stay disabled, so they are asked
-    // again rather than trusting the state this put back.
-    refreshForm();
-  }
-
-  // Watching the class the page already sets for a run keeps this out of the run's
-  // own start and stop paths, which are easy to get wrong.
-  new MutationObserver(function () {
-    holdPanel('Locked while the image is being made.', busy());
-  }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
-
-  function renderRewriteButton() {
-    const button = document.getElementById('rewrite-toggle');
-    if (!button) return;
-    button.hidden = !rewriteOffered();
-    const empty = !promptInput.value.trim();
-    button.disabled = rewriting || busy() || empty;
-    button.title = rewriting
-      ? 'Locked while the prompt is being rewritten.'
-      : empty
-        ? 'Write a prompt to rewrite first. A marked run takes its instruction in the region rows.'
-        : 'Rewrite the prompt into a longer instruction before generating';
-    // The readout belongs to a run while one is going, so a rewrite only borrows
-    // it when nothing else is. Without this a press looks like nothing happened
-    // for half a minute, and the button stays live for a second press.
-    if (busy()) return;
-    const status = document.getElementById('status');
-    status.hidden = !rewriting;
-    if (rewriting) statusText.textContent = 'Rewriting the prompt, about 30s';
-  }
-
-  async function rewritePrompt() {
-    const typed = promptInput.value.trim();
-    const body = new URLSearchParams();
-    body.set('mode', currentMode().id);
-    body.set('prompt', withLook(promptInput.value));
-    // The pictures the run carries, and not the mask: the mask is a technical
-    // picture, and the rewriter is asked about the scene.
-    body.set('references', JSON.stringify(references.map(function (reference) { return reference.b64; })));
-    const answer = await fetch('/rewrite', { method: 'POST', body: body });
-    const text = await answer.text();
-    let result;
-    try {
-      result = JSON.parse(text);
-    } catch (error) {
-      throw new Error(text || answer.statusText);
-    }
-    if (result.error) throw new Error(result.error);
-    rewrittenFrom = typed;
-    promptInput.value = result.prompt;
-    growPrompt();
-    // A shape the rewriter suggested is applied, so the run renders what it
-    // described. It arrives as one of this mode's own sizes, or as nothing.
-    if (result.size) setSelect(sizeSelect, result.size);
-    refreshForm();
-    return result;
-  }
-
-  document.getElementById('rewrite-toggle').addEventListener('click', function () {
-    if (rewriting || busy() || !promptInput.value.trim()) return;
-    rewriting = true;
-    holdPanel('Locked while the prompt is being rewritten.', true);
-    renderRewriteButton();
-    rewritePrompt()
-      .catch(function (error) { showToast('error', 'The rewrite failed: ' + error.message); })
-      .then(function () {
-        rewriting = false;
-        holdPanel('Locked while the prompt is being rewritten.', false);
-        renderRewriteButton();
-      });
-  });
-
-  // The prompt box carries an instruction the button depends on, so its state is
-  // refreshed as it is typed. refreshForm already runs on input for other reasons.
-  promptInput.addEventListener('input', function () {
-    rewrittenFrom = null;   // typing again is your own words, not the rewrite's
-    renderRewriteButton();
-  });
-
-  renderRewriteButton();
 
   // The kept images are asked for on the store's own door: that module owns the
   // database, and reading it back is the first thing it does.
