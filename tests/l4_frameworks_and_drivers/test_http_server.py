@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from studio.l3_interface_adapters.gateways.prompt_rewriters import StubPromptRewriter
+from studio.l4_frameworks_and_drivers import http_server
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 from tests.support.fakes import FakeBackendGateway
 
@@ -53,6 +54,46 @@ def test_the_progress_route_hands_back_the_next_poll(served):
 def test_a_get_to_an_unknown_path_is_a_plain_not_found(served):
     status, content_type, body = call(served[1], "/nope")
     assert (status, content_type, body) == (404, "text/plain", "not found")
+
+
+def test_a_page_script_is_served_from_the_page_directory(served, tmp_path, monkeypatch):
+    """The page loads its modules through this route, so it hands back the file's
+    own bytes with the type a browser runs as code. The modules live in
+    subdirectories of their own, so a name keeps its path."""
+    root = tmp_path / "web"
+    (root / "lib").mkdir(parents=True)
+    (root / "lib" / "state.js").write_text("export const one = 1;\n", encoding="utf-8")
+    monkeypatch.setattr(http_server, "WEB", root)
+    status, content_type, body = call(served[1], "/page/lib/state.js")
+    assert (status, content_type, body) == (200, "text/javascript; charset=utf-8", "export const one = 1;\n")
+
+
+def test_the_page_stylesheet_is_served_from_the_page_directory(served):
+    """The page holds no CSS of its own, so this one fetch is the whole of how it
+    looks. The stylesheet's own type, and many rules inside it, or the page is bare."""
+    status, content_type, body = call(served[1], "/page/page.css")
+    assert (status, content_type) == (200, "text/css; charset=utf-8")
+    assert body.count("{") > 100
+
+
+def test_a_traversal_out_of_the_page_directory_is_refused(served, tmp_path, monkeypatch):
+    """A name is not a path. `..` resolves above the directory the route serves
+    from, and a stylesheet that lives there must not go out."""
+    root = tmp_path / "web"
+    root.mkdir()
+    (tmp_path / "outside.css").write_text("body { color: red; }\n", encoding="utf-8")
+    monkeypatch.setattr(http_server, "WEB", root)
+    assert call(served[1], "/page/../outside.css") == (404, "text/plain", "not found")
+
+
+def test_the_page_directory_does_not_hand_out_its_own_documents(served):
+    """PAGE-REFACTOR.md sits beside the assets. It is the design for the page, and
+    the browser never loads it."""
+    assert call(served[1], "/page/PAGE-REFACTOR.md") == (404, "text/plain", "not found")
+
+
+def test_a_page_asset_that_is_not_there_is_a_plain_not_found(served):
+    assert call(served[1], "/page/absent.css") == (404, "text/plain", "not found")
 
 
 def test_a_generate_route_answers_with_the_image_fragment(served):

@@ -2,10 +2,19 @@
 
 import json
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from urllib.parse import parse_qs
 
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
+
+# Where the page's own files live. GET /page/<name> serves one of them, and a
+# test points WEB at a directory of its own to reach both rules below.
+WEB = Path(__file__).with_name("web").resolve()
+
+# Only what a browser loads as code. The documents that sit beside them, this
+# design among them, are not served.
+PAGE_ASSETS = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 
 
 def make_handler(controller: FormController, presenter: HtmlPresenter) -> type[BaseHTTPRequestHandler]:
@@ -19,6 +28,8 @@ def make_handler(controller: FormController, presenter: HtmlPresenter) -> type[B
                 self._send(presenter.page(controller.page()))
             elif self.path == "/progress":
                 self._send(presenter.progress(controller.progress()))
+            elif self.path.startswith("/page/"):
+                self._send_page_asset(self.path.removeprefix("/page/"))
             else:
                 self._send("not found", status=404, content_type="text/plain")
 
@@ -73,6 +84,17 @@ def make_handler(controller: FormController, presenter: HtmlPresenter) -> type[B
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length).decode("utf-8")
             return {key: values[0] for key, values in parse_qs(body, keep_blank_values=True).items()}
+
+        def _send_page_asset(self, name: str) -> None:
+            """One module or stylesheet out of web/. Two rules keep it to those:
+            the resolved path stays inside web/, so `..` cannot escape it, and
+            only .js and .css are handed out. Without both, every document in
+            that directory would be readable."""
+            asset = (WEB / name).resolve()
+            if not asset.is_relative_to(WEB) or asset.suffix not in PAGE_ASSETS or not asset.is_file():
+                self._send("not found", status=404, content_type="text/plain")
+                return
+            self._send(asset.read_text(encoding="utf-8"), content_type=PAGE_ASSETS[asset.suffix])
 
         def _send(self, body: str, status: int = 200, content_type: str = "text/html; charset=utf-8"):
             payload = body.encode("utf-8")

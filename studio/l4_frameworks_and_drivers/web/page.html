@@ -15,681 +15,19 @@
     console.warn('The saved theme was not read:', error);
   }
 </script>
+<!-- The theme menu, after that first paint. A module is deferred, so it cannot
+     hold the early read above without letting the default theme flash. -->
+<script type="module" src="/page/components/popup-menu.js"></script>
+<script type="module" src="/page/lib/theme.js"></script>
+<script type="module" src="/page/components/size-chips.js"></script>
+<script type="module" src="/page/components/advanced-panel.js"></script>
+<script type="module" src="/page/components/run-button.js"></script>
+<script type="module" src="/page/components/look-rows.js"></script>
+<script type="module" src="/page/components/reference-list.js"></script>
+<script type="module" src="/page/components/region-mark.js"></script>
+<script type="module" src="/page/components/image-strip.js"></script>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-<style>
-  /* Darkroom. With the lights off (dark scheme) the room is warm black paint
-     under a red safelight, and the run button is the safelight's colour. With
-     the lights on (light scheme) it is print paper. The stage is the easel
-     under the enlarger, each image sits in a frame of film with its number on
-     the edge, and the strip below is a contact sheet where a yellow china
-     marker circles the pick. */
-  :root {
-    color-scheme: dark;
-    --chrome: #141110; --chrome-2: #1b1715; --chrome-3: #26201d;
-    --line: #2c2522; --line-strong: #3f3530;
-    --text: #efe6e1; --text-2: #b4a59c; --text-3: #968479;
-    --accent: #ff7a57; --accent-fill: #b8321f; --on-accent: #ffffff;
-    --accent-soft: rgba(255, 90, 54, .12);
-    --danger: #ff7b72; --danger-fill: #c9372a;
-    --shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .04);
-    --film: #0b0b0b; --edge-ink: #8c8c8c; --plate: #151515; --marker: #f2d14b;
-    /* Film grain. --grain is grey noise in both directions, for the overlay
-       blend on a print. --specks is light specks on clear film, for the dark
-       plate, where an overlay does nothing. */
-    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='1.8' intercept='-.4'/%3E%3CfeFuncG type='linear' slope='1.8' intercept='-.4'/%3E%3CfeFuncB type='linear' slope='1.8' intercept='-.4'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
-    --specks: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 2.6 0 0 0 -1.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
-    --serif: ui-serif, "New York", Georgia, serif;
-    --mono: ui-monospace, "SF Mono", Menlo, monospace;
-    --sans: ui-sans-serif, -apple-system, system-ui, sans-serif;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      color-scheme: light;
-      --chrome: #f6f4f1; --chrome-2: #edeae5; --chrome-3: #e3dfd9;
-      --line: #ddd8d1; --line-strong: #c7c1b8;
-      --text: #111111; --text-2: #4d4d4d; --text-3: #666666;
-      --accent: #111111; --accent-fill: #111111; --on-accent: #ffffff;
-      --accent-soft: rgba(0, 0, 0, .06);
-      --danger: #b3261e; --danger-fill: #c9372a;
-      --shadow: 0 12px 32px rgba(0, 0, 0, .14), 0 0 0 1px rgba(0, 0, 0, .05);
-    }
-  }
-  /* The camera themes. Each takes its colours from one camera body and keeps
-     them whatever the system scheme, so the accent sits where the camera puts
-     its colour: the red dot on the run button, the Kodak yellow, the Polaroid
-     stripe under the top bar. The image stays the largest area of colour. */
-  /* The camera bodies' surfaces: grey noise held near mid grey, laid over the
-     colour with soft-light, so a texture shifts no colour and barely moves the
-     contrast. */
-  :root {
-    --leather: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.55' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeDiffuseLighting surfaceScale='2.5' lighting-color='%23fff'%3E%3CfeDistantLight azimuth='235' elevation='50'/%3E%3C/feDiffuseLighting%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='.3' intercept='.27'/%3E%3CfeFuncG type='linear' slope='.3' intercept='.27'/%3E%3CfeFuncB type='linear' slope='.3' intercept='.27'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
-    --brushed: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .75' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='.45' intercept='.27'/%3E%3CfeFuncG type='linear' slope='.45' intercept='.27'/%3E%3CfeFuncB type='linear' slope='.45' intercept='.27'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
-    --satin: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='1' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='.3' intercept='.35'/%3E%3CfeFuncG type='linear' slope='.3' intercept='.35'/%3E%3CfeFuncB type='linear' slope='.3' intercept='.35'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
-    --paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .6' numOctaves='2' seed='11' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='.22' intercept='.39'/%3E%3CfeFuncG type='linear' slope='.22' intercept='.39'/%3E%3CfeFuncB type='linear' slope='.22' intercept='.39'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
-  }
-  :root[data-theme=leica] {
-    color-scheme: dark; --body: var(--leather); --face: var(--satin);
-    --chrome: #1b1a18; --chrome-2: #232220; --chrome-3: #2e2c29;
-    --line: #423f3a; --line-strong: #57544f;
-    --text: #f2f0ea; --text-2: #bdb9b0; --text-3: #9a968d;
-    --accent: #ef5350; --accent-fill: #c62828; --on-accent: #ffffff;
-    --accent-soft: rgba(210, 43, 43, .14);
-    --film: #0d0c0b; --plate: #161513; --marker: #e53935; --edge-ink: #8f8b83;
-  }
-  :root[data-theme=kodak] {
-    color-scheme: light; --body: var(--satin); --face: var(--leather);
-    --chrome: #f3e9d2; --chrome-2: #ebdec0; --chrome-3: #e2d2ae;
-    --line: #dccaa2; --line-strong: #c4a57a;
-    --text: #2b1d14; --text-2: #5a4331; --text-3: #6b5240;
-    --accent: #b8321a; --accent-fill: #f5b700; --on-accent: #2b1d14;
-    --accent-soft: rgba(224, 58, 30, .1);
-    --danger: #a8261b;
-    --shadow: 0 12px 32px rgba(59, 42, 32, .18), 0 0 0 1px rgba(59, 42, 32, .08);
-    --film: #1c130d; --plate: #231811; --marker: #e03a1e; --edge-ink: #f0a020;
-  }
-  :root[data-theme=polaroid] {
-    color-scheme: light; --body: var(--brushed); --face: var(--paper);
-    --chrome: #dcdad4; --chrome-2: #d2cfc8; --chrome-3: #c6c3bb;
-    --line: #c0bcb3; --line-strong: #a39f95;
-    --text: #151515; --text-2: #3a3833; --text-3: #4d4a44;
-    --accent: #151515; --accent-fill: #151515; --on-accent: #ffffff;
-    --accent-soft: rgba(0, 0, 0, .07);
-    --danger: #b3261e;
-    --shadow: 0 12px 32px rgba(0, 0, 0, .16), 0 0 0 1px rgba(0, 0, 0, .06);
-    --film: #141414; --plate: #1a1a1a; --marker: #f08a1c; --edge-ink: #9a968d;
-  }
-  .topbar, aside { background-image: var(--body, none); background-blend-mode: soft-light; }
-  :root:not([data-theme]) { --body: var(--satin); }
-  @media not (prefers-color-scheme: light) {
-    :root:not([data-theme]) .topbar {
-      background-image: radial-gradient(ellipse 45% 160% at 50% -70%, rgba(255, 58, 30, .28), transparent 70%),
-        var(--body);
-      background-blend-mode: normal, soft-light; }
-  }
-  [data-theme=polaroid] .topbar { border-bottom: 0;
-    background-image: linear-gradient(90deg, #e23b2e 0 20%, #f08a1c 0 40%, #f5c518 0 60%, #3aa655 0 80%, #2d7fc1 0),
-      var(--body);
-    background-size: 100% 3px, auto; background-position: bottom, 0 0; background-repeat: no-repeat, repeat;
-    background-blend-mode: normal, soft-light; }
-  * { box-sizing: border-box; }
-  [hidden] { display: none !important; }
-  html, body { height: 100%; }
-  body { margin: 0; background: var(--chrome); color: var(--text);
-    font: 13px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
-  .num { font-variant-numeric: tabular-nums; }
-  button, input, select, textarea { font: inherit; color: inherit; }
-  :focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }
-  /* Controls are clicked, often twice in a row; a double click must not paint
-     a text selection over them. */
-  .refs, .chip, .seg, .stepper, .modes, .frame, .icon-btn, .btn, #go { user-select: none; -webkit-user-select: none; }
-  .icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
-    stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-
-  /* The row is capped at the window, so no content can make the page taller
-     and push the pinned run button out of view. */
-  .app { display: grid; grid-template-columns: minmax(0, 1fr) 372px; grid-template-rows: minmax(0, 1fr);
-    height: 100vh; }
-
-  /* Left: top bar, stage, contact sheet. Nothing here scrolls but the sheet and
-     the strip. The column is set, or a full strip makes the implicit column
-     max-content and the left side widens over the controls at the right. */
-  .work { display: grid; grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
-  /* The camera's top plate: the model dial on the left, the status readout on
-     the right. The readout is the one place that says how a run is going. */
-  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 52px; min-width: 0;
-    padding: 0 16px 0 22px; background-color: var(--chrome); border-bottom: 1px solid var(--line); }
-  .dial { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .dial .menu-anchor, .dial h1 { min-width: 0; }
-  #backend-toggle .name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .readout { display: flex; align-items: center; justify-content: flex-end; gap: 12px; min-width: 0; flex: none; }
-  .status { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--text-2); font-size: 12px; }
-  #status-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .status .dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--text-3); }
-  .busy .status .dot { background: var(--marker); animation: pulse 1s ease-in-out infinite alternate; }
-  @keyframes pulse { to { opacity: .35; } }
-  .topbar h1 { margin: 0; font: 600 16px/1 var(--serif); letter-spacing: -.01em; }
-  .badge { padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 4px;
-    color: var(--text-3); font: 10px/1.2 var(--mono); letter-spacing: .04em; }
-  /* The title is the backend switch when there is more than one backend. */
-  #backend-toggle { display: flex; align-items: center; gap: 4px; max-width: calc(100% + 12px); margin: 0 -6px; padding: 5px 6px;
-    border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; letter-spacing: inherit;
-    cursor: pointer; }
-  #backend-toggle .icon { width: 14px; height: 14px; color: var(--text-3); transition: transform .15s; }
-  #backend-toggle:hover:not(:disabled), #backend-toggle[aria-expanded=true] { background: var(--chrome-3); }
-  #backend-toggle[aria-expanded=true] .icon { transform: rotate(180deg); }
-  #backend-toggle:focus-visible { outline: 1.5px solid var(--accent); }
-  #backend-toggle:disabled { cursor: default; }
-  #backend-toggle:disabled .icon { display: none; }
-  #backend-menu { left: 0; right: auto; }
-  #backend-menu [aria-checked=false] .icon, #theme-menu [aria-checked=false] .icon { visibility: hidden; }
-
-  /* The light box is lit in both themes, so everything on it takes light
-     colours from these local tokens, whatever the rest of the page uses. */
-  .stage { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0;
-    color-scheme: light; color: var(--text);
-    --chrome: #fafafa; --chrome-2: #f0f0f0; --chrome-3: #e6e6e6;
-    --line: #d9d9d9; --line-strong: #c2c2c2;
-    --text: #111111; --text-2: #4d4d4d; --text-3: #666666;
-    --accent: #111111; --accent-fill: #111111; --on-accent: #ffffff; --accent-soft: rgba(0, 0, 0, .06);
-    --shadow: 0 12px 32px rgba(0, 0, 0, .14), 0 0 0 1px rgba(0, 0, 0, .05);
-    --box: #eee8e1; --box-hi: #f5f1ec; --box-lo: #e4dcd3;
-    background-color: var(--box);
-    background-image: var(--face, none),
-      radial-gradient(ellipse 75% 65% at 50% 45%, var(--box-hi) 0%, var(--box) 60%, var(--box-lo) 100%);
-    background-blend-mode: soft-light, normal; }
-  /* Leica: satin chrome. */
-  [data-theme=leica] .stage {
-    --chrome: #d6d4ce; --chrome-2: #cdcbc5; --chrome-3: #c1bfb9;
-    --line: #b3b1ab; --line-strong: #9d9b95;
-    --text: #1b1a18; --text-2: #3b3935; --text-3: #4a4843;
-    --accent: #1b1a18; --accent-fill: #1b1a18; --on-accent: #f2f0ea;
-    --box: #c9c7c1; --box-hi: #d6d4ce; --box-lo: #bab8b2; }
-  /* Kodak: the brown leatherette of the body, under the cream controls. */
-  [data-theme=kodak] .stage { color-scheme: dark;
-    --chrome: #46332a; --chrome-2: #4f3a2f; --chrome-3: #5a4336;
-    --line: #5e4638; --line-strong: #75594a;
-    --text: #f3e9d2; --text-2: #d6c6a6; --text-3: #b8a482;
-    --accent: #f5b700; --accent-fill: #f5b700; --on-accent: #2b1d14;
-    --accent-soft: rgba(245, 183, 0, .12);
-    --shadow: 0 12px 32px rgba(0, 0, 0, .4), 0 0 0 1px rgba(255, 255, 255, .05);
-    --box: #3b2a20; --box-hi: #46332a; --box-lo: #30221a; }
-  /* Polaroid: the white of the print. */
-  [data-theme=polaroid] .stage {
-    --chrome: #f8f7f3; --chrome-2: #efede7; --chrome-3: #e6e3dc;
-    --line: #d9d6ce; --line-strong: #c2beb5;
-    --text: #151515; --text-2: #45423c; --text-3: #5a5750;
-    --box: #f1efe9; --box-hi: #f8f7f3; --box-lo: #e8e5dd; }
-  .canvas { position: relative; min-height: 0; display: flex; align-items: center;
-    justify-content: center; padding: 28px; overflow: hidden; }
-
-  /* A frame of film: the image, a black rebate, and the edge print below it.
-     A percentage max-height does not bound an image inside a grid-sized flex
-     box, and a tall image pushed the sheet off the screen, so the picture is
-     sized in pixels to its own shape instead (fitStage). */
-  .shot { position: relative; flex: none; padding: 9px 9px 25px; background: var(--film);
-    border-radius: 1px;
-    box-shadow: 0 1px 1px rgba(0, 0, 0, .12), 0 14px 30px -16px rgba(0, 0, 0, .45); }
-  .pic { position: relative; }
-  .pic img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-  .edge { position: absolute; left: 11px; right: 11px; bottom: 7px; display: flex;
-    justify-content: space-between; color: var(--edge-ink);
-    font: 9px/12px var(--mono); letter-spacing: .16em; pointer-events: none; }
-  .region-rows { display: flex; flex-direction: column; gap: 8px; }
-  .region-row { display: flex; align-items: center; gap: 8px; }
-  .region-row .swatch { cursor: default; }
-  .region-row input { flex: 1; min-width: 0; }
-  /* Before and after: the source image lies over the edit, clipped at the
-     slider. The range input covers the image, so a drag anywhere moves it.
-     The source is stretched to the picture, because the edit resized the whole
-     source; cropping it would shift every point it is compared against. */
-  .pic img.before { object-fit: fill; clip-path: inset(0 calc(100% - var(--split)) 0 0); }
-  /* The brush and the divided view cannot both take the drag on one print: the
-     divider covers the picture, so it would take every stroke. The brush is what
-     the user armed, so the divided view steps aside. It is taken off the print
-     rather than shown dead, and it is back as soon as the brush is. */
-  .shot.marking .compare-range, .shot.marking .divider, .shot.marking .compare-tag { display: none; }
-  .compare-range { position: absolute; inset: 0; width: 100%; height: 100%;
-    margin: 0; opacity: 0; cursor: ew-resize; z-index: 2; }
-  .divider { position: absolute; top: 0; bottom: 0; left: var(--split); width: 1px; margin-left: -.5px;
-    background: rgba(255, 255, 255, .95); box-shadow: 0 0 0 .5px rgba(0, 0, 0, .25);
-    pointer-events: none; z-index: 1; }
-  .divider::after { content: ""; position: absolute; top: 50%; left: 50%; width: 28px; height: 28px;
-    margin: -14px 0 0 -14px; border-radius: 50%; background: #fff;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 4px 12px rgba(0, 0, 0, .18); }
-  .divider .icon { position: absolute; top: 50%; left: 50%; z-index: 1; width: 14px; height: 14px;
-    margin: -7px 0 0 -7px; color: #222; }
-  .compare-range:focus-visible ~ .divider::after { box-shadow: 0 0 0 2px #111, 0 4px 12px rgba(0, 0, 0, .18); }
-  .compare-tag { position: absolute; top: 10px; z-index: 1; padding: 3px 7px; border-radius: 3px;
-    background: rgba(0, 0, 0, .55); color: #f2f2f2; font: 10px/1.2 var(--mono); letter-spacing: .08em;
-    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); pointer-events: none; }
-  .compare-tag.left { left: 10px; }
-  .compare-tag.right { right: 10px; }
-
-  /* Motion. Each one answers something that happened: a print develops when
-     it arrives, a frame joins the sheet, the marker circles a pick. */
-  .arrive { animation: arrive .2s ease-out; }
-  @keyframes arrive { from { opacity: 0; transform: translateY(2px); } }
-  .shot.arrive { animation: none; }
-  /* The print comes up out of the plate the run showed: it resolves from a
-     soft, colorless image into focus, and its grain settles a moment after.
-     The fast start and the long tail keep it from reading as a slow fade.
-     At the end nothing is left over it, so the image shows its own pixels.
-     Each animation has two keyframes only: CSS eases every keyframe segment
-     on its own, so a middle stop turns one smooth curve into visible steps. */
-  .shot.arrive .pic { overflow: hidden; background: var(--plate); }
-  .shot.arrive .pic > img:first-child {
-    animation: surface .3s ease-out both, focus 1.1s cubic-bezier(.16, .84, .3, 1) both; }
-  @keyframes surface { from { opacity: 0; } }
-  @keyframes focus { from { filter: blur(10px) saturate(0) contrast(.85); transform: scale(1.02); } }
-  .shot.arrive .pic::before, .shot.arrive .pic::after { content: ""; position: absolute; inset: 0;
-    z-index: 1; pointer-events: none; opacity: 0; }
-  .shot.arrive .pic::before { background: var(--grain); mix-blend-mode: overlay;
-    animation: grain-settle 1.5s cubic-bezier(.45, 0, .55, 1); }
-  .shot.arrive .pic::after { box-shadow: inset 0 0 90px rgba(0, 0, 0, .35);
-    animation: vignette-settle 1.2s cubic-bezier(.45, 0, .55, 1); }
-  @keyframes grain-settle { from { opacity: .35; } to { opacity: 0; } }
-  @keyframes vignette-settle { from { opacity: .7; } to { opacity: 0; } }
-  /* The slider and its tags wait for the sweep, which starts at 650ms (sweep
-     in the script), so they never sit over a print that is still developing. */
-  .shot.arrive .divider, .shot.arrive .compare-tag { animation: surface .3s ease-out .65s both; }
-  .frame.arrive { animation: join .4s cubic-bezier(.2, .7, .2, 1); }
-  @keyframes join { from { opacity: 0; transform: translateX(-10px); } }
-
-  .empty { max-width: 300px; text-align: center; color: var(--text-2); }
-  .empty strong { display: block; color: var(--text); font: 500 22px/1.25 var(--serif); letter-spacing: -.01em; }
-  .empty p { margin: 8px 0 18px; line-height: 1.5; }
-
-  /* A run in progress is an unexposed frame. In Darkroom the plate lightens
-     behind a thin line as the steps come in, like paper under the enlarger.
-     Before the first step the line waits at the left edge, where the exposure
-     starts. The camera themes make the photo their own way, further down. */
-  .card { position: relative; flex: none; padding: 9px 9px 25px; background: var(--film); border-radius: 1px;
-    box-shadow: 0 1px 1px rgba(0, 0, 0, .12), 0 14px 30px -16px rgba(0, 0, 0, .45); }
-  .plate { position: relative; overflow: hidden; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 16px; min-width: 220px; min-height: 180px;
-    background: var(--plate); color: #8a8a8a; text-align: center; }
-  /* The unexposed part is film: faint still specks. The exposed part behind
-     the line is lighter and clean, except for a band just behind the line,
-     where the paper is still developing. The band's grain stays put on the
-     page (fixed attachment), so the line uncovers it rather than drags it. */
-  .plate::before, .frame.pending .still::before { content: ""; position: absolute; inset: 0;
-    background: var(--specks); opacity: .15; pointer-events: none; }
-  .exposure::before { content: ""; position: absolute; top: 0; bottom: 0; right: 1px; width: 56px;
-    background: var(--specks) fixed; opacity: .4;
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000);
-    mask-image: linear-gradient(90deg, transparent, #000); }
-  .exposure { position: absolute; inset: 0 auto 0 0; width: var(--exposed, 0%);
-    background: linear-gradient(90deg, rgba(255, 255, 255, .03), rgba(255, 255, 255, .1)), var(--plate);
-    transition: width .6s linear; pointer-events: none; }
-  .exposure::after { content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 1px;
-    background: rgba(255, 255, 255, .6); box-shadow: 0 0 10px rgba(255, 255, 255, .25); }
-  .waiting .exposure::after { animation: blink 1.4s ease-in-out infinite; }
-  @keyframes blink { 50% { opacity: .15; } }
-  /* The next image of a batch starts from the left at once, not by a sweep back. */
-  .rewind .exposure { transition: none; }
-  /* Polaroid: the print drops out of the slot at the top, in the dark teal of
-     an undeveloped SX-70 print. Kodak: the print rises out of a slot at the
-     bottom. The line is the print's leading edge, and the developing band
-     lies along it, as the Darkroom band trails its line. The film's specks
-     stay over the print too, so it is grain, not a flat block. */
-  [data-theme=polaroid] .exposure, [data-theme=kodak] .exposure { inset: 0 0 auto 0; width: auto;
-    height: var(--exposed, 0%); transition: height .6s linear; }
-  [data-theme=kodak] .exposure { inset: auto 0 0 0; }
-  [data-theme=polaroid] .exposure { background: linear-gradient(180deg, #243234, #33443f); }
-  [data-theme=kodak] .exposure { background: linear-gradient(0deg, #2e241d, #43342a); }
-  [data-theme=polaroid] .exposure::after, [data-theme=kodak] .exposure::after {
-    inset: auto 0 0 0; width: auto; height: 1px; }
-  [data-theme=kodak] .exposure::after { inset: 0 0 auto 0; }
-  [data-theme=polaroid] .exposure::before, [data-theme=kodak] .exposure::before {
-    inset: auto 0 1px 0; width: auto; height: 56px;
-    -webkit-mask-image: linear-gradient(180deg, transparent, #000); mask-image: linear-gradient(180deg, transparent, #000); }
-  [data-theme=kodak] .exposure::before { inset: 1px 0 auto 0;
-    -webkit-mask-image: linear-gradient(0deg, transparent, #000); mask-image: linear-gradient(0deg, transparent, #000); }
-  [data-theme=polaroid] .plate::before, [data-theme=kodak] .plate::before,
-  [data-theme=polaroid] .frame.pending .still::before, [data-theme=kodak] .frame.pending .still::before { z-index: 1; }
-  [data-theme] .card .percent { z-index: 2; }
-  [data-theme=polaroid] .card::after, [data-theme=kodak] .card::after { content: ""; position: absolute;
-    left: 5px; right: 5px; height: 4px; border-radius: 2px; background: #000;
-    box-shadow: inset 0 1px 2px rgba(255, 255, 255, .08); }
-  [data-theme=polaroid] .card::after { top: 3px; }
-  [data-theme=kodak] .card::after { bottom: 21px; }
-  /* Leica: film, so no eject. The print comes up all over in the tray: the
-     plate lifts to a warm latent grey, coarse grain settles as it firms up,
-     and the developer rocks across it in a slow ripple. */
-  [data-theme=leica] .exposure { inset: 0; width: auto; opacity: var(--exposed, 0%);
-    background: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(255, 246, 232, .34), rgba(255, 246, 232, .2));
-    transition: opacity .6s linear; }
-  [data-theme=leica] .exposure::before, [data-theme=leica] .exposure::after { display: none; }
-  [data-theme=leica] .plate::before, [data-theme=leica] .frame.pending .still::before { z-index: 1; opacity: calc(55% - var(--exposed, 0%) * .45);
-    transition: opacity .6s linear; }
-  [data-theme=leica] .card .plate::after { content: ""; position: absolute; inset: -20%; z-index: 1;
-    background: radial-gradient(ellipse 35% 25% at 50% 50%, rgba(255, 255, 255, .09), transparent 70%);
-    animation: tray 3.6s ease-in-out infinite alternate; pointer-events: none; }
-  @keyframes tray { from { transform: translate(-18%, -10%); } to { transform: translate(18%, 12%); } }
-  .card .percent { position: relative; color: #f2f2f2; font: 300 28px/1.1 var(--mono); letter-spacing: -.02em; }
-
-  /* Under the frame, across the whole stage: two lines of the prompt, then one
-     quiet line of facts. A tall print leaves the stage's width to the caption. */
-  .stage-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; min-height: 82px; padding: 0 28px 18px; min-width: 0; }
-  .stage-bar.reserved { visibility: hidden; }
-  .stage-bar[hidden] { display: none; }
-  .about { flex: 1; min-width: 0; }
-  .prompt-line { margin: 0; color: var(--text); font: 15px/1.4 var(--serif); overflow: hidden;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-  .prompt-line[role=button] { cursor: pointer; border-radius: 3px; }
-  .prompt-line[role=button]:hover { text-decoration: underline; text-decoration-color: var(--line-strong);
-    text-underline-offset: 3px; }
-  .prompt-line[role=button]:focus-visible { outline: 1.5px solid var(--text-2); outline-offset: 3px; }
-  /* A cut label opens the whole prompt as a sheet over the stage, as wide as
-     the stage, so a long prompt fits without a scroll and nothing moves. */
-  .sheet { position: absolute; left: 28px; right: 28px; bottom: 16px; z-index: 3; max-height: calc(100% - 32px);
-    overflow-y: auto; padding: 22px 60px 24px 24px; border-radius: 6px; background: var(--chrome);
-    color: var(--text); box-shadow: 0 18px 50px -12px rgba(0, 0, 0, .6); animation: sheet .18s ease-out; }
-  @keyframes sheet { from { transform: translateY(10px); opacity: 0; } }
-  .sheet dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 14px 22px; }
-  .sheet dt { padding-top: 4px; color: var(--text-3); font-size: 12px; }
-  .sheet dd { margin: 0; font: 16px/1.55 var(--serif); }
-  .sheet .close { position: absolute; top: 12px; right: 12px; }
-  /* The mark sits on the print, so the strokes land on the picture itself. It is
-     drawn in the palette colour the next stroke will use, and at the reference's
-     own pixels, so the region cannot drift on the way. */
-  .shot .region-mark { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2;
-    cursor: crosshair; touch-action: none; }
-  /* The loupe is a tool, not a picture: above the mark, never taking the pointer, and
-     only up while a stroke is being drawn. */
-  .shot .region-loupe { position: absolute; width: 108px; height: 108px; z-index: 3;
-    border-radius: 6px; box-shadow: 0 3px 12px rgba(0, 0, 0, .35); pointer-events: none; }
-  /* The drawing controls sit under the print, not on it: a control over the
-     picture covers the very area the user is trying to mark. */
-  /* The drawing controls take their own line between the picture and its caption:
-     order -1 and a full width put them on the first line, and the caption and the
-     existing buttons wrap to the next, keeping their order and their size. */
-  .region-tools { display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 100%; order: -1; }
-  .region-tools .icon-btn { width: 24px; height: 24px; }
-  .region-tools .icon-btn .icon { width: 14px; height: 14px; }
-  .region-tools .icon-btn:disabled { color: var(--line-strong); cursor: default; background: none; }
-  .swatch { width: 18px; height: 18px; margin: 0 1px; border: 2px solid transparent; border-radius: 50%;
-    padding: 0; cursor: pointer; }
-  .swatch[aria-pressed=true] { border-color: var(--text-2); }
-  .swatch:hover { border-color: var(--line-strong); }
-  .field-head .head-actions { display: flex; gap: 10px; }
-
-  .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; margin-top: 4px;
-    color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
-  /* How the image was made, as a badge. A source frame still in the strip is a link. */
-  .facts .made { padding: 1px 7px; border: 1px solid var(--line-strong); border-radius: 4px;
-    color: var(--text-2); font-weight: 500; }
-  .facts .made button { padding: 0; border: 0; background: none; color: inherit; font: inherit;
-    text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-  /* The before and after slider sits on the print, so its switch sits by the badge. */
-  .facts .compare { padding: 1px 7px; border: 1px solid var(--line-strong); border-radius: 4px;
-    background: none; color: var(--text-3); font: inherit; cursor: pointer; }
-  .facts .compare[aria-pressed=true] { color: var(--text-2); font-weight: 500; }
-  .facts .compare[aria-pressed=false] { border-style: dashed; }
-  .facts .break { display: none; }
-  .actions { display: flex; align-items: center; gap: 2px; flex: none; }
-  .actions .rule { width: 1px; height: 18px; background: var(--line-strong); margin: 0 6px; }
-
-  .icon-btn { width: 32px; height: 32px; display: inline-flex; align-items: center;
-    justify-content: center; border: 1px solid transparent; border-radius: 6px;
-    background: none; color: var(--text-2); cursor: pointer; padding: 0; transition: background-color .12s, color .12s; }
-  .icon-btn:hover { background: var(--chrome-3); color: var(--text); }
-  .icon-btn.danger:hover { background: var(--danger-fill); color: #fff; }
-  .icon-btn[aria-pressed=true] { background: var(--chrome-3); color: var(--text); }
-  .btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px;
-    border: 1px solid var(--line-strong); border-radius: 6px; background: var(--chrome);
-    color: var(--text); cursor: pointer; text-decoration: none; font-size: 12px; font-weight: 500;
-    transition: background-color .12s, border-color .12s; }
-  .btn:hover { background: var(--chrome-3); }
-  .btn.quiet { border-color: transparent; background: none; color: var(--text-2); }
-  .btn.quiet:hover { background: var(--chrome-3); color: var(--text); }
-  /* Menus open from a button and float over the page. */
-  .menu-anchor { position: relative; }
-  .menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; min-width: 220px;
-    padding: 4px; background: var(--chrome); border-radius: 9px; box-shadow: var(--shadow);
-    animation: arrive .12s ease-out; }
-  .menu.up { top: auto; bottom: calc(100% + 6px); }
-  /* The menu opens about 110px from the top of the window. In a short window it scrolls
-     instead of running off the bottom. */
-  #templates { top: 30px; width: min(310px, 100%); max-height: calc(100dvh - 140px); overflow-y: auto;
-    overscroll-behavior: contain; }
-  .menu button { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 7px 10px;
-    border: 0; border-radius: 6px; background: none; color: var(--text); text-align: left;
-    cursor: pointer; font-size: 13px; }
-  .menu button .icon { margin-top: 1px; color: var(--text-2); }
-  .menu button:hover, .menu button:focus-visible { background: var(--chrome-3); outline: none; }
-  .item-note { display: block; margin-top: 1px; color: var(--text-3); font-size: 12px; }
-  .menu-head, .menu-foot { padding: 7px 10px; color: var(--text-3); font-size: 12px; }
-  .menu-head { color: var(--text-2); font-weight: 500; }
-  .menu-foot { border-top: 1px solid var(--line); margin-top: 4px; }
-  .text-btn { border: 0; background: none; padding: 0; color: var(--text-2); cursor: pointer; white-space: nowrap;
-    font-size: 12px; text-decoration: underline; text-decoration-color: var(--line-strong);
-    text-underline-offset: 3px; }
-  .text-btn:hover { color: var(--text); text-decoration-color: currentColor; }
-
-  .toasts { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 4;
-    width: min(480px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 8px; }
-  .toast { display: flex; gap: 10px; align-items: center; padding: 9px 8px 9px 12px;
-    background: var(--chrome); border-radius: 9px; box-shadow: var(--shadow); animation: arrive .18s ease-out; }
-  .toast .icon { color: var(--text-2); }
-  .toast.error .icon:first-child { color: var(--danger); }
-  .toast p { margin: 0; flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .toast .icon-btn { width: 24px; height: 24px; }
-
-  /* The contact sheet: a strip of film in both themes. The sprocket holes are
-     35 mm proportions and scroll with the frames. */
-  .strip-wrap { background: var(--film); padding: 8px 18px 6px; --text-2: #a3a3a3; --text-3: #7a7a7a;
-    --line-strong: #3a3a3a; --accent: #ededed; }
-  .strip-wrap[hidden] { display: none; }
-  .strip-head { display: flex; justify-content: space-between; align-items: center;
-    padding: 0 2px 2px; color: var(--text-3); font-size: 12px; }
-  .strip-actions { display: flex; gap: 14px; }
-  .strip { display: flex; gap: 16px; overflow-x: auto; padding: 20px 10px 18px;
-    scrollbar-width: thin; scrollbar-color: #2e2e2e transparent;
-    --holes: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5'%3E%3Crect x='2.2' y='.5' width='5.6' height='4' rx='1' fill='%23262626'/%3E%3C/svg%3E");
-    background: var(--holes) left 4px / 10px 5px repeat-x local,
-      var(--holes) left bottom 3px / 10px 5px repeat-x local; }
-  .frame { position: relative; flex: none; display: flex; flex-direction: column; align-items: center;
-    gap: 8px; padding: 0; border: 0; background: none; cursor: pointer; }
-  .frame .still { position: relative; height: 60px; overflow: hidden; background: var(--plate);
-    opacity: .7; transition: opacity .2s; }
-  .frame img { height: 100%; width: auto; display: block; }
-  .frame:hover .still, .frame.selected .still { opacity: 1; }
-  .frame .no { font: 9px/11px var(--mono); letter-spacing: .14em; color: #6e6e6e; }
-  .frame.selected .no { color: #d4d4d4; }
-  .frame:focus-visible { outline: none; }
-  /* The marker already shows the selected frame, so the focus ring shows
-     only on a frame Tab reached without selecting it. */
-  .frame:focus-visible:not(.selected) .still { outline: 1.5px solid #ededed; outline-offset: 3px; }
-  /* The marker loop circles the picture, clear of the number, and is drawn
-     once, when a frame is picked, not on every redraw. */
-  .mark { position: absolute; top: -6px; left: -9px; width: calc(100% + 18px); height: 71px;
-    overflow: visible; pointer-events: none; }
-  .mark path { fill: none; stroke: var(--marker); stroke-width: 1.8; stroke-linecap: round;
-    stroke-linejoin: round; vector-effect: non-scaling-stroke; opacity: .95; }
-  .mark.draw path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: marker .45s cubic-bezier(.5, 0, .3, 1) forwards; }
-  @keyframes marker { to { stroke-dashoffset: 0; } }
-  .frame .corner { position: absolute; right: 3px; bottom: 3px; width: 16px; height: 16px;
-    display: flex; align-items: center; justify-content: center; border-radius: 3px;
-    background: rgba(0, 0, 0, .6); color: #fff; }
-  .frame .corner .icon { width: 11px; height: 11px; }
-  .frame.pending .still { display: block; opacity: 1; }
-
-  /* Right: the controls. Only this column's middle scrolls; the run button stays put. */
-  aside { background-color: var(--chrome); border-left: 1px solid var(--line); min-height: 0; }
-  form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-  .controls { flex: 1; overflow-y: auto; padding: 18px 22px calc(28px + var(--slack, 0px)); display: flex;
-    flex-direction: column; gap: 22px; }
-  .field { display: flex; flex-direction: column; gap: 8px; }
-  .field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; min-height: 18px; }
-  label, .label { color: var(--text-2); font-size: 12px; font-weight: 500; }
-  .prompt-field { position: relative; }
-  .pill { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px 0 7px;
-    border: 1px solid var(--line-strong); border-radius: 6px; background: none;
-    color: var(--text-2); cursor: pointer; font-size: 12px; transition: color .12s, border-color .12s; }
-  .pill .icon { width: 14px; height: 14px; }
-  .pill:hover, .pill[aria-expanded=true] { border-color: var(--text-3); color: var(--text); }
-  .field-head:has(.pill) { align-items: center; }
-  .caption { color: var(--text-3); font-size: 12px; }
-  textarea, input[type=text], input[type=number], select { width: 100%; background: var(--chrome-2);
-    border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
-    transition: border-color .12s, box-shadow .12s; }
-  textarea:focus, input:focus, select:focus { outline: none; border-color: var(--line-strong);
-    box-shadow: 0 0 0 3px var(--accent-soft); }
-  /* The prompt is the one thing written here in full sentences, so it is set
-     in the serif, like the caption it becomes under the frame. */
-  textarea { min-height: 104px; max-height: 320px; resize: none; padding: 10px 12px;
-    font: 15px/1.5 var(--serif); }
-  input[type=range] { width: 100%; margin: 0; accent-color: var(--accent-fill); }
-  ::placeholder { color: var(--text-3); }
-
-  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 2px; position: relative;
-    background: var(--chrome-2); border: 1px solid var(--line); border-radius: 8px; }
-  .modes input { position: absolute; opacity: 0; pointer-events: none; }
-  .modes label { display: flex; align-items: center; justify-content: center; gap: 7px; height: 32px;
-    border-radius: 6px; cursor: pointer; color: var(--text-3); font-size: 13px;
-    transition: background-color .15s, color .15s; }
-  .modes label:hover { color: var(--text); }
-  .modes input:checked + label { background: var(--chrome-3); color: var(--text); }
-  .modes input:focus-visible + label { outline: 1.5px solid var(--accent); }
-
-  .refs { border: 1px dashed var(--line-strong); border-radius: 8px; background: none;
-    cursor: pointer; padding: 12px; transition: border-color .15s, background-color .15s; }
-  .refs:hover { border-color: var(--text-3); }
-  .refs.over { border-color: var(--accent); background: var(--accent-soft); }
-  .refs-empty { display: flex; align-items: center; gap: 12px; color: var(--text-3); font-size: 12px; }
-  .refs-empty .icon { width: 20px; height: 20px; }
-  .refs-empty strong { display: block; color: var(--text); font-size: 13px; font-weight: 500; }
-  form.mode-edit .refs-empty { flex-direction: column; text-align: center; padding: 16px 8px; gap: 8px; }
-  .thumbs { display: flex; flex-wrap: wrap; gap: 10px; }
-  .thumb { position: relative; width: 60px; height: 60px; }
-  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block;
-    border: 3px solid var(--film); border-radius: 1px; }
-  .thumb .remove { position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; padding: 0;
-    display: flex; align-items: center; justify-content: center; border-radius: 50%;
-    border: 1px solid var(--line-strong); background: var(--chrome); color: var(--text-2); cursor: pointer; }
-  .thumb .remove .icon { width: 11px; height: 11px; }
-  .thumb .remove:hover { background: var(--danger-fill); border-color: var(--danger-fill); color: #fff; }
-  .add-tile { width: 60px; height: 60px; display: flex; align-items: center; justify-content: center;
-    border: 1px dashed var(--line-strong); border-radius: 2px; color: var(--text-3); }
-  .refs-note { margin-top: 10px; color: var(--text-3); font-size: 12px; }
-
-  .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .chip { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px;
-    border: 1px solid var(--line); border-radius: 7px; background: none;
-    color: var(--text-2); cursor: pointer; font-size: 12px; transition: border-color .12s, color .12s, background-color .12s; }
-  .chip:hover { border-color: var(--line-strong); color: var(--text); }
-  .chip[aria-pressed=true] { border-color: var(--text); background: var(--accent-soft); color: var(--text); }
-  .glyph { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
-  .glyph i { display: block; border: 1.25px solid currentColor; border-radius: 1.5px; }
-  .glyph i.dashed { border-style: dashed; }
-  .seg { display: flex; padding: 2px; gap: 2px; background: var(--chrome-2);
-    border: 1px solid var(--line); border-radius: 7px; }
-  .seg button { flex: 1; height: 28px; border: 0; border-radius: 5px; background: none;
-    color: var(--text-3); cursor: pointer; font-size: 12px; font-variant-numeric: tabular-nums;
-    transition: background-color .12s, color .12s; }
-  .seg button:hover { color: var(--text); }
-  .seg button[aria-pressed=true] { background: var(--chrome-3); color: var(--text); }
-
-  .stepper { display: inline-grid; grid-template-columns: 34px 44px 34px; height: 34px; width: max-content;
-    border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
-  .stepper button { border: 0; background: none; color: var(--text-2); cursor: pointer;
-    display: flex; align-items: center; justify-content: center; }
-  .stepper button:hover:not(:disabled) { background: var(--chrome-3); color: var(--text); }
-  .stepper button:disabled { color: var(--line-strong); cursor: default; }
-  .stepper input { border: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line);
-    border-radius: 0; background: none; text-align: center; padding: 0; }
-  .stepper input:focus { box-shadow: none; background: var(--chrome-2); }
-
-  form.mode-generate .edit-only, form.mode-edit .generate-only { display: none; }
-  /* Strength means something only when there is a reference to be strong about. */
-  .strength-field { display: none; }
-  form.has-ref .strength-field { display: flex; }
-  .modes input:disabled + label { opacity: .4; cursor: not-allowed; }
-
-  details { border-top: 1px solid var(--line); padding-top: 16px; }
-  summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
-    color: var(--text-2); font-size: 12px; font-weight: 500; }
-  summary:hover { color: var(--text); }
-  summary::-webkit-details-marker { display: none; }
-  summary::before { content: ""; width: 5px; height: 5px; margin: 0 3px 0 1px;
-    border-right: 1.25px solid currentColor; border-bottom: 1.25px solid currentColor;
-    transform: rotate(-45deg); transition: transform .15s; }
-  details[open] summary::before { transform: rotate(45deg); }
-  summary .values { margin-left: auto; color: var(--text-3); font-weight: 400; overflow: hidden;
-    white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-  details[open] summary .values { visibility: hidden; }
-  .advanced { display: flex; flex-direction: column; gap: 18px; margin-top: 18px; }
-  .look { display: flex; flex-direction: column; margin-top: 10px; }
-  .look-row { display: flex; flex-direction: column; }
-  .look-row + .look-row { border-top: 1px solid var(--line); }
-  .look-row-toggle { display: flex; justify-content: space-between; align-items: center; gap: 10px;
-    height: 34px; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
-  .look-row-toggle:hover .label, .look-row-toggle[aria-expanded=true] .label { color: var(--text); }
-  .look-pick { color: var(--text-3); font-size: 12px; }
-  .look-pick.picked { color: var(--text); }
-  .look-chips { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 10px; }
-  .look-chips .chip { height: 28px; padding: 0 10px; }
-  .look-note { margin: 16px 0 0; color: var(--text-3); font-size: 12px; line-height: 1.5; }
-  /* The Look sits under the prompt it extends, so the whole sent text reads in one place. */
-  .look-tail { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
-  .look-tail[hidden] { display: none; }
-  .look-tail .chip { height: 24px; padding: 0 8px; gap: 6px; }
-  .look-tail q { flex-basis: 100%; color: var(--text-3); font: 13px/1.45 var(--serif); }
-  .look-tail .look-avoids { flex-basis: 100%; margin: 0; color: var(--text-3); font-size: 12px; line-height: 1.45; }
-  .prompt-line .look-said { color: var(--text-3); }
-
-  /* The count sits beside the run button because it belongs to the run. It
-     stays unfilled, so the button is still the one thing to press. */
-  .footer { display: flex; gap: 10px; padding: 14px 22px 18px; border-top: 1px solid var(--line);
-    background: var(--chrome); }
-  .run { display: flex; flex: 1; min-width: 0; }
-  .run #go { border-radius: 9px 0 0 9px; }
-  #count-toggle { display: flex; align-items: center; gap: 3px; padding: 0 10px 0 13px;
-    border: 1px solid transparent; border-left-color: rgba(128, 128, 128, .4); border-radius: 0 9px 9px 0;
-    background: var(--accent-fill); color: var(--on-accent); cursor: pointer; font-size: 13px; font-weight: 600;
-    transition: opacity .15s, background-color .15s; }
-  #count-toggle:hover:not(:disabled) { opacity: .9; }
-  #count-toggle .icon { width: 14px; height: 14px; opacity: .7; }
-  /* The count can be set before the prompt is written, so it stays live while
-     the run button is off; it only takes the button's grey. */
-  #go:disabled + #count-toggle { background: var(--chrome-3); color: var(--text-2); }
-  body.busy #count-toggle { background: var(--chrome-2); border-color: var(--line); color: var(--text-3); cursor: progress; }
-  #count-menu { min-width: 150px; }
-  #count-menu [aria-checked=false] .icon { visibility: hidden; }
-  /* The run button only starts a run. While one is in flight it is disabled
-     and reads Generating or Editing, with the step count below; Cancel sits on
-     the progress card. The second line carries the estimate when idle. */
-  #go { position: relative; overflow: hidden; flex: 1; min-width: 0; min-height: 50px; border: 1px solid transparent;
-    border-radius: 9px; background: var(--accent-fill); color: var(--on-accent); cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-    transition: opacity .15s, transform .08s, background-color .15s; }
-  #go:hover:not(:disabled) { opacity: .9; }
-  #go:active:not(:disabled) { transform: scale(.995); }
-  #go:disabled { background: var(--chrome-3); color: var(--text-3); cursor: not-allowed; }
-  #go .main { font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
-  #go .sub { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .7; }
-  #go .busy-label, #go .stopping-label { display: none; }
-  body.busy #go { background: var(--chrome-2); border-color: var(--line-strong); color: var(--text); opacity: 1; }
-  body.busy #go:hover:not(:disabled) { background: var(--chrome-3); }
-  body.busy #go .idle-label { display: none; }
-  body.busy #go .busy-label { display: inline; }
-  body.stopping #go .busy-label { display: none; }
-  body.stopping #go .stopping-label { display: inline; }
-  body.stopping #go { color: var(--text-3); cursor: progress; }
-  #go .sub { color: inherit; }
-  body.busy #go .sub { color: var(--text-2); opacity: 1; }
-
-  #progress, #incoming { display: none; }
-
-  /* Full screen shows the light box and the sheet, with no top bar. */
-  .work:fullscreen { grid-template-rows: minmax(0, 1fr) auto; background: var(--chrome); }
-  .work:fullscreen .topbar { display: none; }
-
-  /* On a phone the image leads, and the run button sits at the bottom of the
-     screen so it is reachable from anywhere in the form. */
-  @media (max-width: 900px) {
-    .app { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
-    .work { grid-template-rows: auto 62vh auto; }
-    .status #status-text { display: none; }
-    .canvas { padding: 18px; }
-    .stage-bar { flex-wrap: wrap; gap: 10px; padding: 0 18px 14px; }
-    .about { flex-basis: 100%; }
-    .facts .break { display: block; flex-basis: 100%; }
-    .actions { flex: 1 1 100%; flex-wrap: wrap; min-width: 0; margin-left: -8px; }
-    .actions .rule { display: none; }
-    .wide-only { display: none; }
-    aside { border-left: 0; border-top: 1px solid var(--line); }
-    form { height: auto; }
-    .controls { overflow: visible; padding-bottom: 104px; }
-    .footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation: none !important; transition: none !important; }
-    .mark.draw path { stroke-dashoffset: 0; }
-  }
-</style>
+<link rel="stylesheet" href="/page/page.css">
 </head>
 <body>
 <svg width="0" height="0" style="position: absolute" aria-hidden="true">
@@ -729,7 +67,7 @@
         <span class="badge" title="The weights loaded">__BADGE__</span>
       </div>
       <div class="readout">
-        <span class="status" id="status" aria-live="polite" hidden><span class="dot"></span><span id="status-text"></span></span>
+        <span class="status" id="status" role="status" aria-live="polite" hidden><span class="dot"></span><span id="status-text"></span></span>
         <button type="button" id="guide-toggle" class="icon-btn" aria-expanded="false"
           title="How to use this studio" aria-label="How to use this studio"><svg class="icon"><use href="#i-info"/></svg></button>
         <div class="menu-anchor">
@@ -743,7 +81,7 @@
     <section class="stage">
       <div class="canvas" id="canvas"></div>
       <div class="stage-bar" id="stage-bar" hidden></div>
-      <div class="toasts" id="toasts" aria-live="polite"></div>
+      <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
     </section>
 
     <section class="strip-wrap" id="strip-wrap" hidden>
@@ -754,7 +92,10 @@
           <button type="button" class="text-btn" id="clear-gallery">Clear all</button>
         </span>
       </div>
-      <div class="strip" id="strip"></div>
+      <!-- The frames are components/image-strip.js, which draws them from the
+           store. The head above them stays the page's: it holds the two buttons
+           and hangs their listeners while the markup is parsed. -->
+      <image-strip class="strip" id="strip"></image-strip>
     </section>
 
     <!-- Server answers land here and move into the gallery. The batch chain
@@ -786,7 +127,7 @@
           </div>
           <div class="menu" id="templates" role="menu" hidden></div>
           <textarea id="prompt" name="prompt" autofocus rows="4"></textarea>
-          <div class="look-tail" id="look-adds" hidden></div>
+          <look-adds class="look-tail" id="look-adds" hidden></look-adds>
         </div>
 
         <!-- One row per colour marked, in the prompt's own place, because while a
@@ -805,16 +146,11 @@
             <span class="label"><span class="generate-only">Starting image</span><span class="edit-only">Images to edit</span></span>
             <button type="button" class="text-btn" id="clear-reference" hidden>Remove all</button>
           </div>
+          <!-- The zone is the page's: it opens the chooser for a click, a key and
+               a drop. What it holds is components/reference-list.js, which draws
+               the three parts from the store. -->
           <div class="refs" id="refs" tabindex="0" role="button" aria-label="Add reference images">
-            <div class="refs-empty" id="refs-empty">
-              <svg class="icon"><use href="#i-image"/></svg>
-              <div>
-                <strong id="refs-title"></strong>
-                <span id="refs-sub"></span>
-              </div>
-            </div>
-            <div class="thumbs" id="thumbs"></div>
-            <div class="refs-note" id="refs-note"></div>
+            <reference-list></reference-list>
           </div>
           <input id="reference" type="file" accept="image/*" hidden>
         </div>
@@ -831,44 +167,44 @@
         <div class="field" id="size-field">
           <div class="field-head">
             <span class="label">Size</span>
-            <span class="caption num" id="size-caption"></span>
+            <size-caption class="caption num" id="size-caption"></size-caption>
           </div>
           <div data-param="size">
-            <div class="chips" id="size-chips"></div>
-            <div class="seg" id="tier-sizes" style="margin-top: 6px"></div>
+            <size-chips class="chips" id="size-chips"></size-chips>
+            <tier-sizes class="seg" id="tier-sizes" style="margin-top: 6px"></tier-sizes>
           </div>
-          <div class="seg" id="edit-sizes" data-param="resolution"></div>
+          <edit-sizes class="seg" id="edit-sizes" data-param="resolution"></edit-sizes>
           <select id="size" name="size" hidden></select>
           <select id="resolution" name="resolution" hidden></select>
         </div>
 
         <details id="look">
-          <summary>Look <span class="values" id="look-values"></span></summary>
-          <div class="look" id="look-rows"></div>
+          <summary>Look <look-values class="values" id="look-values"></look-values></summary>
+          <look-rows class="look" id="look-rows"></look-rows>
           <p class="look-note">Each pick adds a sentence after your prompt.</p>
         </details>
 
         <details id="advanced">
-          <summary>Advanced <span class="values num" id="advanced-values"></span></summary>
+          <summary>Advanced <advanced-values class="values num" id="advanced-values"></advanced-values></summary>
           <div class="advanced">
             <div class="field" data-param="steps">
               <div class="field-head">
                 <label for="steps">Steps</label>
-                <span class="caption num" id="steps-value"></span>
+                <steps-value class="caption num" id="steps-value"></steps-value>
               </div>
               <input id="steps" name="steps" type="range">
             </div>
             <div class="field" data-param="guidance">
               <div class="field-head">
                 <label for="guidance">Guidance</label>
-                <span class="caption num" id="guidance-value"></span>
+                <guidance-value class="caption num" id="guidance-value"></guidance-value>
               </div>
               <input id="guidance" name="guidance" type="range">
             </div>
             <div class="field" data-param="cfg">
               <div class="field-head">
                 <label for="cfg">Guidance</label>
-                <span class="caption num" id="cfg-value"></span>
+                <cfg-value class="caption num" id="cfg-value"></cfg-value>
               </div>
               <input id="cfg" name="cfg" type="range">
               <span class="caption">Raise guidance if the edit is ignored.</span>
@@ -892,12 +228,8 @@
 
       <div class="footer">
         <div class="run menu-anchor">
-        <button id="go" type="submit">
-          <span class="main">
-            <span class="idle-label"><span class="generate-only">Generate</span><span class="edit-only">Edit</span></span>
-            <span class="busy-label">Cancel</span>
-            <span class="stopping-label">Stopping&hellip;</span>
-          </span>
+        <button id="go" type="submit" data-state="idle">
+          <run-button id="run-labels" data-state="idle"></run-button>
           <span class="sub num" id="go-sub"></span>
         </button>
         <button type="button" id="count-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="count-menu"
@@ -999,6 +331,22 @@
     return document.body.classList.contains('busy');
   }
 
+  // The run button carries the run state as an attribute of its own, so anything
+  // that reads the state in the DOM reads this and not the button's name. The
+  // labels read the same state off an attribute of their own, because `stopping`
+  // is a class on the body and not a store field, and the labels are a component
+  // the page cannot reach into. Which label shows is still the DOM's: the
+  // component sets `hidden` on the ones it is not using, and no rule in the
+  // stylesheet sets `display` on one.
+  function syncRunState() {
+    if (document.body.classList.contains('stopping')) {
+      go.dataset.state = 'stopping';
+    } else {
+      go.dataset.state = busy() ? 'busy' : 'idle';
+    }
+    document.getElementById('run-labels').dataset.state = go.dataset.state;
+  }
+
   function spell(seconds) {
     if (seconds < 90) return Math.max(5, Math.round(seconds / 5) * 5) + 's';
     const minutes = Math.floor(seconds / 60);
@@ -1013,9 +361,13 @@
   // takes. When a mode takes one, a new one replaces the old. Files are read here and posted as base64 in a normal
   // form field, which keeps the server off multipart parsing that the standard
   // library no longer ships.
+  //
+  // The list is drawn by components/reference-list.js from the store, which this
+  // mirrors on every change. What stays here is the list itself, the zone that
+  // fills it, and the three things the page owns: the form's flag, the file
+  // input's `multiple`, and the Remove all button.
   const referenceInput = document.getElementById('reference');
   const refsZone = document.getElementById('refs');
-  const thumbs = document.getElementById('thumbs');
   let references = [];
 
   function referenceLimit() {
@@ -1026,57 +378,16 @@
     return references[references.length - 1];
   }
 
+  // The follow-ups a new list needs. The tree itself is the module's: this
+  // pushes the array into the store, which is what redraws it.
   function renderReferences() {
     const count = references.length;
     form.classList.toggle('has-ref', count > 0);
     referenceInput.multiple = editing();
-    document.getElementById('refs-empty').hidden = count > 0;
     document.getElementById('clear-reference').hidden = count < 2;
-    document.getElementById('refs-title').textContent = editing()
-      ? 'Add the image to edit' : 'Start from an image';
-    document.getElementById('refs-sub').textContent = editing()
-      ? 'Drop, paste or choose up to ' + maxReferences() + '.'
-      : 'Optional. Drop, paste or choose one.';
-
-    thumbs.innerHTML = '';
-    references.forEach(function (reference, index) {
-      const thumb = document.createElement('div');
-      thumb.className = 'thumb';
-      thumb.title = reference.name;
-      const image = document.createElement('img');
-      image.src = 'data:image/png;base64,' + reference.b64;
-      image.alt = reference.name;
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'remove';
-      remove.innerHTML = icon('x');
-      remove.setAttribute('aria-label', 'Remove ' + reference.name);
-      remove.addEventListener('click', function (event) {
-        event.stopPropagation();  // the zone opens the picker on click
-        references.splice(index, 1);
-        renderReferences();
-      });
-      thumb.append(image, remove);
-      thumbs.append(thumb);
-    });
-    if (editing() && count && count < maxReferences()) {
-      const add = document.createElement('div');
-      add.className = 'add-tile';
-      add.innerHTML = icon('plus');
-      thumbs.append(add);
-    }
-
-    const note = document.getElementById('refs-note');
-    note.hidden = count === 0;
-    if (editing() && count) {
-      const last = lastReference();
-      note.textContent = count + ' of ' + maxReferences() + ' images. The result takes the shape of the last one'
-        + (last.width ? ', ' + last.width + ' × ' + last.height + '.' : '.');
-    } else if (count) {
-      note.textContent = 'Drop or paste another image to replace it.';
-    }
+    pushReferences();
     refreshForm();
-    syncMarkTools();
+    region.sync();
     // An empty stage says what to do next, and that depends on the references.
     if (view === null) renderStage();
   }
@@ -1121,487 +432,45 @@
   }
 
   // ---- Marking a region -------------------------------------------------------
-  // The marked region travels as the last image of the run, because the model
-  // takes the original image and a separate mask as two inputs. Each region's
-  // pixels carry the palette colour that names it, on black, with hard edges, at
-  // the reference's own pixel size. Measured 2026-09-26: the original plus one
-  // colour coded mask followed two instructions and left the background alone,
-  // where rings painted on the image did neither. The prompt has to name that
-  // image, so the region template's [the region you marked] becomes <imageN>.
-  const MARK_TOKEN = '[the region you marked]';
-  const MASK_ALPHA = 128;         // an alpha at or over this is solid in the mask
-  // One named colour per region. The prompt has to name the area, so the palette
-  // holds only colours a prompt can say, and the mask carries them on black.
-  // Measured 2026-09-26: two regions, both changes landed, no mark in the result.
-  const MARK_COLOURS = [
-    ['#e2761e', 'orange'], ['#e2381f', 'red'], ['#2f9e4f', 'green'], ['#2f6fe0', 'blue'],
-  ];
-  let markColour = MARK_COLOURS[0][0];
-  // The model repaints the area the mark covers, so the brush's width is the only
-  // precision the user has. Measured 2026-09-26: a mask of the same shape spills 21.4%
-  // past the object at 22.0% coverage against 14.0% at 18.9%, and the roughness of the
-  // edge changes nothing. A twentieth is the middle, and anything small wants the thin
-  // end of this, which a track pad cannot reach by drawing carefully alone.
-  const MARK_WIDTHS = [
-    { divisor: 60, label: 'thin' }, { divisor: 20, label: 'medium' }, { divisor: 8, label: 'broad' },
-  ];
-  let markWidth = 1;              // an index into MARK_WIDTHS
-  let marks = null;               // { strokes, width, height } of the image marked
-  let marking = false;            // the brush is armed
-  let drawing = null;             // the stroke in progress
-
-  function markable() {
-    // One reference, and only while it is the frame on the stage, so a stroke
-    // always lands on the picture it marks. With more than one reference the
-    // prompt would name the mask but not the picture whose region it is, and
-    // which one the model picks is untested, so the tool stays away.
-    if (!editing() || !currentMode().region_marking) return null;
-    const first = references[0];
-    if (references.length !== 1 || !first || first.source === null || first.source !== view) return null;
-    // A reference's pixel size is read asynchronously. Marking before it arrives
-    // sized the canvas from a fallback while the mask took the real size, and the
-    // strokes were recorded in one space and clipped in the other.
-    if (!first.width || !first.height) return null;
-    return first;
-  }
-
-  // A brush as wide as a twentieth of the image by default: the same stroke at any
-  // size. The mark's width travels with the stroke, so a change of width leaves what
-  // is already drawn alone.
-  function brushWidth() {
-    const reference = marks || { width: 1024, height: 1024 };
-    const divisor = MARK_WIDTHS[markWidth].divisor;
-    return Math.max(3, Math.round(Math.min(reference.width, reference.height) / divisor));
-  }
-
-  function markCanvas() {
-    return document.querySelector('.shot .region-mark');
-  }
-
-  // An edit starts with the brush in hand: pressing Edit this is enough, and the
-  // picture on the stage is the one being marked.
-  function syncMarkTools() {
-    const first = markable();
-    if (!first) {
-      marks = null;
-      stopMarking();
-      return;
-    }
-    if (!marking) {
-      marking = true;
-      marks = { strokes: [], width: first.width, height: first.height };
-      renderStage();  // the brush and its controls are mounted with the print
-    }
-    syncMarkToggle();
-  }
-
-  // The brush's own states, on the bar over the print.
-  function syncMarkToggle() {
-    // The rows say what changes in each area; the prompt field stays, for an
-    // instruction about the whole picture.
-    document.getElementById('region-field').hidden = !drawnColours().length;
-    renderRegionRows();
-    const undo = document.getElementById('mark-undo');
-    const clear = document.getElementById('mark-clear');
-    if (!undo || !clear) return;
-    const empty = !marks || !marks.strokes.length;
-    undo.disabled = empty;
-    clear.disabled = empty;
-    const size = document.getElementById('mark-size');
-    if (size) {
-      const label = MARK_WIDTHS[markWidth].label;
-      size.setAttribute('aria-label', 'Brush width: ' + label);
-      size.title = 'Brush width: ' + label + ', about ' + brushWidth() + ' px. '
-        + 'The whole marked area is repainted, so a thin brush marks less of the picture.';
-    }
-  }
-
-  function stopMarking() {
-    marking = false;
-    drawing = null;
-    syncMarkToggle();
-    const canvas = markCanvas();
-    if (canvas) canvas.remove();
-    const tools = document.querySelector('.region-tools');
-    if (tools) tools.remove();
-  }
-
-  // The controls under the print, each with its state. There is no button to put
-  // the brush down: nothing else wants the print, and a dead end has no way back.
-  function regionTools(host) {
-    const bar = document.createElement('div');
-    bar.className = 'region-tools';
-    const undo = iconButton('undo', 'Take back the last mark', function () {
-      if (!marks) return;
-      marks.strokes.pop();
-      paintMarks();
-      syncMarkToggle();
-      refreshForm();
+  // The brush, the overlay on the print, the magnifier, the mask, the tools and
+  // the region rows belong to components/region-mark.js. That module owns the
+  // drawing and the state it is written in: a stroke has to paint in the task
+  // that asked for it, because the magnifier follows the pointer, and a row has
+  // to keep the text someone is typing in it. Nothing is published on `window`:
+  // the page asks the region real questions through the handle below, and the
+  // module asks the page for what it owns and the module cannot see.
+  //
+  // The module is deferred, so the page's own draws ask the region questions
+  // before its handle arrives. These are the five they ask, and the answers are
+  // the true ones while nothing is drawn, which is the case until the module is
+  // here. The module replaces the whole object on `region-mark-ready`. A question
+  // a user action asks is not answered here: the module is deferred, so it is
+  // loaded before the page is, the way the menus are.
+  let region = {
+    sync: function () {},
+    preview: function () {},
+    dropStale: function () {},
+    onPrint: function () { return false; },
+    count: function () { return 0; },
+  };
+  document.addEventListener('region-mark-ready', function (event) {
+    region = event.detail.configure({
+      // The reference list is the page's, because a run posts it, so the guard
+      // asks for it rather than keeping a second copy that could drift.
+      references: function () { return references; },
+      view: function () { return view; },
+      editing: editing,
+      // The mode in force declares whether it takes a region at all.
+      regionMarking: function () { return Boolean(currentMode().region_marking); },
+      prompt: function () { return promptInput.value; },
+      // The stage and the sidebar are the page's. The module asks for their
+      // redraws and never sequences a render it does not own.
+      redraw: renderStage,
+      refresh: refreshForm,
+      notify: showToast,
+      iconButton: iconButton,
     });
-    undo.id = 'mark-undo';
-    undo.title = 'Take back the last mark.';
-    const clear = iconButton('trash', 'Clear every mark', clearMarks);
-    clear.id = 'mark-clear';
-    clear.title = 'Remove every mark.';
-    // One button cycling the three widths, so the bar keeps its shape. The next stroke
-    // takes the new width and the strokes already drawn keep theirs.
-    const size = iconButton('brush', 'Brush width', function () {
-      markWidth = (markWidth + 1) % MARK_WIDTHS.length;
-      syncMarkToggle();
-    });
-    size.id = 'mark-size';
-    bar.append(undo, clear, size);
-    MARK_COLOURS.forEach(function (pair) {
-      const swatch = document.createElement('button');
-      swatch.type = 'button';
-      swatch.className = 'swatch';
-      swatch.style.background = pair[0] || 'var(--marker)';
-      swatch.setAttribute('aria-label', 'Mark in ' + pair[1]);
-      swatch.setAttribute('aria-pressed', String(markColour === pair[0]));
-      swatch.title = 'Mark in ' + pair[1] + '. A region per colour: the prompt names the ' + pair[1] + ' area.';
-      swatch.addEventListener('click', function () {
-        markColour = pair[0];
-        bar.querySelectorAll('.swatch').forEach(function (other) {
-          other.setAttribute('aria-pressed', String(other === swatch));
-        });
-      });
-      bar.append(swatch);
-    });
-    host.append(bar);
-    syncMarkToggle();
-  }
-
-  function markInk() {
-    return markColour;
-  }
-
-  // What the page will send, shown while it is being written, so a fragment that
-  // only makes sense to the user is visible before the run. `forReader` writes the
-  // same sentence without the number of the image carrying the mask, which the
-  // model needs and a reader does not: the mark's own colour already names the
-  // area. The card uses that form, because the region rows may be the only place
-  // the instruction was ever written down.
-  function composedPrompt(forReader) {
-    const suffix = forReader ? '' : ' of <image' + (references.length + 1) + '>';
-    // A row with nothing in it writes nothing. The prompt may already carry the whole
-    // instruction, from the template, and then the rows are a second way to say the same
-    // thing rather than the only way. An empty clause used to leave " in the orange area
-    // of <image2>" in the sentence.
-    const clauses = drawnColours().filter(function (colour) {
-      return (regionText[colour] || '').trim();
-    }).map(function (colour) {
-      return regionText[colour].trim() + ' in the ' + markName(colour) + ' area' + suffix;
-    });
-    // The template's [the region you marked] becomes the number of the image that
-    // carries the mask. Sending the token itself told the model nothing about
-    // where the change goes, and the template is the one that names the region.
-    const lead = forReader ? ''
-      : promptInput.value.split(MARK_TOKEN).join('<image' + (references.length + 1) + '>').trim();
-    const written = (lead ? lead + ' ' : '') + (clauses.length ? clauses.join('. ') + '. ' : '');
-    return written + 'Keep the background and everything else unchanged.';
-  }
-
-  function renderRegionPreview() {
-    const preview = document.getElementById('region-preview');
-    const colours = drawnColours();
-    preview.hidden = !colours.length;
-    preview.textContent = colours.length ? composedPrompt() : '';
-  }
-
-  // What the user types for each marked colour. Each row becomes a clause the page
-  // writes, so the examples below show the shape of an instruction, nothing else.
-  const REGION_EXAMPLES = [
-    'change the background to blue',
-    'make this part darker',
-    'remove the object here',
-    'turn it into a wooden texture',
-    'add a small red apple here',
-    'replace this with a woven pattern',
-    'change this part, and keep the rest of it exactly as it is',
-  ];
-  let regionText = {};
-
-  function drawnColours() {
-    const seen = [];
-    (marks ? marks.strokes : []).forEach(function (stroke) {
-      if (stroke.colour && seen.indexOf(stroke.colour) < 0) seen.push(stroke.colour);
-    });
-    return MARK_COLOURS.map(function (pair) { return pair[0]; }).filter(function (colour) {
-      return seen.indexOf(colour) >= 0;
-    });
-  }
-
-  function regionRow(colour) {
-    const row = document.createElement('div');
-    row.className = 'region-row';
-    const swatch = document.createElement('span');
-    swatch.className = 'swatch';
-    swatch.style.background = colour;
-    swatch.setAttribute('aria-hidden', 'true');
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = regionText[colour] || '';
-    // A whole instruction, because the page writes a sentence around the row, and
-    // a generic one drawn at random, so the example never describes the picture the
-    // person is working on.
-    input.placeholder = 'For example: ' + REGION_EXAMPLES[Math.floor(Math.random() * REGION_EXAMPLES.length)];
-    input.setAttribute('aria-label', 'What changes in the ' + markName(colour) + ' area?');
-    input.addEventListener('input', function () {
-      regionText[colour] = input.value;
-      refreshForm();
-    });
-    row.append(swatch, input);
-    return row;
-  }
-
-  function renderRegionRows() {
-    const rows = document.getElementById('region-rows');
-    const colours = marking ? drawnColours() : [];
-    const wanted = colours.join(',');
-    if (rows.dataset.wanted === wanted) return;   // do not rebuild while typing
-    rows.dataset.wanted = wanted;
-    rows.replaceChildren.apply(rows, colours.map(regionRow));
-    renderRegionPreview();
-  }
-
-  function hexChannels(hex) {
-    return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
-  }
-
-  function closestColour(palette, red, green, blue) {
-    let best = palette[0];
-    let distance = Infinity;
-    palette.forEach(function (colour) {
-      const gap = Math.pow(colour[0] - red, 2) + Math.pow(colour[1] - green, 2) + Math.pow(colour[2] - blue, 2);
-      if (gap < distance) {
-        distance = gap;
-        best = colour;
-      }
-    });
-    return best;
-  }
-
-  // The region a colour names, for the prompt and for the per region inputs.
-  function markName(colour) {
-    const found = MARK_COLOURS.filter(function (pair) { return pair[0] === colour; })[0];
-    return found ? found[1] : '';
-  }
-
-  function clearMarks() {
-    if (!marks) return;
-    marks.strokes = [];
-    drawing = null;
-    paintMarks();
-    // The rows, the field and both disabled flags all read the stroke list, so
-    // they are recomputed here. Clearing without this left them showing a region
-    // that was no longer there, until an Undo happened to recompute them.
-    syncMarkToggle();
-    refreshForm();
-  }
-
-  // A mark that no longer belongs to the picture in front of the user goes, and its
-  // row text goes with it: a region drawn again in the same colour would otherwise
-  // come back carrying an instruction for a picture it was never about.
-  function dropMarks(reason) {
-    const dropped = drawnColours();
-    marks = null;
-    marking = false;
-    dropped.forEach(function (colour) { delete regionText[colour]; });
-    if (reason) showToast('info', reason);
-    syncMarkToggle();
-  }
-
-  // The overlay is the print's own box, in the print's own pixels, so a stroke
-  // needs no scaling to reach the mask.
-  function mountMarkCanvas(pic, reference) {
-    const canvas = document.createElement('canvas');
-    canvas.className = 'region-mark';
-    canvas.width = reference.width || 1024;
-    canvas.height = reference.height || 1024;
-    canvas.setAttribute('aria-label', 'Mark the area to change');
-    canvas.addEventListener('pointerdown', markDown);
-    canvas.addEventListener('pointermove', markMove);
-    canvas.addEventListener('pointerup', markUp);
-    canvas.addEventListener('pointercancel', markUp);
-    pic.append(canvas);
-    mountLoupe(pic);
-    // A hand-drawn mark becomes the extent of the change, so what sits under the brush
-    // matters more than it did. See `paintLoupe`.
-    paintMarks();
-  }
-
-  function pointOf(canvas, event) {
-    const box = canvas.getBoundingClientRect();
-    return {
-      x: (event.clientX - box.left) * (canvas.width / box.width),
-      y: (event.clientY - box.top) * (canvas.height / box.height),
-    };
-  }
-
-  // The loupe: the print at three times the size, beside the pointer, so a small
-  // feature can be traced without zooming the whole print and without the cursor
-  // covering what is being marked. It has no pointer events, so it never takes a
-  // stroke, and it appears only while one is being drawn.
-  const LOUPE_SIZE = 108;      // its own pixels, on screen
-  const LOUPE_ZOOM = 3;
-  const LOUPE_GAP = 22;        // clear of the pointer, so the mark stays in view
-
-  function mountLoupe(pic) {
-    const loupe = document.createElement('canvas');
-    loupe.className = 'region-loupe';
-    loupe.width = LOUPE_SIZE;
-    loupe.height = LOUPE_SIZE;
-    loupe.hidden = true;
-    loupe.setAttribute('aria-hidden', 'true');
-    pic.append(loupe);
-  }
-
-  function loupeCanvas() {
-    return document.querySelector('.shot .region-loupe');
-  }
-
-  function hideLoupe() {
-    const loupe = loupeCanvas();
-    if (loupe) loupe.hidden = true;
-  }
-
-  function screenPointOf(canvas, event) {
-    const box = canvas.getBoundingClientRect();
-    return { x: event.clientX - box.left, y: event.clientY - box.top };
-  }
-
-  // `point` is in the marked image's own pixels.
-  function paintLoupe(point, screen) {
-    const loupe = loupeCanvas();
-    if (!loupe || !marks || !drawing) {
-      hideLoupe();
-      return;
-    }
-    loupe.hidden = false;
-    const context = loupe.getContext('2d');
-    const half = LOUPE_SIZE / (2 * LOUPE_ZOOM);
-    context.fillStyle = '#000';
-    context.fillRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
-    const print = document.querySelector('.shot .pic img');
-    if (print) {
-      context.drawImage(print, point.x - half, point.y - half, half * 2, half * 2,
-                        0, 0, LOUPE_SIZE, LOUPE_SIZE);
-    }
-    context.save();
-    context.translate(-(point.x - half) * LOUPE_ZOOM, -(point.y - half) * LOUPE_ZOOM);
-    context.scale(LOUPE_ZOOM, LOUPE_ZOOM);
-    paintStrokes(context, marks.strokes.concat([drawing]), 1, markInk(), 0.85);
-    context.restore();
-    // A crosshair, because a thin stroke cannot show where its centre is.
-    context.strokeStyle = 'rgba(255, 255, 255, .9)';
-    context.lineWidth = 1;
-    context.beginPath();
-    context.moveTo(LOUPE_SIZE / 2 - 7, LOUPE_SIZE / 2);
-    context.lineTo(LOUPE_SIZE / 2 + 7, LOUPE_SIZE / 2);
-    context.moveTo(LOUPE_SIZE / 2, LOUPE_SIZE / 2 - 7);
-    context.lineTo(LOUPE_SIZE / 2, LOUPE_SIZE / 2 + 7);
-    context.stroke();
-    const pic = loupe.parentElement;
-    loupe.style.left = Math.min(Math.max(screen.x + LOUPE_GAP, 0),
-                                Math.max(pic.clientWidth - LOUPE_SIZE, 0)) + 'px';
-    loupe.style.top = Math.min(Math.max(screen.y + LOUPE_GAP, 0),
-                               Math.max(pic.clientHeight - LOUPE_SIZE, 0)) + 'px';
-  }
-
-  function markDown(event) {
-    if (!marks) return;
-    const canvas = event.currentTarget;
-    const point = pointOf(canvas, event);
-    canvas.setPointerCapture(event.pointerId);
-    // The colour belongs to the stroke, so a later pick does not repaint what is
-    // already on the print.
-    drawing = { kind: 'line', width: brushWidth(), points: [point], colour: markInk() };
-    paintLoupe(point, screenPointOf(canvas, event));
-    event.preventDefault();
-  }
-
-  function markMove(event) {
-    if (!drawing || !marks) return;
-    const point = pointOf(event.currentTarget, event);
-    drawing.points.push(point);
-    paintLoupe(point, screenPointOf(event.currentTarget, event));
-    paintMarks();
-  }
-
-  function markUp(event) {
-    if (!drawing || !marks) return;
-    marks.strokes.push(drawing);
-    drawing = null;
-    hideLoupe();
-    paintMarks();
-    syncMarkToggle();
-    refreshForm();
-  }
-
-  // White strokes on the print, which is what the mask will be.
-  function paintStrokes(context, strokes, scale, colour, alpha) {
-    context.globalAlpha = alpha;
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    strokes.forEach(function (stroke) {
-      context.fillStyle = stroke.colour || colour;
-      context.strokeStyle = stroke.colour || colour;
-      const points = stroke.points;
-      if (points.length === 1) {
-        context.beginPath();
-        context.arc(points[0].x * scale, points[0].y * scale, (stroke.width * scale) / 2, 0, Math.PI * 2);
-        context.fill();
-        return;
-      }
-      context.lineWidth = stroke.width * scale;
-      context.beginPath();
-      context.moveTo(points[0].x * scale, points[0].y * scale);
-      points.slice(1).forEach(function (point) { context.lineTo(point.x * scale, point.y * scale); });
-      context.stroke();
-    });
-  }
-
-  function paintMarks() {
-    const canvas = markCanvas();
-    if (!canvas || !marks) return;
-    const context = canvas.getContext('2d');
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    paintStrokes(context, drawing ? marks.strokes.concat([drawing]) : marks.strokes, 1, markInk(), 0.85);
-  }
-
-  // The mask itself: the palette colours on black, hard edged, at the reference's
-  // own size. The antialiased edge of a stroke is thresholded, so the mask keeps
-  // the palette colours and black and nothing in between.
-  function maskDataUrl() {
-    const reference = markable();
-    if (!reference || !marks || !marks.strokes.length) return null;
-    const wide = reference.width || marks.width;
-    const tall = reference.height || marks.height;
-    const ink = document.createElement('canvas');
-    ink.width = wide;
-    ink.height = tall;
-    const context = ink.getContext('2d');
-    paintStrokes(context, marks.strokes, wide / (marks.width || wide), '#fff', 1);
-    const drawn = context.getImageData(0, 0, wide, tall).data;
-    const flat = document.createElement('canvas');
-    flat.width = wide;
-    flat.height = tall;
-    const mask = flat.getContext('2d').createImageData(wide, tall);
-    // The palette colours, as channels, so a region's pixels can be snapped to the
-    // exact colour that names it. A canvas hands back its antialiased edge pixels
-    // premultiplied, which is a near miss of the colour and a second tone in the mask.
-    const palette = MARK_COLOURS.map(function (pair) { return hexChannels(pair[0]); });
-    for (let index = 0; index < drawn.length; index += 4) {
-      const solid = drawn[index + 3] >= MASK_ALPHA;
-      const nearest = solid ? closestColour(palette, drawn[index], drawn[index + 1], drawn[index + 2]) : [0, 0, 0];
-      mask.data[index] = nearest[0];
-      mask.data[index + 1] = nearest[1];
-      mask.data[index + 2] = nearest[2];
-      mask.data[index + 3] = 255;
-    }
-    flat.getContext('2d').putImageData(mask, 0, 0);
-    return flat.toDataURL('image/png');
-  }
+  });
 
 
   referenceInput.addEventListener('change', function () {
@@ -1651,15 +520,6 @@
     if (ratios.indexOf(option.ratio) < 0) ratios.push(option.ratio);
   });
 
-  function glyph(ratio) {
-    if (ratio === 'match') return '<span class="glyph"><i class="dashed" style="width:13px;height:13px"></i></span>';
-    const parts = ratio.split(':').map(Number);
-    const wide = parts[0] >= parts[1];
-    const width = wide ? 16 : Math.round(16 * parts[0] / parts[1]);
-    const height = wide ? Math.round(16 * parts[1] / parts[0]) : 16;
-    return '<span class="glyph"><i style="width:' + width + 'px;height:' + height + 'px"></i></span>';
-  }
-
   function currentOption() {
     return sizeOptions.find(function (option) { return option.value === sizeSelect.value; });
   }
@@ -1667,69 +527,6 @@
   function setSelect(select, value) {
     select.value = value;
     select.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
-  function pickRatio(ratio) {
-    if (ratio === 'match') return setSelect(sizeSelect, 'match');
-    const current = currentOption();
-    if (current && current.ratio === ratio) return;
-    // A new shape starts at the tier nearest 1 MP, where the model was trained.
-    const group = sizeOptions.filter(function (option) { return option.ratio === ratio; });
-    const preferred = group.slice().sort(function (a, b) {
-      return Math.abs(a.width * a.height - 1048576) - Math.abs(b.width * b.height - 1048576);
-    })[0];
-    setSelect(sizeSelect, preferred.value);
-  }
-
-  function buildSizeControls() {
-    const chips = document.getElementById('size-chips');
-    ratios.concat(['match']).forEach(function (ratio) {
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'chip';
-      chip.dataset.ratio = ratio;
-      chip.innerHTML = glyph(ratio) + '<span>' + (ratio === 'match' ? 'Match' : ratio) + '</span>';
-      chip.addEventListener('click', function () { pickRatio(ratio); });
-      chips.append(chip);
-    });
-    const edits = document.getElementById('edit-sizes');
-    Array.from(resolutionSelect.options).sort(function (a, b) {
-      return (a.value === 'match' ? 0 : Number(a.value)) - (b.value === 'match' ? 0 : Number(b.value));
-    }).forEach(function (option) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'num';
-      button.dataset.value = option.value;
-      button.textContent = option.value === 'match' ? 'Match' : megapixels(Number(option.value) ** 2);
-      button.addEventListener('click', function () { setSelect(resolutionSelect, option.value); });
-      edits.append(button);
-    });
-  }
-
-  // A size tier by its pixel count, so both modes name tiers alike. The exact
-  // pixels show once, in the caption above.
-  function megapixels(pixels) {
-    const mp = pixels / 1e6;
-    return (mp < 1 ? mp.toFixed(1) : String(Math.round(mp * 10) / 10)) + ' MP';
-  }
-
-  // The sizes of the chosen shape, smallest first.
-  function renderTiers(ratio) {
-    const tiers = document.getElementById('tier-sizes');
-    tiers.hidden = ratio === 'match';
-    tiers.innerHTML = '';
-    sizeOptions.filter(function (option) { return option.ratio === ratio; })
-      .sort(function (a, b) { return a.width * a.height - b.width * b.height; })
-      .forEach(function (option) {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'num';
-        button.textContent = megapixels(option.width * option.height);
-        button.title = option.width + ' \u00d7 ' + option.height;
-        button.setAttribute('aria-pressed', String(option.value === sizeSelect.value));
-        button.addEventListener('click', function () { setSelect(sizeSelect, option.value); });
-        tiers.append(button);
-      });
   }
 
   // A resolution param sets pixels only, and the shape follows the reference.
@@ -1746,29 +543,6 @@
     const side = Math.round(Math.sqrt(reference.width * reference.height));
     const cap = currentMode().estimate && currentMode().estimate.match_cap;
     return cap ? Math.min(side, cap) : side;
-  }
-
-  function renderSize() {
-    const current = currentOption();
-    const ratio = current ? current.ratio : 'match';
-    document.querySelectorAll('#size-chips .chip').forEach(function (chip) {
-      chip.setAttribute('aria-pressed', String(chip.dataset.ratio === ratio));
-    });
-    renderTiers(ratio);
-    document.querySelectorAll('#edit-sizes button').forEach(function (button) {
-      button.setAttribute('aria-pressed', String(button.dataset.value === resolutionSelect.value));
-    });
-    const caption = document.getElementById('size-caption');
-    const reference = lastReference();
-    if (followsReference()) {
-      caption.textContent = reference && reference.width
-        ? 'about ' + editResolution() + ' px, shape follows the image'
-        : 'shape follows the image';
-    } else if (current) {
-      caption.textContent = current.width + ' × ' + current.height;
-    } else {
-      caption.textContent = reference ? 'reference shape, about 1 MP' : '1024 × 1024 until you add an image';
-    }
   }
 
   // The shape the next image will have, for the progress card and its frame.
@@ -1798,7 +572,7 @@
     const current = clampCount();
     countMenu.replaceChildren();
     for (let count = 1; count <= MAX_BATCH; count++) {
-      const option = menuItem('check', count + (count === 1 ? ' image' : ' images'), function () {
+      const option = menus.menuItem('check', count + (count === 1 ? ' image' : ' images'), function () {
         countInput.value = count;
         clampCount();
         refreshForm();
@@ -1808,7 +582,7 @@
       option.setAttribute('aria-checked', String(count === current));
       countMenu.append(option);
     }
-    toggleMenu(countMenu);
+    menus.toggleMenu(countMenu);
     if (!countMenu.hidden) countMenu.querySelector('[aria-checked=true]').focus();
   }
   countToggle.addEventListener('click', openCount);
@@ -1818,22 +592,20 @@
     refreshForm();
   });
 
-  function renderAdvancedValues() {
+  // The advanced panel's own readouts belong to components/advanced-panel.js,
+  // which draws them from the store. Two things stay here. The reference
+  // strength is not part of that panel. And Clear is a real button, so it stays
+  // in the page's markup, where a screen reader and the keyboard reach it.
+  function renderStrength() {
     const steps = document.getElementById('steps').value;
-    const seed = document.getElementById('seed').value.trim();
-    const scaleId = scaleParam();
-    const scale = scaleId ? ', guidance ' + document.getElementById(scaleId).value : '';
-    const negative = negativeText() ? ', negative prompt' : '';
-    document.getElementById('advanced-values').textContent =
-      steps + ' steps' + scale + ', ' + (seed ? 'seed ' + seed : 'random seed') + negative;
-    document.getElementById('clear-seed').hidden = !seed;
-    document.getElementById('steps-value').textContent = steps;
-    document.getElementById('guidance-value').textContent = document.getElementById('guidance').value;
-    document.getElementById('cfg-value').textContent = document.getElementById('cfg').value;
     document.getElementById('strength-value').textContent =
       Number(document.getElementById('strength').value).toFixed(2);
     document.getElementById('strength-hint').textContent = 'Runs ' + stepsToRun() + ' of ' + steps +
       ' steps. Higher stays closer to the starting image.';
+  }
+
+  function renderClearSeed() {
+    document.getElementById('clear-seed').hidden = !document.getElementById('seed').value.trim();
   }
 
   // mflux skips the start of the schedule for a starting image:
@@ -1883,7 +655,7 @@
   // The images a run will carry: the references, and the mask when one is drawn.
   // Each one is encoded and attended to, so the count is part of the cost.
   function sentReferences() {
-    return references.length + (marks && marks.strokes.length ? 1 : 0);
+    return references.length + (region.count() ? 1 : 0);
   }
 
   // One more image costs more per step, by the factor the backend measured. It
@@ -1931,35 +703,35 @@
     if (editing() && !references.length) return 'Add an image to edit';
     // With a region marked, the per area rows are the prompt, so the field is not
     // asked for one.
-    const regions = marks && marks.strokes.length;
+    const regions = region.count();
     if (!regions && !promptInput.value.trim()) return editing() ? 'Describe the change' : 'Write a prompt';
     // The region token is not the user's to fill: the page replaces it with the
     // number of the image carrying the mask. Without a drawn region there is no
     // such image, so the run waits for one. With the tool off, the wait would never
     // end, so that case names the way out instead.
-    if (promptInput.value.indexOf(MARK_TOKEN) >= 0 && !regions) {
-      return markable() ? 'Draw the region this prompt names' : 'Remove all but one image, to draw a region';
+    if (region.mentions(promptInput.value) && !regions) {
+      return region.markable() ? 'Draw the region this prompt names' : 'Remove all but one image, to draw a region';
     }
-    const typed = promptInput.value.split(MARK_TOKEN).join('');
+    const typed = region.withoutMarker(promptInput.value);
     if (PLACEHOLDER.test(typed)) return 'Fill in the [brackets]';
     if (regions) {
       // The prompt may name the region itself, from the template, and then a row is a
       // second way to say the same thing rather than the only way. The page writes
       // whichever the user filled, and asks for a row only when nothing else says what
       // changes.
-      const named = promptInput.value.indexOf(MARK_TOKEN) >= 0;
-      const silent = drawnColours().filter(function (colour) { return !(regionText[colour] || '').trim(); });
-      if (!named && silent.length) return 'Say what changes in the ' + markName(silent[0]) + ' area';
+      const named = region.mentions(promptInput.value);
+      const silent = region.colours().filter(function (colour) { return !region.text(colour).trim(); });
+      if (!named && silent.length) return 'Say what changes in the ' + region.name(silent[0]) + ' area';
       // The page writes a sentence around the row, so a bare phrase is a fragment:
       // "to green" would read as "to green in the orange area of <image2>". A comma
       // means the row carries its own clause, and an instruction may open with a
       // preposition: "in the corner, add a lamp" is a whole one.
-      const fragment = drawnColours().filter(function (colour) {
-        const typed = (regionText[colour] || '').trim();
+      const fragment = region.colours().filter(function (colour) {
+        const typed = region.text(colour).trim();
         return /^(to|for|in|with|as)\b/i.test(typed) && typed.indexOf(',') < 0;
       });
       if (fragment.length) {
-        return 'Write a whole instruction for the ' + markName(fragment[0])
+        return 'Write a whole instruction for the ' + region.name(fragment[0])
           + ' area, for example: change the cloth to green';
       }
     }
@@ -2028,13 +800,60 @@
   }
 
   function refreshForm() {
-    renderRegionPreview();
+    region.preview();
     renderNegativeLook();
+    // The negative raises the scale, so it runs before the fields are mirrored
+    // and the panel draws the value the run will use.
     followNegative();
-    renderSize();
-    renderAdvancedValues();
+    renderStrength();
+    renderClearSeed();
+    pushForm();
     renderRunButton();
     renderRewriteButton();
+  }
+
+  // Every field the drawn components read is mirrored into the store here, in
+  // one place, so a component redraws when a field of its own changes and
+  // nothing draws itself because something else happened to run first. The page
+  // still reads the fields straight from the DOM for its own work; the store is
+  // the components' copy. `negative` is the prompt the model will get, so a Look
+  // that adds an avoid part moves it.
+  function pushForm() {
+    if (!formState) return;
+    formState.set('mode', editing() ? 'edit' : 'generate');
+    formState.set('size', sizeSelect.value);
+    formState.set('resolution', resolutionSelect.value);
+    formState.set('steps', document.getElementById('steps').value);
+    formState.set('guidance', document.getElementById('guidance').value);
+    formState.set('cfg', document.getElementById('cfg').value);
+    formState.set('seed', document.getElementById('seed').value);
+    formState.set('negative', negativeText());
+  }
+
+  // The references are an array the page mutates in place, so the store gets a
+  // copy: the store compares by identity, and a push that does not change it
+  // would leave the caption and the panel reading a stale list.
+  function pushReferences() {
+    if (!formState) return;
+    formState.set('references', references.slice());
+  }
+
+  // The picks are an object the page mutates in place, so the store gets a copy
+  // for the same reason the references do. The Look trees redraw on it.
+  function pushLook() {
+    if (!formState) return;
+    formState.set('looks', Object.assign({}, look));
+  }
+
+  // The gallery is an array the page mutates in place too, and the strip draws
+  // from the store, so it reaches the store as a copy for the same reason. The
+  // shown frame and the run state travel with it: a frame's waiting card and the
+  // frame in front of it are the same redraw.
+  function pushGallery() {
+    if (!formState) return;
+    formState.set('gallery', gallery.slice());
+    formState.set('view', view);
+    formState.set('busy', busy());
   }
 
   function growPrompt() {
@@ -2060,8 +879,8 @@
       // A template that names the region token needs the draw tool, so it is not
       // offered where the tool is off. With more than one reference there is no
       // print to draw on, and the run would wait for a region that cannot exist.
-      if (template.text.indexOf(MARK_TOKEN) >= 0 && !markable()) return;
-      const option = menuItem('', template.name, function () { useTemplate(template.text); });
+      if (region.mentions(template.text) && !region.markable()) return;
+      const option = menus.menuItem('', template.name, function () { useTemplate(template.text); });
       const note = document.createElement('span');
       note.className = 'item-note';
       note.textContent = template.hint;
@@ -2072,7 +891,7 @@
     foot.className = 'menu-foot';
     foot.textContent = 'Press Tab to jump to the next [bracket].';
     templatesMenu.append(foot);
-    toggleMenu(templatesMenu);
+    menus.toggleMenu(templatesMenu);
   }
 
   function useTemplate(text) {
@@ -2093,7 +912,7 @@
   }
 
   templatesToggle.addEventListener('click', function () {
-    if (templatesMenu.hidden) openTemplates(); else closeMenus();
+    if (templatesMenu.hidden) openTemplates(); else menus.closeMenus();
   });
   promptInput.addEventListener('keydown', function (event) {
     if (event.key !== 'Tab' || event.shiftKey) return;
@@ -2114,8 +933,12 @@
   // prompt field keeps the user's own text and a pick stays one click to undo.
   // The sentence shows under the field, and the caption shows it muted. The
   // rows and their wording come from the backend, tuned on its model.
+  //
+  // The rows, the summary's read-back and the chips under the prompt are
+  // components/look-rows.js. The picks stay here, because the run posts them
+  // inside the prompt; the page mirrors them into the store, which is what
+  // redraws those trees. The door below hands over the rows and the pick.
   let look = {};            // row name to the labels picked in it
-  let openLookRow = null;   // the one row showing its options, by name
 
   function lookRows() {
     return currentMode().looks;
@@ -2140,110 +963,13 @@
     return lookRows().flatMap(function (row) { return look[row.name] || []; });
   }
 
+  // A pick replaces the row's pick, so a second click on the chip in force
+  // takes it back off. The trees read it back through the store.
   function pickLook(row, label) {
     const had = (look[row.name] || []).includes(label);
     look[row.name] = had ? [] : [label];
-    openLookRow = null;
-    renderLook();
+    pushLook();
     refreshForm();
-  }
-
-  // A pick from the rows changes the text under the prompt, above the rows,
-  // which pushes the row being clicked down the sidebar. The sidebar scrolls
-  // by as much, so the row stays under the pointer. A sidebar too short to
-  // scroll that far gets the missing room as empty space at its foot.
-  function pickLookInPlace(row, label) {
-    const controls = document.querySelector('.controls');
-    const rowTop = function () {
-      const toggle = document.querySelector('.look-row-toggle[data-row="' + CSS.escape(row.name) + '"]');
-      return toggle.getBoundingClientRect().top;
-    };
-    const before = rowTop();
-    pickLook(row, label);
-    const target = controls.scrollTop + rowTop() - before;
-    // The sidebar fills the window, so its content can end well above its
-    // foot. The slack makes the content reach target + the visible height.
-    const box = controls.getBoundingClientRect();
-    const contentEnd = Math.max.apply(null, Array.from(controls.children).map(function (child) {
-      return child.getBoundingClientRect().bottom;
-    })) - box.top + controls.scrollTop + 28;
-    controls.style.setProperty('--slack', Math.max(0, target + controls.clientHeight - contentEnd) + 'px');
-    controls.scrollTop = target;
-  }
-
-  // One line per row, with the row's pick. A row shows its options only
-  // while it is open, and one row is open at a time.
-  function renderLook() {
-    const rows = document.getElementById('look-rows');
-    rows.replaceChildren();
-    lookRows().forEach(function (row) {
-      const line = document.createElement('div');
-      line.className = 'look-row';
-      const picked = (look[row.name] || [])[0];
-      const toggle = document.createElement('button');
-      toggle.type = 'button';
-      toggle.className = 'look-row-toggle';
-      toggle.dataset.row = row.name;
-      toggle.setAttribute('aria-expanded', String(openLookRow === row.name));
-      const name = document.createElement('span');
-      name.className = 'label';
-      name.textContent = row.name;
-      const pick = document.createElement('span');
-      pick.className = 'look-pick' + (picked ? ' picked' : '');
-      pick.textContent = picked || 'none';
-      toggle.append(name, pick);
-      toggle.addEventListener('click', function () {
-        openLookRow = openLookRow === row.name ? null : row.name;
-        renderLook();
-      });
-      const chips = document.createElement('div');
-      chips.className = 'look-chips';
-      chips.hidden = openLookRow !== row.name;
-      row.options.forEach(function ([label]) {
-        const chip = document.createElement('button');
-        chip.type = 'button';
-        chip.className = 'chip';
-        chip.textContent = label;
-        chip.setAttribute('aria-pressed', String((look[row.name] || []).includes(label)));
-        chip.addEventListener('click', function () { pickLookInPlace(row, label); });
-        chips.append(chip);
-      });
-      line.append(toggle, chips);
-      rows.append(line);
-    });
-    const labels = lookLabels();
-    document.getElementById('look-values').textContent = labels.length ? labels.join(', ') : 'none';
-    renderLookTail();
-  }
-
-  // Under the prompt: one chip per pick, which unpicks it, then the sentence
-  // the run adds.
-  function renderLookTail() {
-    const tail = document.getElementById('look-adds');
-    const added = lookText();
-    tail.hidden = !added;
-    tail.replaceChildren();
-    if (!added) return;
-    lookRows().forEach(function (row) {
-      (look[row.name] || []).forEach(function (label) {
-        const chip = document.createElement('button');
-        chip.type = 'button';
-        chip.className = 'chip';
-        chip.textContent = label + ' \u00d7';
-        chip.setAttribute('aria-label', 'Remove ' + label);
-        chip.addEventListener('click', function () { pickLook(row, label); });
-        tail.append(chip);
-      });
-    });
-    const quote = document.createElement('q');
-    quote.textContent = added;
-    tail.append(quote);
-    const avoids = lookAvoids();
-    if (!avoids) return;
-    const note = document.createElement('p');
-    note.className = 'look-avoids';
-    note.textContent = 'Negative prompt adds: ' + avoids + '. Each image takes about twice as long.';
-    tail.append(note);
   }
 
   // A copy of the picks if this mode offers every one of them, else null.
@@ -2274,18 +1000,20 @@
     document.getElementById('templates-toggle').hidden = !currentMode().templates.length;
     document.getElementById('look').hidden = !currentMode().looks.length;
     applyParams();
+    // The verb on the run button follows the mode. The store carries the mode to
+    // the button's labels; `refreshForm`, a few lines below in every switch,
+    // mirrors it.
     hadNegative = false;
     raisedFrom = null;
   }
   form.querySelectorAll('input[name=mode]').forEach(function (radio) {
     radio.addEventListener('change', function () {
       applyMode();
-      closeMenus();
+      menus.closeMenus();
       references = [];
       promptInput.value = '';
       look = {};
-      openLookRow = null;
-      renderLook();
+      pushLook();
       growPrompt();
       renderReferences();
       // The run in flight is not this form's, so its frame stays as it is.
@@ -2299,7 +1027,6 @@
   // they live in this tab's memory only, and a reload clears them.
   const canvas = document.getElementById('canvas');
   const stageBar = document.getElementById('stage-bar');
-  const strip = document.getElementById('strip');
   let gallery = [];
   let view = null;          // an image id, or 'progress' while a run is shown
   let arrivedId = null;     // the image to fade in once, on arrival
@@ -2307,6 +1034,40 @@
   let batchSource = null;   // the source of a one-image edit, for before and after
   let runLook = null;       // the run's own prompt, look and negative, apart from what the model got
   let runSources = [];      // per reference of the run: the frame it came from, or null for an upload
+
+  // The strip's frames, the wipe and the ways out of the gallery belong to
+  // components/image-strip.js. The gallery array stays here, because a run's
+  // answer and a kept image both land in it, and the page mirrors it into the
+  // store, which is what redraws the strip.
+  //
+  // The page asks the module nothing before its handle arrives. The module is
+  // deferred and the page's startup runs first, but every question the page has
+  // for the strip is about a frame, and a frame only exists once a run has
+  // answered, which is long after the module is here. The one handoff that is
+  // not a question is the arrival, and that waits for an arrival to carry.
+  let strip = null;
+  document.addEventListener('image-strip-ready', function (event) {
+    strip = event.detail.configure({
+      // The array is the page's to hold, so it is asked for rather than copied.
+      gallery: function () { return gallery; },
+      view: function () { return view; },
+      setView: function (id) { view = id; },
+      // The waiting frame takes its number and its shape from the run in flight.
+      pending: function () { return { number: nextId, ratio: runRatio }; },
+      frameNumber: frameNumber,
+      fileName: fileName,
+      show: show,
+      // The strip's own chrome, and the stage, are the page's. The module asks
+      // for their redraws and never sequences a render it does not own.
+      redraw: renderStrip,
+      renderStage: renderStage,
+      release: release,
+      forget: forget,
+      notify: showToast,
+      keptFields: function () { return KEPT_FIELDS; },
+      keeping: function () { return keeping; },
+    });
+  });
 
   // Each image is shown by a blob URL. As a data URL, every img that showed it
   // made the browser parse megabytes of base64 text again. The base64 stays on
@@ -2387,13 +1148,10 @@
     return String(id).padStart(2, '0');
   }
 
-  // The pencil loop, one hand-drawn stroke that overlaps where it closes.
-  const MARK = '<svg class="mark" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">'
-    + '<path pathLength="1" d="M58 5 C80 5 97 16 98 44 C99 74 84 95 52 96 C20 97 3 80 2 52'
-    + ' C1 24 18 7 44 4 C52 3 62 4 70 7"/></svg>';
-  let markedId = null;      // the frame the loop was last drawn on, so it draws once
-  const frames = new Map(); // image id to its frame, built once so no redraw reloads an image
-  let pendingFrame = null;
+  // The pencil loop, the frame's own markup and which frame is shown belong to
+  // components/image-strip.js, which draws them from the store. The page keeps
+  // the id counter, the arrival and the shown frame, because a run's card, the
+  // stage bar's edge print and the strip all read them.
 
   function show(id) {
     view = id;
@@ -2415,71 +1173,9 @@
     }
   }
 
-  function pendingNode() {
-    if (!pendingFrame) {
-      pendingFrame = document.createElement('button');
-      pendingFrame.type = 'button';
-      pendingFrame.className = 'frame pending';
-      pendingFrame.setAttribute('aria-label', 'Show the image in progress');
-      pendingFrame.innerHTML = '<span class="still waiting"><span class="exposure"></span></span><span class="no"></span>';
-      pendingFrame.addEventListener('click', function () { show('progress'); });
-    }
-    pendingFrame.querySelector('.still').style.width = Math.round(64 * Math.min(2, Math.max(0.5, runRatio))) + 'px';
-    pendingFrame.querySelector('.no').textContent = frameNumber(nextId);
-    return pendingFrame;
-  }
-
-  function frameNode(entry) {
-    if (frames.has(entry.id)) return frames.get(entry.id);
-    const frame = document.createElement('button');
-    frame.type = 'button';
-    frame.className = 'frame' + (entry.id === arrivedId ? ' arrive' : '');
-    frame.title = 'Seed ' + entry.seed;
-    frame.setAttribute('aria-label', entry.mode + ', seed ' + entry.seed);
-    frame.innerHTML = '<span class="still"><img alt="" src="' + entry.src + '">'
-      + (entry.mode === 'edit' ? '<span class="corner">' + icon('brush') + '</span>' : '')
-      + '</span><span class="no">' + frameNumber(entry.id) + '</span>';
-    frame.addEventListener('click', function () { show(entry.id); });
-    frames.set(entry.id, frame);
-    return frame;
-  }
-
-  // Frames never change order, so the ones kept are already in place. Only a
-  // gone frame comes out and only a new one goes in. A moved node would restart
-  // its entrance and reload its image.
-  function placeFrames(wanted) {
-    Array.from(strip.children).forEach(function (frame) {
-      if (!wanted.includes(frame)) frame.remove();
-    });
-    let cursor = strip.firstElementChild;
-    wanted.forEach(function (frame) {
-      if (frame === cursor) cursor = cursor.nextElementSibling;
-      else strip.insertBefore(frame, cursor);
-    });
-  }
-
-  function markSelected() {
-    strip.querySelectorAll('.mark').forEach(function (mark) { mark.remove(); });
-    strip.querySelectorAll('.selected').forEach(function (frame) { frame.classList.remove('selected'); });
-    const chosen = view === 'progress' ? pendingFrame : frames.get(view);
-    if (chosen && chosen.isConnected) {
-      chosen.classList.add('selected');
-      chosen.insertAdjacentHTML('beforeend', MARK);
-      chosen.querySelector('.mark').classList.toggle('draw', view !== 'progress' && markedId !== view);
-    }
-    markedId = view;
-  }
-
   function renderStrip() {
     const wrap = document.getElementById('strip-wrap');
     wrap.hidden = !gallery.length && !busy();
-    const wanted = gallery.map(frameNode);
-    if (busy()) wanted.unshift(pendingNode());
-    placeFrames(wanted);
-    frames.forEach(function (frame, id) {
-      if (!frame.isConnected) frames.delete(id);
-    });
-    markSelected();
     const count = gallery.length;
     const images = count + (count === 1 ? ' image' : ' images');
     document.getElementById('strip-note').innerHTML = keeping
@@ -2488,6 +1184,10 @@
         : 'Images stay in this tab only.');
     document.getElementById('clear-gallery').hidden = !count;
     document.getElementById('download-gallery').hidden = !count;
+    // The arrival is handed over here, before the stage clears it: the strip
+    // reads it while it still holds it and adds the frame's entrance once.
+    if (arrivedId !== null) strip.arrived(arrivedId);
+    pushGallery();
     renderProgress();
   }
 
@@ -2497,9 +1197,7 @@
     // reference, or a mode that does not take a region drops it. A run moves the
     // stage to its progress card and takes the mark with it, which is the one case
     // that is not the user's doing, so that one is dropped without a word.
-    if (marks && !markable()) {
-      dropMarks(busy() || view === 'progress' ? '' : 'The mark went with its picture.');
-    }
+    region.dropStale(busy() || view === 'progress' ? '' : 'The mark went with its picture.');
     canvas.innerHTML = '';
     stageBar.hidden = true;
     stageBar.classList.remove('reserved');
@@ -2531,13 +1229,13 @@
     image.src = entry.src;
     image.alt = entry.prompt;
     pic.append(image);
-    if (entry.before && comparing) renderCompare(pic, entry);
-    if (marking && markable()) mountMarkCanvas(pic, markable());
+    if (entry.before && strip.comparing()) strip.compare(pic, entry);
+    if (region.onPrint()) region.mount(pic);
     const edge = document.createElement('div');
     edge.className = 'edge';
     edge.innerHTML = '<span>' + EDGE_NAME + '</span><span>' + frameNumber(entry.id) + '</span>';
     shot.append(pic, edge);
-    if (marking && markable()) shot.classList.add('marking');
+    if (region.onPrint()) shot.classList.add('marking');
     // A brush on the print takes the drag that the divided view's divider would
     // take, since the divider covers the whole print. The divided view goes while
     // the brush is here, and it is off the print rather than shown dead.
@@ -2546,7 +1244,7 @@
     // The bar takes its height from the stage, so the shot is fitted after it.
     renderStageBar(entry);
     fitStage();
-    syncMarkTools();
+    region.sync();
   }
 
   // An empty stage names the next step and offers it as a button.
@@ -2589,89 +1287,8 @@
     canvas.append(empty);
   }
 
-  // One choice for every edit, kept across reloads like the theme.
-  const COMPARE_KEY = 'studio-compare';
-  let comparing = readCompare();
-
-  function readCompare() {
-    try {
-      return localStorage.getItem(COMPARE_KEY) !== 'off';
-    } catch (error) {
-      console.warn('The compare setting was not read:', error);
-      return true;
-    }
-  }
-
-  function compareToggle() {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'compare';
-    button.textContent = 'Compare';
-    button.title = comparing ? 'Hide the before and after slider' : 'Show the before and after slider';
-    button.setAttribute('aria-pressed', String(comparing));
-    button.addEventListener('click', function () {
-      comparing = !comparing;
-      try {
-        localStorage.setItem(COMPARE_KEY, comparing ? 'on' : 'off');
-      } catch (error) {
-        console.warn('The compare setting was not saved:', error);
-      }
-      renderStage();
-      const again = stageBar.querySelector('.compare');
-      if (again) again.focus();  // the stage was drawn again, so focus stays on the switch
-    });
-    return button;
-  }
-
-  // The first time an edit shows, the divider sweeps in from the left edge,
-  // which shows it can be dragged. After that it opens at the middle.
-  function renderCompare(pic, entry) {
-    const before = document.createElement('img');
-    before.className = 'before';
-    before.src = entry.before;
-    before.alt = 'The image before the edit';
-    const range = document.createElement('input');
-    range.type = 'range';
-    range.className = 'compare-range';
-    range.min = '0';
-    range.max = '100';
-    range.setAttribute('aria-label', 'Compare before and after');
-    const divider = document.createElement('div');
-    divider.className = 'divider';
-    divider.innerHTML = icon('grip');
-    const left = document.createElement('span');
-    left.className = 'compare-tag left';
-    left.textContent = 'Before';
-    const right = document.createElement('span');
-    right.className = 'compare-tag right';
-    right.textContent = 'After';
-    function split() { pic.style.setProperty('--split', range.value + '%'); }
-    range.addEventListener('input', split);
-    pic.append(before, range, divider, left, right);
-    range.value = '50';
-    split();
-    if (entry.swept || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    entry.swept = true;
-    sweep(range, split);
-  }
-
-  function sweep(range, split) {
-    const delay = 650;      // once the print is in focus, while its grain still settles
-    const length = 650;
-    let start = null;
-    range.value = '0';
-    split();
-    requestAnimationFrame(function frame(now) {
-      if (!range.isConnected || range.dataset.touched) return;
-      if (start === null) start = now + delay;
-      const progress = Math.min(1, Math.max(0, (now - start) / length));
-      range.value = String(Math.round(50 * (1 - Math.pow(1 - progress, 3))));
-      split();
-      if (progress < 1) requestAnimationFrame(frame);
-    });
-    range.addEventListener('pointerdown', function () { range.dataset.touched = '1'; }, { once: true });
-    range.addEventListener('keydown', function () { range.dataset.touched = '1'; }, { once: true });
-  }
+  // The wipe itself belongs to components/image-strip.js, which draws it and
+  // owns whether it is on. The stage bar asks for the switch and places it.
 
   function renderStageBar(entry) {
     stageBar.hidden = false;
@@ -2681,7 +1298,7 @@
     const facts = document.createElement('div');
     facts.className = 'facts num';
     facts.append(madeBadge(entry));
-    if (entry.before) facts.append(compareToggle());
+    if (entry.before) facts.append(strip.toggle());
     // Two groups: which image, then how it was made. A phone puts each on its own line.
     [[entry.position === '1 image' ? '' : 'Image ' + entry.position, 'Seed ' + entry.seed],
      [entry.width + ' × ' + entry.height, entry.steps + ' steps', 'Took ' + entry.elapsed + ' s']
@@ -2725,7 +1342,7 @@
     // actions are rarer, so they wait behind More to keep the row short.
     const more = document.createElement('div');
     more.className = 'menu-anchor';
-    const moreToggle = iconButton('more', 'More actions', function () { toggleMenu(moreMenu); });
+    const moreToggle = iconButton('more', 'More actions', function () { menus.toggleMenu(moreMenu); });
     moreToggle.setAttribute('aria-controls', 'more-menu');
     moreToggle.setAttribute('aria-expanded', 'false');
     const moreMenu = document.createElement('div');
@@ -2734,15 +1351,15 @@
     moreMenu.setAttribute('role', 'menu');
     moreMenu.hidden = true;
     moreMenu.append(
-      menuItem('image-in', 'Use as reference', function () {
+      menus.menuItem('image-in', 'Use as reference', function () {
         referFrom(entry);
       }),
-      menuItem('hash', 'Reuse seed ' + entry.seed, function () {
+      menus.menuItem('hash', 'Reuse seed ' + entry.seed, function () {
         document.getElementById('seed').value = entry.seed;
         document.getElementById('advanced').open = true;
         refreshForm();
       }),
-      menuItem('text', 'Reuse prompt', function () {
+      menus.menuItem('text', 'Reuse prompt', function () {
         // A Look this mode cannot show comes back as text, so the prompt still says what
         // the model got. Otherwise the user's own words come back, which a region run may
         // have none of: its instruction is the rows, and handing back the composed
@@ -2753,7 +1370,7 @@
           ? (entry.typed !== undefined ? entry.typed : entry.prompt)
           : entry.look.sent;
         look = picks || {};
-        renderLook();
+        pushLook();
         if (paramSpec('negative')) document.getElementById('negative').value = entry.negative;
         growPrompt();
         refreshForm();
@@ -2772,13 +1389,13 @@
     rule.className = 'rule';
     actions.append(textButton('brush', 'Edit this', function () { editThis(entry); }), more,
       rule, download,
-      iconButton('trash', 'Remove', function () { removeEntry(entry.id); }, 'danger'));
+      iconButton('trash', 'Remove', function () { strip.remove(entry.id); }, 'danger'));
     if (document.fullscreenEnabled) {
       actions.append(document.fullscreenElement
         ? iconButton('shrink', 'Exit full screen (F)', toggleFullscreen)
         : iconButton('expand', 'Full screen (F)', toggleFullscreen));
     }
-    if (marking && markable()) regionTools(stageBar);
+    if (region.onPrint()) region.tools(stageBar);
     stageBar.append(about, actions);
     captionWatch.disconnect();
     captionWatch.observe(prompt);
@@ -2926,60 +1543,82 @@
   document.getElementById('guide-toggle').addEventListener('click', openGuide);
 
   // ---- Menus -----------------------------------------------------------------
-  // One menu is open at most. A click outside or Escape closes it, and Escape
-  // returns focus to the button that opened it.
-  function toggleMenu(menu) {
-    const opening = menu.hidden;
-    closeMenus();
-    if (!opening) return;
-    menu.hidden = false;
-    menuToggle(menu).setAttribute('aria-expanded', 'true');
-    menu.querySelector('button').focus();
-  }
-
-  function menuToggle(menu) {
-    return document.querySelector('[aria-controls="' + menu.id + '"]');
-  }
-
-  function closeMenus() {
-    document.querySelectorAll('.menu:not([hidden])').forEach(function (menu) {
-      menu.hidden = true;
-      const toggle = menuToggle(menu);
-      if (toggle) toggle.setAttribute('aria-expanded', 'false');
-    });
-  }
-
-  function menuItem(name, label, handler) {
-    const item = document.createElement('button');
-    item.type = 'button';
-    item.setAttribute('role', 'menuitem');
-    item.innerHTML = (name ? icon(name) : '') + '<span class="item-text"></span>';
-    item.querySelector('.item-text').textContent = label;
-    item.addEventListener('click', function () {
-      closeMenus();
-      handler();
-    });
-    return item;
-  }
-
-  document.addEventListener('click', function (event) {
-    if (event.target.closest('.menu, [aria-controls]')) return;
-    closeMenus();
+  // The mechanics belong to components/popup-menu.js: one menu open at most, and
+  // a pick, a click outside or Escape closes it. The page keeps what its menus
+  // say and what a pick does, so this holds their sections and nothing else.
+  //
+  // That module is deferred and this script is not, so the manager arrives on
+  // the event below. The listener is registered while the markup is parsed, and
+  // the module evaluates after that, so the manager is always here before the
+  // first click. The sections are built in the handler, which is the same slot
+  // in the load they took before.
+  let menus = null;
+  document.addEventListener('popup-menus-ready', function (event) {
+    menus = event.detail;
+    setupBackends();
+    setupKeep();
   });
-  document.addEventListener('keydown', function (event) {
-    const open = document.querySelector('.menu:not([hidden])');
-    if (!open) return;
-    if (event.key === 'Escape') {
-      closeMenus();
-      menuToggle(open).focus();
-      return;
-    }
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    event.preventDefault();
-    const items = Array.from(open.querySelectorAll('button'));
-    const step = event.key === 'ArrowDown' ? 1 : -1;
-    const index = items.indexOf(document.activeElement);
-    items[(index + step + items.length) % items.length].focus();
+
+  // ---- The store, and the components the form is drawn from ------------------
+  // Same door, same reason: each module is deferred and this script is not, so
+  // each arrives on an event of its own, and the listeners below are registered
+  // while the markup is parsed. The store's own handler seeds it from the form,
+  // and each component's handler hands over what the page owns and the component
+  // cannot see: the option lists, the two form selects, and the derivations the
+  // size field shares with the run estimate.
+  //
+  // The run button's labels take no handle. Their verb comes from the store's
+  // `mode` and their state from an attribute the page mirrors onto them, so
+  // there is nothing to pass.
+  let formState = null;
+  document.addEventListener('state-ready', function (event) {
+    formState = event.detail;
+    pushForm();
+    pushReferences();
+    pushLook();
+    pushGallery();
+  });
+  document.addEventListener('size-chips-ready', function (event) {
+    event.detail.configure({
+      sizes: sizeOptions,
+      ratios: ratios,
+      resolutions: Array.from(resolutionSelect.options).map(function (option) { return option.value; }),
+      setSelect: setSelect,
+      sizeSelect: sizeSelect,
+      resolutionSelect: resolutionSelect,
+      currentOption: currentOption,
+      editResolution: editResolution,
+      followsReference: followsReference,
+      lastReference: lastReference,
+    });
+  });
+  document.addEventListener('advanced-panel-ready', function (event) {
+    event.detail.configure({ scaleParam: scaleParam });
+  });
+  // The Look trees take the rows for the mode in force, the picks themselves,
+  // the three derivations they share with the page, and the pick. The pick is
+  // the page's because it also mirrors the picks and refreshes the form.
+  document.addEventListener('look-rows-ready', function (event) {
+    event.detail.configure({
+      rows: lookRows,
+      picks: function () { return look; },
+      text: lookText,
+      avoids: lookAvoids,
+      labels: lookLabels,
+      pick: pickLook,
+    });
+  });
+  // The reference list takes the two things it cannot read for itself: how many
+  // images the mode takes, and what a remove does. The remove is the page's,
+  // because the page owns the array a run posts.
+  document.addEventListener('reference-list-ready', function (event) {
+    event.detail.configure({
+      limit: maxReferences,
+      remove: function (index) {
+        references.splice(index, 1);
+        renderReferences();
+      },
+    });
   });
 
   // Edit mode with this image as the only reference, an empty prompt, and the
@@ -3012,7 +1651,7 @@
     promptInput.value = '';
     growPrompt();
     look = (entry.look && picksHere(entry.look.picks)) || {};
-    renderLook();
+    pushLook();
     document.getElementById('seed').value = entry.seed;
     referFrom(entry);
     view = entry.id;
@@ -3060,89 +1699,15 @@
   }
   window.addEventListener('resize', fitStage);
 
-  function removeEntry(id) {
-    dropEntry(id);
-    forget(function (images) { images.delete(id); }, { kind: 'remove', id: id });
-  }
-
-  // The shown image gives way to its neighbour. Another tab's removal leaves
-  // this tab's view alone unless it shows that image.
-  function dropEntry(id) {
-    const index = gallery.findIndex(function (entry) { return entry.id === id; });
-    if (index < 0) return;
-    release(gallery.splice(index, 1)[0]);
-    if (view === id) {
-      const neighbour = gallery[Math.min(index, gallery.length - 1)];
-      view = neighbour ? neighbour.id : null;
-    }
-    renderStrip();
-    renderStage();
-  }
-
-  function dropAll() {
-    const cleared = gallery;
-    gallery = [];
-    cleared.forEach(release);
-    view = busy() ? 'progress' : null;
-    renderStrip();
-    renderStage();
-  }
-
   function fileName(entry) {
     return STUDIO.backend.id + '-' + entry.mode + '-' + entry.seed + '.png';
   }
 
-  function saveFile(url, name) {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = name;
-    link.click();
-  }
-
-  // Every image on the strip, oldest first, then one file with their prompts,
-  // since an image file holds no prompt. Each name starts with the frame number:
-  // two images can share a seed, and the browser would rename the second one.
-  // The files leave one at a time, because a browser drops downloads that come
-  // too close together. A batch of edits shares one source, saved once.
-  document.getElementById('download-gallery').addEventListener('click', function () {
-    const befores = new Map();
-    const facts = [];
-    const pause = function () { return new Promise(function (resolve) { setTimeout(resolve, 300); }); };
-    const saving = gallery.slice().reverse().reduce(function (previous, entry) {
-      return previous.then(function () {
-        const file = frameNumber(entry.id) + '-' + fileName(entry);
-        saveFile(entry.src, file);
-        const fact = { file: file, before: null };
-        KEPT_FIELDS.forEach(function (field) { fact[field] = entry[field]; });
-        facts.push(fact);
-        if (!entry.before) return pause();
-        const known = befores.has(entry.before);
-        if (!known) befores.set(entry.before, file.replace(/\.png$/, '-before.png'));
-        fact.before = befores.get(entry.before);
-        if (known) return pause();
-        return pause().then(function () {
-          saveFile(entry.before, fact.before);
-          return pause();
-        });
-      });
-    }, Promise.resolve());
-    saving.then(function () {
-      const url = URL.createObjectURL(new Blob([JSON.stringify(facts, null, 2)], { type: 'application/json' }));
-      saveFile(url, 'studio-prompts.json');
-      setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
-    }).catch(function (error) {
-      showToast('error', 'Download all stopped: ' + error.message);
-    });
-  });
-
-  document.getElementById('clear-gallery').addEventListener('click', function () {
-    const question = keeping
-      ? 'Remove all ' + gallery.length + ' images from this browser? Every open tab clears too.'
-      : 'Remove all ' + gallery.length + ' images from this tab?';
-    if (!confirm(question)) return;
-    dropAll();
-    forget(function (images) { images.clear(); }, { kind: 'clear' });
-  });
+  // Every way out of the strip is components/image-strip.js's: a removal, a
+  // clear and a download all move the gallery array the page holds. The two
+  // buttons stay in the page's markup, so their listeners stay here and call it.
+  document.getElementById('download-gallery').addEventListener('click', function () { strip.download(); });
+  document.getElementById('clear-gallery').addEventListener('click', function () { strip.clear(); });
 
   // ---- Kept images --------------------------------------------------------------
   // Each image and its facts go to IndexedDB, so a reload or a new tab brings
@@ -3250,8 +1815,8 @@
 
   channel.addEventListener('message', function (event) {
     const message = event.data;
-    if (message.kind === 'remove') dropEntry(message.id);
-    if (message.kind === 'clear') dropAll();
+    if (message.kind === 'remove') strip.drop(message.id);
+    if (message.kind === 'clear') strip.dropAll();
     if (message.kind === 'keep') {
       keeping = message.on;
       markKeep();
@@ -3358,9 +1923,8 @@
       count: countInput.value,
       params: params,
       look: JSON.parse(JSON.stringify(look)),
-      regionText: JSON.parse(JSON.stringify(regionText)),
       references: references.slice(),
-      strokes: marks ? marks.strokes.slice() : null,
+      region: region.snapshot(),
     };
   }
 
@@ -3372,10 +1936,9 @@
     document.getElementById('seed').value = '';
     countInput.value = '1';
     look = {};
-    regionText = {};
+    region.clearText();
     references = [];
-    marks = null;
-    stopMarking();
+    region.putDown();
     currentMode().params.forEach(function (param) {
       const node = document.getElementById(param.id);
       if (node) delete node.dataset.applied;
@@ -3383,7 +1946,7 @@
     applyParams();
     clampCount();
     growPrompt();
-    renderLook();
+    pushLook();
     renderReferences();
     refreshForm();
   }
@@ -3399,10 +1962,9 @@
     countInput.value = snapshot.count;
     look = snapshot.look;
     // The rows read their text from here, so it goes back before they are built.
-    regionText = snapshot.regionText;
+    region.setText(snapshot.region.text);
     references = snapshot.references.slice();
-    marks = null;
-    stopMarking();
+    region.putDown();
     applyParams();  // this marks every input as applied, so the values below stick
     Object.keys(snapshot.params).forEach(function (id) {
       const node = document.getElementById(id);
@@ -3410,15 +1972,12 @@
     });
     clampCount();
     growPrompt();
-    renderLook();
+    pushLook();
     references.forEach(probeSize);
     // This arms the brush again, because a mark belongs to one reference on the
     // stage. Its stroke list starts empty, so the strokes go back after it.
     renderReferences();
-    if (marks && snapshot.strokes) {
-      marks.strokes = snapshot.strokes.slice();
-      syncMarkToggle();
-    }
+    region.setStrokes(snapshot.region.strokes);
     renderStrip();
     renderStage();
     refreshForm();
@@ -3427,6 +1986,7 @@
   function startWork(element) {
     const fresh = element === form;
     document.body.classList.add('busy');
+    syncRunState();
     go.disabled = false;
     goSub.textContent = '';
     countToggle.disabled = true;
@@ -3458,6 +2018,7 @@
     if (!busy()) return;
     document.title = (document.hidden ? '(Done) ' : '') + BASE_TITLE;
     document.body.classList.remove('busy', 'stopping');
+    syncRunState();
     progressSlot.innerHTML = '';
     progressState = null;
     countToggle.disabled = false;
@@ -3476,6 +2037,7 @@
   function requestCancel() {
     if (document.body.classList.contains('stopping')) return;
     document.body.classList.add('stopping');
+    syncRunState();
     go.disabled = true;
     renderProgress();
     htmx.ajax('POST', '/cancel', { swap: 'none' });
@@ -3497,18 +2059,9 @@
   }
   document.addEventListener('fullscreenchange', renderStage);
 
-  function stepFrame(delta) {
-    const order = (busy() ? ['progress'] : []).concat(gallery.map(function (entry) { return entry.id; }));
-    const index = order.indexOf(view);
-    const next = order[index + delta];
-    if (next === undefined) return;
-    const stripHadFocus = strip.contains(document.activeElement);
-    show(next);
-    const selected = strip.querySelector('.selected');
-    selected.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    if (stripHadFocus) selected.focus();
-  }
-
+  // The arrow keys walk the strip, which is the strip's own move: the module
+  // keeps the shown frame's box across its own redraw, so the correction lives
+  // where the redraw does. The key is the page's, because full screen shares it.
   document.addEventListener('keydown', function (event) {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.target.closest('input, textarea, select, [contenteditable]')) return;
@@ -3517,8 +2070,8 @@
       event.preventDefault();
       toggleFullscreen();
     }
-    if (event.key === 'ArrowRight') stepFrame(1);
-    if (event.key === 'ArrowLeft') stepFrame(-1);
+    if (event.key === 'ArrowRight') strip.step(1);
+    if (event.key === 'ArrowLeft') strip.step(-1);
   });
 
   // Cmd+Enter (Ctrl+Enter off a Mac) runs from anywhere on the page. It obeys
@@ -3675,13 +2228,13 @@
     if (paramSpec('negative')) event.detail.parameters.negative = negativeText();
     // A marked region rides as the last image, and the prompt names that image,
     // so the model is told which one carries the mask.
-    const mask = maskDataUrl();
+    const mask = region.mask();
     if (mask) {
       // Measured 2026-09-26: one clause per region, each naming the colour the mask
       // carries, then one line pinning the rest of the picture.
-      event.detail.parameters.prompt = composedPrompt();
+      event.detail.parameters.prompt = region.composed();
       // The card's copy, taken while the rows are still here to read.
-      runLook.reader = composedPrompt(true);
+      runLook.reader = region.composed(true);
     }
     // `sent` is what the model got, so it is recorded after every override. A
     // masked run sends the composed sentence, and the match in harvest() looked
@@ -3748,13 +2301,13 @@
     if (STUDIO.backends.length < 2) return;
     toggle.disabled = false;
     toggle.title = 'Switch the model';
-    toggle.addEventListener('click', function () { toggleMenu(menu); });
+    toggle.addEventListener('click', function () { menus.toggleMenu(menu); });
     const head = document.createElement('div');
     head.className = 'menu-head';
     head.textContent = 'Model';
     menu.append(head);
     STUDIO.backends.forEach(function ([id, name]) {
-      const item = menuItem('check', name, function () { switchBackend(id, name); });
+      const item = menus.menuItem('check', name, function () { switchBackend(id, name); });
       item.setAttribute('role', 'menuitemradio');
       item.setAttribute('aria-checked', String(id === STUDIO.backend.id));
       menu.append(item);
@@ -3781,56 +2334,23 @@
       });
   }
 
-  // The theme is the one thing the page keeps: its name, in this browser.
-  const THEMES = [['', 'Darkroom'], ['leica', 'Leica M'], ['kodak', 'Kodak Instamatic'], ['polaroid', 'Polaroid SX-70']];
-
-  function setupThemes() {
-    const toggle = document.getElementById('theme-toggle');
+  // The Images section of the theme menu. The Theme section above it belongs to
+  // lib/theme.js, which draws it once this script has built the menu.
+  function setupKeep() {
     const menu = document.getElementById('theme-menu');
-    toggle.addEventListener('click', function () { toggleMenu(menu); });
     const head = document.createElement('div');
     head.className = 'menu-head';
-    head.textContent = 'Theme';
-    menu.append(head);
-    THEMES.forEach(function ([id, name]) {
-      const item = menuItem('check', name, function () { applyTheme(id); });
-      item.setAttribute('role', 'menuitemradio');
-      item.dataset.theme = id;
-      menu.append(item);
-    });
-    const imagesHead = document.createElement('div');
-    imagesHead.className = 'menu-head';
-    imagesHead.textContent = 'Images';
-    const keep = menuItem('check', 'Keep in this browser', function () { setKeep(!keeping); });
+    head.textContent = 'Images';
+    const keep = menus.menuItem('check', 'Keep in this browser', function () { setKeep(!keeping); });
     keep.setAttribute('role', 'menuitemcheckbox');
     keep.id = 'keep-toggle';
-    menu.append(imagesHead, keep);
-    markTheme();
+    menu.append(head, keep);
     markKeep();
   }
 
-  function applyTheme(id) {
-    if (id) document.documentElement.dataset.theme = id;
-    else delete document.documentElement.dataset.theme;
-    markTheme();
-    try {
-      localStorage.setItem('studio-theme', id);
-    } catch (error) {
-      showToast('info', 'The theme applies to this tab only: ' + error.message);
-    }
-  }
-
-  function markTheme() {
-    const current = document.documentElement.dataset.theme || '';
-    document.querySelectorAll('#theme-menu [role=menuitemradio]').forEach(function (item) {
-      item.setAttribute('aria-checked', String(item.dataset.theme === current));
-    });
-  }
-
   setupModes();
-  setupBackends();
-  setupThemes();
-  buildSizeControls();
+  // The menus, the size controls, the advanced readouts and the run button's
+  // labels are drawn by their own modules, on the doors above.
   // Whether a rewrite is in flight. Declared up here, above the first call into
   // refreshForm: the form draws itself during startup and renderRewriteButton
   // reads this as it draws, so a declaration further down is in its dead zone.
@@ -3841,7 +2361,7 @@
   let rewrittenFrom = null;
 
   applyMode();
-  renderLook();
+  pushLook();
   renderReferences();
   renderStrip();
   renderStage();

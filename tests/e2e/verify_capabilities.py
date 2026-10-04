@@ -20,6 +20,7 @@ from studio.l1_entities.capabilities import Capabilities, ModeSpec, ParamSpec
 from studio.l1_entities.image_job import ImageResult
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l3_interface_adapters.gateways.prompt_aids import EDIT_TEMPLATES
+from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
 from studio.l3_interface_adapters.gateways.qwen21.capabilities import qwen21_capabilities
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 
@@ -110,7 +111,12 @@ def seconds(text):
 def main():
     qwen = StubBackendGateway(qwen21_capabilities("bf16"))
     tiny, plain = StubBackendGateway(TINY), StubBackendGateway(PLAIN)
-    studio = assemble_studio({"qwen21": qwen, "tiny": tiny, "plain": plain}, "qwen21", ("qwen21", "tiny", "plain"))
+    # None of the three declares a rewriter, and nothing here is about the
+    # rewrite toggle, so each gets the absent one. `build_rewriters` gives every
+    # visible backend an entry, and so does this.
+    backends = {"qwen21": qwen, "tiny": tiny, "plain": plain}
+    rewriters = {backend_id: NoPromptRewriter() for backend_id in backends}
+    studio = assemble_studio(backends, rewriters, "qwen21", tuple(backends))
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{server.server_port}/"

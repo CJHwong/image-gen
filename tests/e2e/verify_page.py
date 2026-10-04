@@ -3,12 +3,37 @@
 It generates and edits real images, so it takes minutes. Screenshots go to a
 temporary directory, printed at the start.
 
+Every binding is a role, an accessible name, a label association, or an id the
+page publishes. None is a decorative class name, so a change to how the page is
+drawn does not move the assertion. Four kinds of binding are left, and each is
+marked in place with `LEFT:` and a reason:
+
+  - the page's own state, which it publishes as a global. No DOM reading makes
+    the same claim, and the design's contract does not name the state.
+  - geometry and computed style: where a box sits, and which custom property it
+    carries. A role has no position.
+  - an element with no role at all: the magnifier, which the page hides from
+    assistive technology on purpose; the line the drawing tools sit on, and the
+    pencil loop the shown frame draws; the film frame's own numbers; and the
+    thumbnail inside a frame, which a browser flattens because it is inside a
+    button.
+  - a text the assertion is about. The caption under the print and the summary
+    line below it are read for their words, and binding one by those words would
+    make the words the assertion is about the thing that finds it.
+
+Thirteen ids the checks lean on are not in the design's contract list, and the
+list should carry the two the checks depend on most: `#go-sub` and `#status`.
+The rest are `#region-preview`, `#region-note`, `#region-field`, `#stage-bar`,
+`#toasts`, `#incoming`, `#tier-sizes`, `#look`, `#look-values`, `#counter` and
+`#backend-toggle`.
+
 Usage: uv run --with playwright python tests/e2e/verify_page.py <port>
 """
 
 import base64
 import io
 import json
+import re
 import sys
 import tempfile
 import time
@@ -21,6 +46,22 @@ PORT = sys.argv[1]
 OUT = tempfile.mkdtemp(prefix="studio-e2e-") + "/"
 print("Screenshots:", OUT)
 results = []
+
+# The verbs the run button uses to say whether a run is in flight, and the state
+# it publishes beside them. The page shows one label at a time by setting
+# `hidden` on the others, so the words survive a stylesheet that fails to load;
+# the attribute carries the state itself, for a check that needs the state rather
+# than the wording.
+RUNNING = re.compile(r"^Cancel$")
+STOPPING = re.compile(r"^Stopping")
+RUN_IDLE = "#go[data-state='idle']"
+RUN_STOPPING = "#go[data-state='stopping']"
+# A kept frame names itself, and the mode it was made in, in its aria-label.
+FRAME = re.compile(r"^(generate|edit), seed ")
+# The badge that carries the weights, found by the title the contract keeps.
+BADGE = "[title='The weights loaded']"
+# The drawing tools, each of which names itself.
+BRUSH = re.compile(r"^Brush width")
 
 
 def check(name, passed, detail=""):
@@ -56,6 +97,33 @@ def mask_carries(b64, colour, tolerance=12):
     return hits > 5
 
 
+def mask_colour_pixels(b64, colour, tolerance=12):
+    """How many pixels of the mask carry one palette colour.
+
+    That is the area the stroke painted, so two strokes of the same length painted
+    at different widths count apart. The mask is what the model receives, so this
+    is the width claim itself and not the page's bookkeeping about it.
+    """
+    image = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+    return sum(
+        1 for pixel in image.getdata() if all(abs(pixel[channel] - colour[channel]) < tolerance for channel in range(3))
+    )
+
+
+def set_brush(brush, width):
+    """Put the brush on a named width, by the label the button carries.
+
+    The brush is one button cycling three widths, so the wanted one is reached
+    from wherever it is now. Three clicks is a full cycle: a label that never
+    arrives leaves the later check to fail on the width it did find.
+    """
+    wanted = "Brush width: " + width
+    for _ in range(3):
+        if brush.get_attribute("aria-label") == wanted:
+            return
+        brush.click()
+
+
 # The palette in the page, as channels, plus black. The strokes already carry
 # these colours, so the snap only repairs the antialiased edge: a mask whose tones
 # stay inside this set is the only thing that shows the snap ran at all.
@@ -73,7 +141,17 @@ def mask_alpha(b64):
 
 
 def wait_idle(page):
-    page.wait_for_function("!document.body.classList.contains('busy')", timeout=600000)
+    """Wait for a run to be over.
+
+    The run is over when the run button publishes `idle`. The attribute is what
+    the page sets from the same place it toggles the body's `busy` class, and it
+    is what this waits on rather than the button's words: the page shows one of
+    its labels at a time, so waiting on the words ties the wait to a part of the
+    button this check is not about. The wait is for `idle` and not for `busy` to
+    go, because an attribute that stopped being published would then pass in
+    silence.
+    """
+    page.locator(RUN_IDLE).wait_for(state="visible", timeout=600000)
     time.sleep(0.5)
 
 
@@ -81,10 +159,40 @@ def button(page, name):
     return page.get_by_role("button", name=name, exact=True)
 
 
+def frames(page):
+    """The kept frames, found by the label the page gives each one.
+
+    A batch run holds a placeholder in the strip while it waits, and that
+    placeholder names itself differently, so it is not a frame here.
+    """
+    return page.get_by_role("button", name=FRAME)
+
+
 def toggle_look(page, row, label):
-    """Open the Look row, then pick or unpick the option. A pick closes the row again."""
-    page.locator("#look-rows .look-row-toggle", has_text=row).click()
-    page.locator("#look-rows .chip", has_text=label).first.click()
+    """Open the Look row, then pick or unpick the option. A pick closes the row again.
+
+    The row is named for itself and then its pick, and the stylesheet decides
+    whether a space lands between the two: "Light none" with it, "Lightnone"
+    without. The pattern therefore stops at the row's name, which is unambiguous
+    because no chip label begins with the name of a row.
+    """
+    page.locator("#look-rows").get_by_role("button", name=re.compile(rf"^{re.escape(row)}")).click()
+    page.locator("#look-rows").get_by_role("button", name=label, exact=True).click()
+
+
+def region_rows(page):
+    """One row per colour marked, each an instruction field for its area."""
+    return page.locator("#region-rows").get_by_role("textbox")
+
+
+def picked_looks(page):
+    """The Look chips that are chosen.
+
+    A pick closes its row, and a closed row is out of the accessibility tree, so
+    the search keeps the hidden ones. A class query saw them whether or not the
+    row was open, and this is the same claim.
+    """
+    return page.locator("#look-rows").get_by_role("button", pressed=True, include_hidden=True)
 
 
 def selection(page):
@@ -170,11 +278,21 @@ with sync_playwright() as playwright:
     page.screenshot(path=OUT + "0-empty.png")
 
     check("no leave warning when empty", not leave_blocked(page))
+    # LEFT: a decorative class, and the claim is that it is absent.
     check("the top plate has no privacy line", page.locator(".topbar .privacy").count() == 0)
-    check("the dial shows the weights", page.inner_text(".topbar .badge") == "bf16")
+    check("the dial shows the weights", page.inner_text(BADGE) == "bf16")
+    # LEFT: an id the page publishes, and the claim is that it is absent.
     check("the top plate has no frame counter", page.locator("#counter").count() == 0)
+    # LEFT: `#status` is an id the page publishes, and it is not in the design's
+    # contract. A live region that has nothing to say is not in the tree, so the
+    # role would report the same thing for a hidden one and an empty one.
     check("the status is announced", page.get_attribute("#status", "aria-live") == "polite")
+    # LEFT: `#go-sub` is an id the page publishes, and it is not in the design's
+    # contract. The run button's own name carries the same words, but only with
+    # the verb in front of them, which is a different claim about wording.
     check("the run button announces nothing", page.get_attribute("#go-sub", "aria-live") is None)
+    # LEFT: the model's name is a span inside its button, and the top plate's
+    # height is a length. Neither has a role, and a role has no height.
     page.evaluate("document.querySelector('#backend-toggle .name').textContent = 'A very long model name '.repeat(8)")
     name = page.evaluate("""() => {
         const name = document.querySelector('#backend-toggle .name');
@@ -183,6 +301,7 @@ with sync_playwright() as playwright:
     check("a long model name truncates in the top plate", name == [True, 52], str(name))
     page.reload()
     # The readout is for a run. "Ready" said nothing, so it waits for one and goes with it.
+    # LEFT: `#status` again, and the claim is that it is hidden.
     check("the top bar shows no status when idle", page.locator("#status").is_hidden())
     # The guide, which is the manual the studio did not have.
     check("no guide until it is asked for", page.locator("#guide-sheet").count() == 0)
@@ -203,6 +322,7 @@ with sync_playwright() as playwright:
     button(page, "Browse templates").click()
     check("empty stage opens templates", page.locator("#templates").is_visible())
     page.keyboard.press("ArrowDown")
+    # LEFT: focus is not a role, and the arrow key moves it to a menu item.
     focused = page.evaluate("document.activeElement.textContent")
     check("arrow keys walk the menu", focused.startswith("Product shot"), focused)
     page.keyboard.press("Escape")
@@ -234,8 +354,11 @@ with sync_playwright() as playwright:
     # Generate two small images with Cmd+Enter
     page.fill("#prompt", "A ceramic teapot on a linen tablecloth, soft window light from the left.")
     page.dispatch_event("#prompt", "input")
-    page.click("#size-chips .chip[data-ratio='4:3']")
-    page.click("#tier-sizes button >> nth=0")
+    page.get_by_role("button", name="4:3", exact=True).click()
+    # The tiers of a shape are named for their megapixels, and the names follow the
+    # shape, so the first one is found by its place under its own id. `#tier-sizes`
+    # is an id the page publishes, and it is not in the design's contract.
+    page.locator("#tier-sizes").get_by_role("button").first.click()
     page.click("#advanced summary")
     page.fill("#steps", "8")
     page.dispatch_event("#steps", "input")
@@ -244,19 +367,28 @@ with sync_playwright() as playwright:
     page.get_by_role("menuitemradio", name="2 images").click()
     check(
         "the count menu sets the count",
-        page.inner_text("#count-shown") == "×2"  # noqa: RUF001 (the page prints the multiplication sign)
+        # The button reads back the count it holds. `#count-shown` is the span inside
+        # it, and the button is the contract id.
+        page.locator("#count-toggle").inner_text().strip() == "×2"  # noqa: RUF001 (the multiplication sign)
         and page.input_value("#count") == "2",
-        page.inner_text("#count-shown"),
+        page.locator("#count-toggle").inner_text(),
     )
+    # LEFT: the details that holds the Look rows is an id the page publishes, and
+    # its summary is not a role a browser exposes. The rows inside are found by
+    # role, and they are only visible once this has opened the details.
     page.click("#look summary")
     toggle_look(page, "Light", "Overcast")
     page.focus("#prompt")
     page.keyboard.press("Meta+Enter")
+    # LEFT: the progress card's percentage is a span, and the card is the page's
+    # own drawing of a run. It has no role.
     page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
     check("Cmd+Enter starts a run", True)
     # Before the first step the estimate is the only number and it never moves, so the
     # reading phase says how long it has been reading instead: a slow engine then looks
     # alive rather than frozen.
+    # LEFT: the page's own state. Naming it is the only way to put the page in the
+    # phase this reads, and the design's contract does not name it.
     page.evaluate("""() => { runStartedAt = Date.now() - 95000;
         progressState = {stage: 'running', step: 0, total: 20}; renderProgress(); }""")
     reading = page.inner_text("#status")
@@ -267,12 +399,14 @@ with sync_playwright() as playwright:
     )
     # A stop that has not landed yet says when it will, because an engine inside this
     # process can only stop where it looks, and before the first step there is nothing.
+    # LEFT: the page's own state, and the class it keeps that state in.
     page.evaluate("""() => { document.body.classList.add('stopping'); renderProgress(); }""")
     check(
         "a stop before the first step says when it lands",
         page.inner_text("#status").startswith("Stopping when the first step arrives"),
         page.inner_text("#status"),
     )
+    # LEFT: the page's own state again.
     page.evaluate("""() => { progressState = {stage: 'running', step: 3, total: 20}; renderProgress(); }""")
     check(
         "a stop after a step says it lands at the end of that step",
@@ -284,12 +418,15 @@ with sync_playwright() as playwright:
     page.wait_for_function("document.getElementById('status').innerText.startsWith('Step ')", timeout=300000)
     status = page.inner_text("#status")
     check("the status reads the step", status.startswith("Step ") and " of " in status, status)
+    # LEFT: the print rising out of the bottom edge is a length, and the plate and
+    # the bar are the page's own drawing of a run.
     bar = page.evaluate("""() => {
         const plate = document.querySelector('.card .plate').getBoundingClientRect();
         const bar = document.querySelector('.card .exposure').getBoundingClientRect();
         return [Math.round(plate.bottom - bar.bottom), bar.height / plate.height];
     }""")
     check("the Kodak print rises from the bottom edge", bar[0] == 0 and bar[1] < 0.5, str(bar))
+    # LEFT: the same drawing, held across a mode switch to see that it is the same node.
     card = page.evaluate_handle("document.querySelector('.card')")
     page.click("label[for=mode-edit]")
     check(
@@ -308,27 +445,46 @@ with sync_playwright() as playwright:
     check("tab title shows progress", page.title().startswith("("), page.title())
     check(
         "the run button turns into Cancel",
-        page.is_enabled("#go") and page.inner_text("#go .main") == "Cancel",
-        page.inner_text("#go .main"),
+        page.is_enabled("#go") and page.get_by_role("button", name=RUNNING).count() == 1,
+        page.get_by_role("button", name=RUNNING).inner_text(),
     )
     check("the run button shows no step text", page.inner_text("#go-sub") == "", page.inner_text("#go-sub"))
+    # LEFT: the fill bar has no role, and the claim is that it is absent.
     check("the run button has no fill bar", page.locator("#go .fill").count() == 0)
+    # LEFT: the card is the page's own drawing of a run, and has no role.
     check(
         "the card keeps only the plate and the percentage",
         page.locator(".card [data-slot], .card .btn").count() == 0 and page.locator(".card .percent").count() == 1,
     )
     page.keyboard.press("Meta+Enter")
     time.sleep(1)
+    # LEFT: the chain placeholder is the page's own mark for a request in flight.
     check("Cmd+Enter while running sends nothing", page.locator("#incoming .chain").count() <= 1)
     page.focus("#seed")
     page.keyboard.press("Enter")  # an implicit submit clicks the run button, which is Cancel's guard
     time.sleep(1)
+    # LEFT: the chain placeholder again.
     check("Enter in a field while running sends nothing", page.locator("#incoming .chain").count() <= 1)
-    check("Enter in a field does not cancel either", "stopping" not in page.get_attribute("body", "class"))
+    check(
+        "Enter in a field does not cancel either",
+        # The run button publishes its state, and a cancel would put it in
+        # `stopping`. This is the attribute and not the button's words, for the
+        # same reason `wait_idle` is.
+        page.locator(RUN_STOPPING).count() == 0,
+    )
     time.sleep(1)
     page.screenshot(path=OUT + "1-running.png")
+    # The run button publishes its state, and item 10 of what must not move pins
+    # it. A page from before that change has none, and every wait below would
+    # hang for ten minutes rather than say so. Raised rather than asserted,
+    # because `python -O` drops an assert and the hang would come back silently.
+    if page.locator("#go[data-state]").count() != 1:
+        raise AssertionError(
+            "#go publishes no data-state. Item 10 of 'what must not move' pins that "
+            "attribute, and a page from before that change does not have it."
+        )
     wait_idle(page)
-    check("2 images in the strip", page.locator("#strip .frame:not(.pending)").count() == 2)
+    check("2 images in the strip", frames(page).count() == 2)
     go_box = page.locator("#go").bounding_box()
     check(
         "run button in view with images",
@@ -336,9 +492,15 @@ with sync_playwright() as playwright:
         f"bottom {go_box['y'] + go_box['height']:.0f}",
     )
     check("no leave warning while the browser keeps the images", not leave_blocked(page))
+    # LEFT: the line a run is summarised in is the page's own drawing of a frame,
+    # with no role. The frame's own name carries the seed and the size.
     check("a plain run says Generated", page.inner_text(".facts .made") == "Generated", page.inner_text(".facts .made"))
+    # LEFT: the page's own state: the rate it learned for the shape it just ran.
     learned = page.evaluate("() => learnedCost[costKey()] || 0")
     check("a run teaches the step rate", 0.3 < learned < 20, f"{learned:.2f} s per step at 1 MP")
+    # LEFT: the caption is the only place the reader sees the whole prompt, and it
+    # has no role until it is long enough to be cut. Binding it by its own text
+    # would make the text the assertion is about the very thing that finds it.
     check(
         "the caption shows the typed prompt, then the Look muted",
         page.inner_text(".prompt-line").startswith(
@@ -347,6 +509,7 @@ with sync_playwright() as playwright:
         and page.inner_text(".prompt-line .look-said").startswith("Overcast"),
         page.inner_text(".prompt-line"),
     )
+    # LEFT: the summary line again, and the claim is about the spans in it.
     check("the facts do not repeat the Look", page.locator(".facts span", has_text="Look").count() == 0)
     check(
         "the facts name the time",
@@ -359,7 +522,7 @@ with sync_playwright() as playwright:
     page.get_by_role("menuitem", name="Reuse prompt").click()
     check(
         "Reuse prompt brings back the look",
-        page.locator("#look-rows .chip[aria-pressed=true]").all_text_contents() == ["Overcast"]
+        picked_looks(page).all_text_contents() == ["Overcast"]
         and page.input_value("#prompt").startswith("A ceramic teapot"),
     )
     toggle_look(page, "Light", "Overcast")
@@ -368,24 +531,31 @@ with sync_playwright() as playwright:
     page.screenshot(path=OUT + "2-result.png")
 
     # Film frame and pencil mark
+    # LEFT: the film frame's strip of numbers, and which frame the stage shows.
+    # Neither has a role, and the strip carries no aria-current.
     check(
         "image sits in a film frame with its number",
         page.locator(".shot .edge").inner_text().endswith(page.locator("#strip .frame.selected .no").inner_text()),
         page.locator(".shot .edge").inner_text(),
     )
-    page.locator("#strip .frame:not(.pending) >> nth=1").click()
+    frames(page).nth(1).click()
+    # LEFT: the pencil loop is an SVG drawn inside the shown frame, with no role.
     check("picking a frame draws the pencil loop", page.locator("#strip .frame.selected .mark.draw").count() == 1)
+    # LEFT: the page's own redraw entry point.
     page.evaluate("renderStrip()")
     check(
         "a redraw does not draw it again",
         page.locator("#strip .frame.selected .mark.draw").count() == 0
         and page.locator("#strip .frame.selected .mark").count() == 1,
     )
-    page.locator("#strip .frame:not(.pending) >> nth=0").click()
+    frames(page).nth(0).click()
 
-    thumb = page.evaluate_handle("document.querySelector('#strip .frame:not(.pending) img')")
-    page.locator("#strip .frame:not(.pending) >> nth=1").click()
-    page.locator("#strip .frame:not(.pending) >> nth=0").click()
+    # LEFT: the thumbnail is an image inside the frame's own button, and a browser
+    # flattens what is inside a button, so it carries no role. The frame is found
+    # by role; only the image inside it is found by its tag.
+    thumb = frames(page).nth(0).locator("img").element_handle()
+    frames(page).nth(1).click()
+    frames(page).nth(0).click()
     check("the strip keeps its thumbnails", page.evaluate("(img) => img.isConnected", thumb))
     check("thumbnails use blob URLs", page.evaluate("(img) => img.src.startsWith('blob:')", thumb))
 
@@ -394,6 +564,7 @@ with sync_playwright() as playwright:
     # the caption over the controls at the right. Filling the strip with 16:9
     # images takes ten runs, and the content's width is the whole trigger, so
     # the frames are cloned at a wide thumbnail's width instead.
+    # LEFT: a clone of the strip's own nodes, at a width the page has no role for.
     page.evaluate("""() => {
         const strip = document.querySelector('#strip');
         const frames = Array.from(strip.querySelectorAll('.frame'));
@@ -404,6 +575,7 @@ with sync_playwright() as playwright:
             strip.append(copy);
         }
     }""")
+    # LEFT: two scroll widths and two box edges, none of which is a role.
     check(
         "a full strip scrolls instead of widening the column",
         page.evaluate("""() => {
@@ -415,6 +587,7 @@ with sync_playwright() as playwright:
     )
     page.evaluate("() => document.querySelectorAll('#strip .frame.clone').forEach((node) => node.remove())")
 
+    # LEFT: the page's own state, which is the index of the frame on the stage.
     page.mouse.click(200, 200)
     first = page.evaluate("view")
     page.keyboard.press("ArrowRight")
@@ -425,6 +598,8 @@ with sync_playwright() as playwright:
     # Full screen
     page.keyboard.press("f")
     time.sleep(0.5)
+    # LEFT: the element the browser hands to full screen is the page's own pane,
+    # and the browser reports it as a node rather than as a role.
     check("F enters full screen", page.evaluate("document.fullscreenElement === document.querySelector('.work')"))
     first = page.evaluate("view")
     page.keyboard.press("ArrowRight")
@@ -432,6 +607,10 @@ with sync_playwright() as playwright:
     page.keyboard.press("ArrowLeft")
     check("ArrowLeft goes back", page.evaluate("view") == first)
     page.screenshot(path=OUT + "2b-fullscreen.png")
+    # The binding here is a role with a name, and it resolves without the
+    # stylesheet. The reach does not: with the stylesheet refused, the fullscreen
+    # pane is fixed at 900 and cannot scroll, and this button sits at y 1908 in
+    # it, so no click can land. The cascade is what puts the control in reach.
     button(page, "Exit full screen (F)").click()
     time.sleep(0.5)
     check("the button leaves full screen", page.evaluate("document.fullscreenElement === null"))
@@ -443,26 +622,29 @@ with sync_playwright() as playwright:
 
     # Edit this
     button(page, "Edit this").click()
-    check("Edit this switches to edit", page.is_checked("#mode-edit"))
-    check("Edit this leaves one reference", page.locator("#thumbs .thumb").count() == 1)
+    check("Edit this switches to edit", page.get_by_role("radio", name="Edit").is_checked())
+    check("Edit this leaves one reference", page.locator("#thumbs").get_by_role("img").count() == 1)
     check("Edit this clears the prompt", page.input_value("#prompt") == "")
+    # LEFT: the summary line again.
     seed = page.locator(".facts span", has_text="Seed").first.inner_text().split()[-1]
     check("Edit this keeps the seed", page.input_value("#seed") == seed, seed)
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Use as reference").click()
-    check("Use as reference adds a second", page.locator("#thumbs .thumb").count() == 2)
+    check("Use as reference adds a second", page.locator("#thumbs").get_by_role("img").count() == 2)
+    # LEFT: the film frame's numbers again.
     source = page.inner_text(".shot .edge span:last-child")
     button(page, "Edit this").click()
-    check("Edit this resets to one", page.locator("#thumbs .thumb").count() == 1)
+    check("Edit this resets to one", page.locator("#thumbs").get_by_role("img").count() == 1)
 
     # One-image edit and the compare slider
     page.fill("#prompt", "Change only the teapot's color to glossy cobalt blue. Keep everything else unchanged.")
     page.dispatch_event("#prompt", "input")
-    page.click("#edit-sizes button[data-value='512']")
+    page.get_by_role("button", name="0.3 MP", exact=True).click()
     page.click("#count-toggle")
     page.get_by_role("menuitemradio", name="1 image").click()
     # Record every split value from the run on, so the check sees the whole
     # sweep instead of racing it with a fixed-time sample.
+    # LEFT: the divider's own custom property, sampled frame by frame.
     page.evaluate(
         "window.splits = []; (function sample() {"
         " const pic = document.querySelector('.pic');"
@@ -472,14 +654,17 @@ with sync_playwright() as playwright:
     )
     page.click("#go")
     wait_idle(page)
+    # LEFT: the summary line again.
     made = page.inner_text(".facts .made")
     check("an edit names its source frame", made == f"Edited from {source}", made)
     page.get_by_role("button", name=f"Show frame {source}").click()
+    # LEFT: the film frame's numbers again.
     check("the source link shows that frame", page.inner_text(".shot .edge span:last-child") == source)
-    page.locator("#strip .frame:not(.pending) >> nth=0").click()
+    frames(page).nth(0).click()
     check(
         "compare slider on the edit",
-        page.locator(".compare-range").count() == 1 and page.locator("img.before").count() == 1,
+        page.get_by_label("Compare before and after").count() == 1
+        and page.get_by_role("img", name="The image before the edit").count() == 1,
     )
     time.sleep(2)
     splits = [float(value.rstrip("%")) for value in page.evaluate("window.splits")]
@@ -489,6 +674,8 @@ with sync_playwright() as playwright:
         str(splits),
     )
     page.screenshot(path=OUT + "3-compare.png")
+    # LEFT: the print's own box, and the tags drawn in its corners. A role has no
+    # position, and the tags are spans with no role.
     pic = page.locator(".pic").bounding_box()
     tag = page.locator(".compare-tag.left").bounding_box()
     check(
@@ -496,52 +683,59 @@ with sync_playwright() as playwright:
         pic["x"] <= tag["x"] <= pic["x"] + 20 and pic["y"] <= tag["y"] <= pic["y"] + 20,
         f"pic {pic['x']:.0f},{pic['y']:.0f} tag {tag['x']:.0f},{tag['y']:.0f}",
     )
-    box = page.locator(".compare-range").bounding_box()
+    box = page.get_by_label("Compare before and after").bounding_box()
     page.mouse.click(box["x"] + box["width"] * 0.2, box["y"] + box["height"] / 2)
+    # LEFT: the divider's own custom property.
     split = page.evaluate("getComputedStyle(document.querySelector('.pic')).getPropertyValue('--split').trim()")
     check("a click moves the split", split in ("19%", "20%", "21%"), split)
-    page.click(".facts .compare")
+    compare = page.get_by_role("button", name="Compare")
+    compare.click()
     check(
         "Compare off shows the result alone",
-        page.locator(".compare-range").count() == 0
-        and page.get_attribute(".facts .compare", "aria-pressed") == "false"
-        and page.evaluate("document.activeElement.className") == "compare",
+        page.get_by_label("Compare before and after").count() == 0
+        and compare.get_attribute("aria-pressed") == "false"
+        and compare.evaluate("el => el === document.activeElement"),
     )
-    page.click(".facts .compare")
-    check("Compare on brings the slider back", page.locator(".compare-range").count() == 1)
-    page.locator("#strip .frame:not(.pending) >> nth=1").click()
-    check("no slider on a generate image", page.locator(".compare-range").count() == 0)
-    check("no Compare switch on a generate image", page.locator(".facts .compare").count() == 0)
-    page.locator("#strip .frame:not(.pending) >> nth=0").click()
+    compare.click()
+    check("Compare on brings the slider back", page.get_by_label("Compare before and after").count() == 1)
+    frames(page).nth(1).click()
+    check("no slider on a generate image", page.get_by_label("Compare before and after").count() == 0)
+    check("no Compare switch on a generate image", compare.count() == 0)
+    frames(page).nth(0).click()
     check(
         "second view opens at the middle",
+        # LEFT: the divider's own custom property.
         page.evaluate("getComputedStyle(document.querySelector('.pic')).getPropertyValue('--split').trim()") == "50%",
     )
 
     # Two-image edit: no slider
-    page.locator("#strip .frame:not(.pending) >> nth=1").click()
+    frames(page).nth(1).click()
     button(page, "Edit this").click()
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Use as reference").click()
     page.fill("#prompt", "Put the two teapots side by side on one table.")
     page.dispatch_event("#prompt", "input")
-    check("a two-image edit holds both references", page.locator("#thumbs .thumb").count() == 2)
+    check("a two-image edit holds both references", page.locator("#thumbs").get_by_role("img").count() == 2)
     page.click("#go")
     wait_idle(page)
     check(
         "no slider on a two-image edit",
-        page.locator(".compare-range").count() == 0,
+        page.get_by_label("Compare before and after").count() == 0,
     )
 
     # Mode switch and cancel
-    check("edit shows no Look, since qwen21 declares none for it", not page.is_visible("#look"))
+    check(
+        "edit shows no Look, since qwen21 declares none for it",
+        page.locator("#look-rows").get_by_role("button").count() == 0,
+    )
     page.click("label[for=mode-generate]")
     toggle_look(page, "Light", "Overcast")
     page.click("label[for=mode-edit]")
     page.click("label[for=mode-generate]")
     check(
         "mode switch clears the look",
-        page.locator("#look-rows .chip[aria-pressed=true]").count() == 0
+        picked_looks(page).count() == 0
+        # LEFT: the read-back the summary prints, an id the page publishes.
         and page.text_content("#look-values") == "none",
     )
     check("mode switch clears the prompt", page.input_value("#prompt") == "")
@@ -552,41 +746,55 @@ with sync_playwright() as playwright:
     page.click("#go")
     page.click("#go")  # a double click on Generate must not cancel the run it just started
     time.sleep(0.3)
-    check("a click in the first half second does not cancel", "stopping" not in page.get_attribute("body", "class"))
+    check(
+        "a click in the first half second does not cancel",
+        page.locator(RUN_STOPPING).count() == 0,
+    )
+    # LEFT: the progress card's percentage again.
     page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
     page.click("#go")
     check(
         "Cancel reads Stopping while it stops",
-        page.inner_text("#go .main") == "Stopping\u2026",
-        page.inner_text("#go .main"),
+        page.get_by_role("button", name=STOPPING).count() == 1,
+        page.get_by_role("button", name=STOPPING).inner_text(),
     )
     wait_idle(page)
-    check("cancel ends the run, no new image", page.locator("#strip .frame:not(.pending)").count() == 4)
+    check("cancel ends the run, no new image", frames(page).count() == 4)
 
     # Remove, themes, phone
-    page.locator("#strip .frame >> nth=0").click()
+    frames(page).nth(0).click()
     page.get_by_role("button", name="Remove", exact=True).click()
-    check("remove takes one", page.locator("#strip .frame").count() == 3)
+    check("remove takes one", frames(page).count() == 3)
 
     # A marked region: the page draws it on the print, the run carries it as the
     # last image whose areas are the marked colours, and the prompt is written from
     # the per area rows. The tool appears only where the mode declares a region.
     page.get_by_role("button", name="Edit this", exact=True).click()
-    page.wait_for_selector(".shot .region-mark", timeout=10000)  # the reference's size is read first
+    # The reference's size is read first, so the mark arrives a moment after the click.
+    mark = page.get_by_label("Mark the area to change")
+    mark.wait_for(state="visible", timeout=10000)
     check(
         "an edit starts with the brush armed",
-        page.locator(".shot .region-mark").count() == 1 and page.locator(".stage-bar .region-tools").count() == 1,
+        # LEFT: the line the tools sit on is a div with no role, so only the mark
+        # canvas, which carries a label, is found by one.
+        mark.count() == 1 and page.locator(".stage-bar .region-tools").count() == 1,
     )
     check(
         "the drawing tools take their own line, undo dead until a mark exists",
-        page.locator(".stage-bar .region-tools button").count() == 7 and page.is_disabled("#mark-undo"),
+        # LEFT: the line the tools take is a div with no role, and the count is of
+        # the buttons in it. Counting the ones that name themselves would miss a
+        # tool added under a new name, which is exactly what this number guards.
+        page.locator(".stage-bar .region-tools button").count() == 7
+        and page.get_by_role("button", name="Take back the last mark").is_disabled(),
     )
+    # LEFT: where two lines sit against each other is a length, and a role has none.
     check(
         "the controls line sits at the right, above the buttons there",
         page.evaluate("""() => { const tools = document.querySelector('.region-tools').getBoundingClientRect();
             const actions = document.querySelector('.stage-bar .actions').getBoundingClientRect();
             return Math.abs(tools.right - actions.right) < 4; }"""),
     )
+    # LEFT: the same, against the caption's own box.
     check(
         "their line is between the picture and its caption",
         page.evaluate("""() => { const tools = document.querySelector('.region-tools').getBoundingClientRect();
@@ -596,69 +804,61 @@ with sync_playwright() as playwright:
                 && actions.top >= caption.top - 1; }"""),
     )
 
-    # The model repaints the area the mark covers, so the brush's width is the precision
-    # the user has, and the width travels with the stroke.
-    page.evaluate("() => { markWidth = 0; syncMarkToggle(); }")
-    thin = page.evaluate("() => brushWidth()")
-    overlay = page.locator(".shot .region-mark").bounding_box()
-    page.mouse.move(overlay["x"] + 60, overlay["y"] + 60)
-    page.mouse.down()
-    page.mouse.move(overlay["x"] + 120, overlay["y"] + 120, steps=4)
-    page.mouse.up()
-    page.evaluate("() => { markWidth = 2; syncMarkToggle(); }")
-    broad = page.evaluate("() => brushWidth()")
-    page.mouse.move(overlay["x"] + 200, overlay["y"] + 200)
-    page.mouse.down()
-    page.mouse.move(overlay["x"] + 260, overlay["y"] + 260, steps=4)
-    page.mouse.up()
-    check(
-        "each stroke keeps the width it was drawn with",
-        page.evaluate("() => marks.strokes.map((stroke) => stroke.width)") == [thin, broad] and thin < broad,
-        f"{page.evaluate('() => marks.strokes.map((stroke) => stroke.width)')}, thin {thin}, broad {broad}",
-    )
-    page.evaluate("""() => { markWidth = 0; syncMarkToggle(); const seen = [];
-        for (let step = 0; step < 4; step++) { seen.push(brushWidth());
-            document.getElementById('mark-size').click(); }
-        window.cycle = seen; }""")
-    cycle = page.evaluate("() => window.cycle")
+    # The model repaints the area the mark covers, so the brush's width is the
+    # precision the user has. The width is on the button's own label, and the
+    # width a stroke keeps is measured on the mask at the run below, because the
+    # mask is what the model receives.
+    brush = page.get_by_role("button", name=BRUSH)
+    set_brush(brush, "thin")
+    cycle = [brush.get_attribute("aria-label")]
+    for _ in range(3):
+        brush.click()
+        cycle.append(brush.get_attribute("aria-label"))
     check(
         "the brush button cycles three widths and comes back", len(set(cycle)) == 3 and cycle[0] == cycle[3], str(cycle)
     )
-    page.evaluate("() => { markWidth = 1; syncMarkToggle(); }")
+    set_brush(brush, "medium")
 
     # The loupe: up while a stroke is drawn, holding the print, and gone when it ends.
-    check("no loupe while nothing is drawn", not page.is_visible(".shot .region-loupe"))
+    # LEFT: the magnifier is hidden from assistive technology on purpose, so it
+    # carries no role and no name by design. Its pixels and its box are the claim.
+    overlay = mark.bounding_box()
+    loupe = page.locator(".shot .region-loupe")
+    check("no loupe while nothing is drawn", not loupe.is_visible())
     page.mouse.move(overlay["x"] + 100, overlay["y"] + 130)
     page.mouse.down()
     page.mouse.move(overlay["x"] + 170, overlay["y"] + 190, steps=4)
     check(
         "the loupe is up while a stroke is drawn, and holds the print",
-        page.is_visible(".shot .region-loupe")
-        and page.evaluate("""() => { const l = document.querySelector('.shot .region-loupe');
+        loupe.is_visible()
+        and loupe.evaluate("""(l) => {
             const d = l.getContext('2d').getImageData(0, 0, l.width, l.height).data;
             let lit = 0;
             for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 60) lit += 1;
             return lit > 500; }"""),
     )
     page.mouse.up()
-    check("the loupe goes when the stroke ends", not page.is_visible(".shot .region-loupe"))
+    check("the loupe goes when the stroke ends", not loupe.is_visible())
     # Drawn near the print's own edge, so the clamping has something to do.
     page.mouse.move(overlay["x"] + overlay["width"] - 12, overlay["y"] + overlay["height"] - 12)
     page.mouse.down()
     page.mouse.move(overlay["x"] + overlay["width"] - 6, overlay["y"] + overlay["height"] - 6, steps=3)
     check(
         "the loupe stays inside the print, even at its corner",
-        page.evaluate("""() => { const l = document.querySelector('.shot .region-loupe').getBoundingClientRect();
-            const p = document.querySelector('.shot .pic').getBoundingClientRect();
-            return l.right <= p.right + 1 && l.bottom <= p.bottom + 1 && l.left >= p.left - 1; }"""),
+        loupe.evaluate("""(l) => {
+            const box = l.getBoundingClientRect();
+            const print = document.querySelector('.shot .pic').getBoundingClientRect();
+            return box.right <= print.right + 1 && box.bottom <= print.bottom + 1
+                && box.left >= print.left - 1; }"""),
     )
     page.mouse.up()
     check(
         "the note says the whole marked area is repainted",
+        # LEFT: the note is a paragraph with an id the page publishes.
         "whole marked area is repainted" in page.inner_text("#region-note"),
         page.inner_text("#region-note"),
     )
-    page.click("#mark-clear")
+    page.get_by_role("button", name="Clear every mark").click()
 
     # The template names the region, so a row is a second way to say the same thing rather
     # than the only way, and an empty row writes nothing instead of leaving a clause with
@@ -675,29 +875,37 @@ with sync_playwright() as playwright:
     page.mouse.down()
     page.mouse.move(overlay["x"] + 150, overlay["y"] + 170, steps=4)
     page.mouse.up()
+    # LEFT: the sentence the page composes is printed in a paragraph the page
+    # publishes, and it has no role. Binding it by that sentence would make the
+    # sentence the assertion is about the very thing that finds it.
     preview = page.inner_text("#region-preview")
     check(
         "the template names the region, so the empty row writes nothing",
         not page.is_disabled("#go")
-        and page.locator("#region-rows .region-row").count() == 1
+        and region_rows(page).count() == 1
         and "turn the wall blue in the area marked in <image2>" in preview
         and "area of <image2>" not in preview,
         preview,
     )
-    page.click("#mark-clear")
+    page.get_by_role("button", name="Clear every mark").click()
     page.fill("#prompt", "")
     page.dispatch_event("#prompt", "input")
     # The mask is one more image, so the run costs more per step than the picture
     # alone. A learned rate covers the shape it came from, so it is cleared here:
     # this is about the backend's constants, which a new shape falls back to.
+    # LEFT: the page's own state: the rate it learned, and the estimate that follows.
     page.evaluate("() => { Object.keys(learnedCost).forEach(function (key) { delete learnedCost[key]; }); }")
     before = page.evaluate("() => stepSeconds()")
-    overlay = page.locator(".shot .region-mark").bounding_box()
+    overlay = mark.bounding_box()
+    # The first stroke is the thin one. The second, below, is drawn broad, so the
+    # mask says whether each kept the width it was drawn with.
+    set_brush(brush, "thin")
     page.mouse.move(overlay["x"] + 100, overlay["y"] + 120)
     page.mouse.down()
     page.mouse.move(overlay["x"] + 200, overlay["y"] + 220, steps=6)
     page.mouse.up()
-    covered = page.evaluate("""() => { const c = document.querySelector('.shot .region-mark');
+    # The mark's own canvas, reached by the label it carries.
+    covered = mark.evaluate("""(c) => {
         const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
         let white = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200) white += 1;
         return white; }""")
@@ -711,7 +919,7 @@ with sync_playwright() as playwright:
         before > 0 and after > before * 1.1,
         f"{before:.2f} s per step with no region, {after:.2f} with one",
     )
-    check("one row per marked colour", page.locator("#region-rows .region-row").count() == 1)
+    check("one row per marked colour", region_rows(page).count() == 1)
     # The prompt field stays for a whole-picture instruction, which is only worth
     # asserting if what is typed in it reaches the sentence the page writes.
     page.fill("#prompt", "make it morning")
@@ -723,32 +931,41 @@ with sync_playwright() as playwright:
     )
     page.fill("#prompt", "")
     page.dispatch_event("#prompt", "input")
-    examples = page.evaluate("() => REGION_EXAMPLES")
-    placeholder = page.get_attribute("#region-rows input >> nth=0", "placeholder")
+    # The row offers an example instruction as its placeholder. The set the
+    # example is drawn from is no longer published for a check to read: publishing
+    # it for a test is a hook by another route. So the claim traded down from
+    # membership of the set to the placeholder's own presence and shape.
+    placeholder = region_rows(page).nth(0).get_attribute("placeholder")
     check(
-        "the row's example is one of the mode's own, drawn at random",
-        placeholder.startswith("For example: ") and placeholder[len("For example: ") :] in examples,
+        "the row offers an example instruction as its placeholder",
+        placeholder.startswith("For example: ") and len(placeholder) > len("For example: "),
         placeholder,
     )
-    page.locator("#region-rows input").nth(0).fill("change the cloth to green")
+    region_rows(page).nth(0).fill("change the cloth to green")
     check(
         "the preview shows the sentence the page will send",
         "change the cloth to green in the orange area of <image2>" in page.inner_text("#region-preview"),
         page.inner_text("#region-preview")[-60:],
     )
-    page.locator(".stage-bar .region-tools .swatch").nth(1).click()
+    # The second stroke is drawn broad, where the first was thin. The mask below
+    # says whether each kept the width it was drawn with.
+    set_brush(brush, "broad")
+    page.get_by_role("button", name="Mark in red").click()
     page.mouse.move(overlay["x"] + 240, overlay["y"] + 250)
     page.mouse.down()
     page.mouse.move(overlay["x"] + 330, overlay["y"] + 330, steps=6)
     page.mouse.up()
-    check("a second colour adds its own row", page.locator("#region-rows .region-row").count() == 2)
-    colours_drawn = page.evaluate("() => marks.strokes.map((stroke) => stroke.colour)")
+    check("a second colour adds its own row", region_rows(page).count() == 2)
+    # The swatch colours the next mark and leaves the drawn one alone. The rows
+    # are one per colour, in the palette's own order, so a swatch that repainted
+    # the first stroke would leave one row and not two.
     check(
         "a swatch colours the next mark only",
-        len(colours_drawn) == 2 and colours_drawn[0] != colours_drawn[1],
-        str(colours_drawn),
+        [row.get_attribute("aria-label") for row in region_rows(page).all()]
+        == ["What changes in the orange area?", "What changes in the red area?"],
+        str(page.locator("#region-rows").all_inner_texts()),
     )
-    page.locator("#region-rows input").nth(1).fill("to brass")
+    region_rows(page).nth(1).fill("to brass")
     check(
         "a fragment in a row stops the run with an example",
         page.inner_text("#go-sub").startswith("Write a whole instruction for the red area") and page.is_disabled("#go"),
@@ -756,13 +973,13 @@ with sync_playwright() as playwright:
     )
     # An instruction may open with a preposition and still be a whole one, so the
     # comma is what separates it from a bare phrase.
-    page.locator("#region-rows input").nth(1).fill("in the corner, add a lamp")
+    region_rows(page).nth(1).fill("in the corner, add a lamp")
     check(
         "a whole instruction that opens with a preposition is not a fragment",
         not page.is_disabled("#go") and "Write a whole instruction" not in page.inner_text("#go-sub"),
         page.inner_text("#go-sub"),
     )
-    page.locator("#region-rows input").nth(1).fill("change the handle to brass")
+    region_rows(page).nth(1).fill("change the handle to brass")
     sent = {}
     page.on("request", lambda request: sent.update(parse_post(request)) if "/generate" in request.url else None)
     page.click("#go")
@@ -790,6 +1007,19 @@ with sync_playwright() as playwright:
         mask_alpha(references[-1]) == {255},
         str(sorted(mask_alpha(references[-1]))),
     )
+    # Each stroke kept the width it was drawn with: the first was drawn thin and
+    # the second broad, and the mask holds the area each one painted. The strokes
+    # are 100 and 90 client pixels long and a twentieth against an eighth of the
+    # image wide, so the broad one paints about seven times the area. The bar is
+    # a third of that, and a brush that repainted the first stroke would leave the
+    # two counting alike.
+    thin_pixels = mask_colour_pixels(references[-1], (226, 118, 30))
+    broad_pixels = mask_colour_pixels(references[-1], (226, 56, 31))
+    check(
+        "each stroke keeps the width it was drawn with",
+        thin_pixels > 0 and broad_pixels > thin_pixels * 2,
+        f"{thin_pixels} px painted by the thin stroke, {broad_pixels} px by the broad one",
+    )
     sent_prompt = sent.get("prompt", "")
     check(
         "the prompt names each area by its colour, and pins the rest",
@@ -803,33 +1033,35 @@ with sync_playwright() as playwright:
     # A mark belongs to the picture it was drawn on, so the run's result took the
     # brush away. Bring it back on the frame the result came from.
     page.get_by_role("button", name="Edit this", exact=True).click()
-    page.wait_for_selector(".shot .region-mark", timeout=10000)
+    mark.wait_for(state="visible", timeout=10000)
     # A marked edit result is also the frame a divided view shows, and the divider
     # covers the whole print, so the two cannot both take the drag. The brush steps
     # the divided view aside rather than leaving a control that cannot be used.
+    # LEFT: the divider itself is a div with an icon in it and no role.
     check(
         "the divided view steps aside while the brush is on the print",
-        not page.is_visible(".shot .compare-range")
-        and not page.is_visible(".shot .divider")
-        and page.locator(".shot .region-mark").count() == 1,
+        not page.get_by_label("Compare before and after").is_visible()
+        and not page.locator(".shot .divider").is_visible()
+        and mark.count() == 1,
     )
-    overlay = page.locator(".shot .region-mark").bounding_box()
+    overlay = mark.bounding_box()
     page.mouse.move(overlay["x"] + 120, overlay["y"] + 140)
     page.mouse.down()
     page.mouse.move(overlay["x"] + 240, overlay["y"] + 260, steps=6)
     page.mouse.up()
-    page.locator("#region-rows input").nth(0).fill("change the cloth to linen")
-    check("a region is back, with its row", page.locator("#region-rows .region-row").count() == 1)
+    region_rows(page).nth(0).fill("change the cloth to linen")
+    check("a region is back, with its row", region_rows(page).count() == 1)
 
     # Clear recomputes the rows and both buttons, not only the strokes. The list on
     # screen and the buttons' own state both read the stroke count.
-    page.click("#mark-clear")
+    page.get_by_role("button", name="Clear every mark").click()
     check(
         "Clear takes the rows and both buttons with it",
-        page.locator("#region-rows .region-row").count() == 0
+        region_rows(page).count() == 0
+        # LEFT: `#region-field` is a container the page publishes with an id.
         and page.is_hidden("#region-field")
-        and page.is_disabled("#mark-undo")
-        and page.is_disabled("#mark-clear"),
+        and page.get_by_role("button", name="Take back the last mark").is_disabled()
+        and page.get_by_role("button", name="Clear every mark").is_disabled(),
     )
 
     # The region token is the page's to fill, and it needs a region to fill it
@@ -845,7 +1077,7 @@ with sync_playwright() as playwright:
     page.mouse.down()
     page.mouse.move(overlay["x"] + 240, overlay["y"] + 260, steps=6)
     page.mouse.up()
-    page.locator("#region-rows input").nth(0).fill("change the cloth to linen")
+    region_rows(page).nth(0).fill("change the cloth to linen")
     check(
         "the token becomes the mask's own image number",
         "[the region you marked]" not in page.inner_text("#region-preview")
@@ -862,6 +1094,8 @@ with sync_playwright() as playwright:
     )
     # The card holds the user's own words. Reading back the sentence the page
     # composed around the region rows is what made a run look rewritten.
+    # LEFT: the caption again. It is a control once it is cut, so a role binding
+    # would have to name the very words this reads back.
     caption = page.locator(".prompt-line").first.inner_text()
     check(
         "the card keeps the user's words, not the composed sentence",
@@ -874,17 +1108,18 @@ with sync_playwright() as playwright:
     # change was asked for, so the card holds the sentence the page wrote for a
     # reader, without the number of the image carrying the mask.
     page.get_by_role("button", name="Edit this", exact=True).click()
-    page.wait_for_selector(".shot .region-mark", timeout=10000)
+    mark.wait_for(state="visible", timeout=10000)
     page.fill("#prompt", "")
     page.dispatch_event("#prompt", "input")
-    overlay = page.locator(".shot .region-mark").bounding_box()
+    overlay = mark.bounding_box()
     page.mouse.move(overlay["x"] + 120, overlay["y"] + 140)
     page.mouse.down()
     page.mouse.move(overlay["x"] + 240, overlay["y"] + 260, steps=6)
     page.mouse.up()
-    page.locator("#region-rows input").nth(0).fill("change the cloth to linen")
+    region_rows(page).nth(0).fill("change the cloth to linen")
     page.click("#go")
     wait_idle(page)
+    # LEFT: the caption again.
     caption = page.locator(".prompt-line").first.inner_text()
     check(
         "a rows-only run's card holds the sentence the page wrote, without the mask's number",
@@ -908,39 +1143,37 @@ with sync_playwright() as playwright:
     # takes the row with it, so a region drawn again in that colour starts clean
     # instead of inheriting an instruction for a picture it was never about.
     page.get_by_role("button", name="Edit this", exact=True).click()
-    page.wait_for_selector(".shot .region-mark", timeout=10000)
-    overlay = page.locator(".shot .region-mark").bounding_box()
+    mark.wait_for(state="visible", timeout=10000)
+    overlay = mark.bounding_box()
     page.mouse.move(overlay["x"] + 120, overlay["y"] + 140)
     page.mouse.down()
     page.mouse.move(overlay["x"] + 240, overlay["y"] + 260, steps=6)
     page.mouse.up()
-    page.locator("#region-rows input").nth(0).fill("change the cloth to linen")
-    page.locator("#strip .frame").nth(1).click()
+    region_rows(page).nth(0).fill("change the cloth to linen")
+    frames(page).nth(1).click()
     check(
         "leaving the marked frame drops the mark, takes the row and says so",
-        page.locator("#region-rows .region-row").count() == 0
-        and page.locator(".toast").count() >= 1
-        and page.evaluate("() => Object.keys(regionText).length") == 0,
-        str(page.evaluate("() => regionText")),
+        region_rows(page).count() == 0 and page.locator("#toasts").inner_text().strip() != "",
+        str(page.locator("#region-rows").all_inner_texts()),
     )
 
     # Two references: the mask would mark a region of the first image while the
     # prompt names only the mask, and which picture owns the region is untested,
     # so the tool steps aside rather than guess.
-    page.locator("#strip .frame").first.click()
+    frames(page).first.click()
     page.get_by_role("button", name="Edit this", exact=True).click()
-    page.wait_for_selector(".shot .region-mark", timeout=10000)
-    check("the brush is back for the one-reference edit", page.locator(".shot .region-mark").count() == 1)
+    mark.wait_for(state="visible", timeout=10000)
+    check("the brush is back for the one-reference edit", mark.count() == 1)
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Use as reference").click()
-    check("the brush steps aside with two references", page.locator(".shot .region-mark").count() == 0)
+    check("the brush steps aside with two references", mark.count() == 0)
 
     # Run empties the form, and Cancel puts it back. The region is part of what
     # comes back: a marked run is the one case where the input is also a drawing,
     # and losing it means drawing it again.
-    page.locator("#strip .frame").first.click()
+    frames(page).first.click()
     page.get_by_role("button", name="Edit this", exact=True).click()
-    page.wait_for_selector(".shot .region-mark", timeout=10000)
+    mark.wait_for(state="visible", timeout=10000)
     steps_default = page.input_value("#steps")
     steps_max = page.evaluate("() => document.getElementById('steps').max")
     check("the steps default differs from the top of its range", steps_max != steps_default, steps_default)
@@ -951,16 +1184,16 @@ with sync_playwright() as playwright:
     page.dispatch_event("#steps", "input")
     page.click("#count-toggle")
     page.get_by_role("menuitemradio", name="2 images").click()
-    overlay = page.locator(".shot .region-mark").bounding_box()
+    overlay = mark.bounding_box()
     page.mouse.move(overlay["x"] + 80, overlay["y"] + 90)
     page.mouse.down()
     page.mouse.move(overlay["x"] + 180, overlay["y"] + 190, steps=6)
     page.mouse.up()
-    page.locator("#region-rows input").nth(0).fill("change the sky to dusk")
+    region_rows(page).nth(0).fill("change the sky to dusk")
     check(
         "the form is set up for a run",
-        page.locator("#thumbs .thumb").count() == 1
-        and page.locator("#region-rows .region-row").count() == 1
+        page.locator("#thumbs").get_by_role("img").count() == 1
+        and region_rows(page).count() == 1
         and page.input_value("#count") == "2",
     )
 
@@ -977,17 +1210,18 @@ with sync_playwright() as playwright:
     )
     check(
         "Run takes the references and the region with it",
-        page.locator("#thumbs .thumb").count() == 0
-        and page.locator(".shot .region-mark").count() == 0
-        and page.locator("#region-rows .region-row").count() == 0,
+        page.locator("#thumbs").get_by_role("img").count() == 0
+        and mark.count() == 0
+        and region_rows(page).count() == 0,
     )
 
+    # LEFT: the progress card's percentage again.
     page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
     page.click("#go")
     check(
         "Cancel reads Stopping while it stops",
-        page.inner_text("#go .main") == "Stopping…",
-        page.inner_text("#go .main"),
+        page.get_by_role("button", name=STOPPING).count() == 1,
+        page.get_by_role("button", name=STOPPING).inner_text(),
     )
     wait_idle(page)
     check(
@@ -1000,20 +1234,28 @@ with sync_playwright() as playwright:
     )
     check(
         "Cancel puts the settings and the reference back",
-        page.input_value("#steps") == steps_max and page.locator("#thumbs .thumb").count() == 1,
-        f"steps {page.input_value('#steps')} against {steps_max}, thumbs {page.locator('#thumbs .thumb').count()}",
+        page.input_value("#steps") == steps_max and page.locator("#thumbs").get_by_role("img").count() == 1,
+        f"steps {page.input_value('#steps')} against {steps_max}, "
+        f"thumbs {page.locator('#thumbs').get_by_role('img').count()}",
     )
+    # The row is back with its instruction in it, which is the region: a row is
+    # drawn for each colour a stroke was drawn in, so a row means a stroke. The
+    # composed sentence is read too, because the row's text is what it is built
+    # from and a row that came back empty would pass on the row alone.
     check(
         "Cancel puts the region and its instruction back",
-        page.locator(".shot .region-mark").count() == 1
-        and page.evaluate("() => Boolean(marks && marks.strokes.length)")
-        and page.locator("#region-rows input").nth(0).input_value() == "change the sky to dusk",
-        page.evaluate("() => (marks ? marks.strokes.length : -1)"),
+        mark.count() == 1
+        and region_rows(page).nth(0).input_value() == "change the sky to dusk"
+        and "change the sky to dusk in the orange area" in page.inner_text("#region-preview"),
+        page.inner_text("#region-preview")[-70:],
     )
 
     # Leave the form as it was found: the mode switch clears the references, and
     # the checks after this one start from an empty edit.
     page.click("label[for=mode-generate]")
+    # LEFT: the theme is a data attribute on the document, not a role. The whole
+    # theme block below reads it the same way, and reads the custom properties it
+    # drives, which is computed style.
     check("Kodak is the default theme", page.evaluate("document.documentElement.dataset.theme") == "kodak")
     page.click("#theme-toggle")
     page.get_by_role("menuitemradio", name="Darkroom").click()
@@ -1063,15 +1305,24 @@ with sync_playwright() as playwright:
     fresh.goto(f"http://127.0.0.1:{PORT}/")
     check("a new tab keeps Darkroom", fresh.evaluate("document.documentElement.dataset.theme") is None)
     fresh.close()
-    for frame in page.locator("#strip .frame").all():
+    for frame in frames(page).all():
         frame.click()
+        # LEFT: the caption again.
         if page.inner_text(".prompt-line").startswith("A ceramic teapot"):
             break
-    check("a caption that fits is plain text", page.get_attribute(".prompt-line", "role") is None)
+    # A caption the page does not cut stays a paragraph. A role of its own is what
+    # it gains when the page turns it into a control. `#stage-bar` is the id the
+    # page publishes for the bar, and it is not in the design's contract.
+    check(
+        "a caption that fits is plain text",
+        page.locator("#stage-bar").get_by_role("paragraph").count() == 1,
+    )
     page.set_viewport_size({"width": 390, "height": 844})
     time.sleep(0.5)
+    # LEFT: a scroll width.
     width = page.evaluate("document.documentElement.scrollWidth")
     check("phone has no sideways scroll", width <= 390, str(width))
+    # LEFT: the summary line's spans and where each one sits on the line.
     rows = page.evaluate("""() => [...document.querySelectorAll('.facts span:not(.break)')]
         .map(fact => [fact.innerText, Math.round(fact.getBoundingClientRect().top)])""")
     seed = next(index for index, (text, _) in enumerate(rows) if text.startswith("Seed"))
@@ -1081,41 +1332,51 @@ with sync_playwright() as playwright:
         abs(rows[0][1] - rows[seed][1]) <= 4 and rows[seed + 1][1] == rows[-1][1] > rows[seed][1] + 8,
         str(rows),
     )
-    caption = page.locator(".prompt-line")
+    # The caption is a control here, so it names itself with the prompt it holds.
+    caption = page.get_by_role("button", name=re.compile("^A ceramic teapot"))
+    sheet = page.get_by_role("region", name="The whole prompt")
     check("a caption the phone cuts becomes a toggle", caption.get_attribute("aria-expanded") == "false")
+    # LEFT: the print's own box.
     print_box = page.locator(".pic").bounding_box()
     caption.click()
     check(
         "a click opens the whole prompt over the print",
         caption.get_attribute("aria-expanded") == "true"
-        and page.inner_text(".sheet dd").startswith("A ceramic teapot")
-        and "Overcast sky" in page.inner_text(".sheet"),
-        page.inner_text(".sheet"),
+        # The sheet holds one definition per line it prints, and the prompt leads.
+        and sheet.get_by_role("definition").first.inner_text().startswith("A ceramic teapot")
+        and "Overcast sky" in sheet.inner_text(),
+        sheet.inner_text(),
     )
+    # LEFT: the print's own box again.
     check("the print does not move", page.locator(".pic").bounding_box() == print_box)
-    check("focus goes to Close", page.evaluate("document.activeElement.getAttribute('aria-label')") == "Close")
+    check(
+        "focus goes to Close",
+        page.get_by_role("button", name="Close").evaluate("el => el === document.activeElement"),
+    )
     page.keyboard.press("Escape")
     check(
         "Escape closes it and gives focus back to the label",
-        page.locator(".sheet").count() == 0
+        sheet.count() == 0
         and caption.get_attribute("aria-expanded") == "false"
-        and page.evaluate("document.activeElement.classList.contains('prompt-line')"),
+        and caption.evaluate("el => el === document.activeElement"),
     )
     caption.press("Enter")
-    check("Enter opens it", page.locator(".sheet").count() == 1)
+    check("Enter opens it", sheet.count() == 1)
     page.get_by_role("button", name="Close").click()
     page.screenshot(path=OUT + "5-phone.png")
     page.evaluate("window.scrollTo(0, 560)")
     page.screenshot(path=OUT + "6-phone-form.png")
     page.set_viewport_size({"width": 1440, "height": 900})
 
-    page.click("#clear-gallery")
-    check("clear empties the strip", page.locator("#strip .frame").count() == 0)
+    page.get_by_role("button", name="Clear all").click()
+    check("clear empties the strip", frames(page).count() == 0)
     page.click("label[for=mode-edit]")
     check("edit empty offers a picker", button(page, "Choose an image").is_visible())
     check("no leave warning after clear", not leave_blocked(page))
 
     # Reduced motion: nothing animates
+    # LEFT: the page's own state, in the mark's own markup, and the animation names
+    # computed style reports. A probe built inside the page has no role to bind.
     page.emulate_media(reduced_motion="reduce")
     animated = page.evaluate("""() => {
         const probe = document.createElement('div');
@@ -1129,6 +1390,7 @@ with sync_playwright() as playwright:
     }""")
     check("reduced motion stops every animation", all(name == "none" for name in animated), str(animated))
     page.emulate_media(reduced_motion="no-preference")
+    # LEFT: the same probe, with the animation it names.
     normal = page.evaluate("""() => {
         const probe = document.createElement('div');
         probe.innerHTML = '<div class="frame arrive"></div>';
@@ -1174,6 +1436,8 @@ with sync_playwright() as playwright:
     )
     page.click("#go")
     wait_idle(page)
+    # LEFT: the page's own state: the words a frame was made from, kept apart from
+    # the prompt the run was given.
     kept = page.evaluate("() => { const e = gallery[gallery.length - 1]; return e ? [e.typed, e.prompt] : null; }")
     check(
         "the card keeps the words you typed, apart from the rewritten prompt",
@@ -1186,6 +1450,8 @@ with sync_playwright() as playwright:
     # sent a run with no prompt, no mode and no size.
     posted = {}
     page.on("request", lambda request: posted.update(parse_post(request)) if "/generate" in request.url else None)
+    # The field is a contract id. `setSelect` is the page's own setter, and setting
+    # the select directly would not run what the page runs when a size changes.
     page.evaluate("setSelect(document.getElementById('size'), '512x512')")
     page.fill("#prompt", "a cat")
     page.dispatch_event("#prompt", "input")
