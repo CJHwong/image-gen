@@ -10,6 +10,10 @@ One model fits in memory at a time. A second job on the GPU makes every timing w
 2. Run your own server on another port. Stop it when you finish.
 3. Run one GPU job at a time. If a timing ran next to another GPU job, discard it and measure again.
 4. If a change touches only the page, run `uv run studio --stub --port <port>`. The stub keeps each backend's form and fakes the engine, so it uses no GPU and the user's server can keep running. A change to a backend or its engine still needs the real model. The server reads `page.html` once at start, so restart the stub after an edit to the page, or it keeps serving the old one.
+5. Run the real check against the tree you verified, and nothing else. Confirm the served files' digests match the ones you measured. Two runs died against a revision that was never under test.
+6. Never pipe a check through a filter when you need its status. `| grep` makes the exit code the filter's, so a traceback reads as a pass.
+7. Take the digest of what you measured at the same moment as the measurement, or bracket the run with it. A digest sampled later is not evidence about the bytes under test. One such digest belonged to a revision another worker's mutation script had rewritten, and the difference was reported as a flaky check that did not exist.
+8. The whole web/ tree is CPU work. Slices of it, and the UI suite, need no GPU: only `verify_page.py` does, because it generates and edits real images and asserts on their pixels.
 
 ## Backend flow
 

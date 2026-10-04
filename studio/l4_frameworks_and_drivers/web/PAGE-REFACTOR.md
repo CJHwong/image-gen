@@ -92,6 +92,10 @@ Fifteen files for 3,085 lines. The cost is not spread evenly: the region canvas
 is about 515 lines and the gallery about 630, so more than a third of the
 JavaScript sits in two components. Plan the effort there.
 
+`lib/htmx.js` is the one file in that tree no slice has written. The run
+wiring's state is what `verify_page.py` drives, so it stays in the page until
+the last slice. Slice 9 says why.
+
 `theme.js` is not the early script. An inline script runs before the first paint, and an ES module is deferred, so the read of the saved theme stays inline in `page.html` and `theme.js` holds the menu. Moving that read out brings the flash back, and no check in this repo can see it.
 
 ## The door between a component and the classic script
@@ -256,6 +260,12 @@ changed behaviour, not structure.
    `#rewrite-toggle`, `#templates-toggle`, `#count-toggle`, `#theme-toggle`,
    `#guide-toggle`, `#advanced`, `#look-rows`, `#region-rows`, `#guide-sheet`,
    `#templates`, `#backend-menu`, `#theme-menu`, `#count-menu`, `#more-menu`.
+
+Some of those ids are drawn by a component rather than written in the markup, and the list
+must not be read as an inventory of `page.html`. `#thumbs` is one: the reference list draws
+it, so the id is pinned on what the component renders, not on a line in the file. It was
+listed here as though the markup carried it, which sends a reader looking in the wrong
+place. `#counter` is the one entry that must keep NOT existing.
 
    Fifteen more are pinned by the same checks and were missing from this list.
    `verify_ui.py` and `verify_page.py` reach every one of them, so a slice that
@@ -439,6 +449,99 @@ image and another tab's message all write the array, and the last two are slice
 9's; the page mirrors it into the store, as it does the references. The progress
 card's internals, `.plate` and `.exposure`, are htmx's and slice 9's, and this
 slice only kept them where they were.
+
+### Slice 9: the kept images, the toasts, the progress shell and the run wiring
+
+The kept images moved to `lib/store.js` and the toasts to
+`components/toast-host.js`. The progress shell moved to
+`components/progress-card.js`.
+
+The store owns the database and the channel. Two things stayed in the page, and
+both are read before a deferred module can be fetched: the keep setting, which
+the strip note and the leave warning read while the page is still parsing, and
+the gallery array, which a run's answer lands in. The module rebuilds an entry
+from a record and the page files it, because the array is the page's.
+
+`#toasts` is the `<toast-host>` element itself, with the id and the `role` a
+query reaches it by. A toast is a tree drawn from a list of messages, and the
+list is the element's own: no consumer outside it reads the list, so it is not a
+store field.
+
+The progress card is behaviour and not a tree. `paint` reads the plate's offset
+back between clearing its rewind class and putting it on, and the card is fitted
+from its own box in the same task that builds it. Lit renders a microtask later,
+so a Lit card would show the drop instead of the sweep, and `fitStage` would
+measure a plate that is not there yet.
+
+htmx keeps `#progress`. The poll swaps the children of that element, and those
+children carry the next `hx-get`. A render root over that subtree would take the
+loop with it and a run would stop reporting. The card is drawn in `#canvas`,
+beside it, and the module never touches `#progress`.
+
+The run wiring stayed in the page, and `lib/htmx.js` was not written. Nine of
+the ten names `verify_page.py` reads out of the page's global scope are the
+run's own: `runStartedAt`, `progressState`, `renderProgress`, `learnedCost`,
+`costKey`, `stepSeconds`, `view`, `gallery` and `renderStrip`. That check drives
+them directly and it is frozen for this refactor, so a piece of the wiring that
+writes one of them cannot move without leaving a setter behind for it. The
+estimate, the form snapshot and the harvest each write one. They move in slice
+10, or after the check converts. The ten were ruled on straight after this
+slice, and seven have converted: see "The ten reads `verify_page.py` makes out
+of the page" below.
+
+Two rules came out of it.
+
+1. **A module's door fires in the order the module tags are written, and a later
+   module can toast what it finds.** The store's first job is to read the kept
+   images back, and it says so through the page's own `showToast`. That is safe
+   only because `toast-host.js` is declared before `store.js`. No message is
+   sent before the host is here, and that is measured rather than assumed: with
+   every module held back half a second, which is the worst a cold load does,
+   the message still arrives and no page error is raised. Reordering those two
+   tags breaks it.
+2. **A check that pokes a page global becomes a check that breaks a browser
+   fact.** `verify_ui.py` cleared the page's IndexedDB promise to reach the
+   open failure. The store is opened once and held, so after the first moment
+   that failure is unreachable anyway. The check now breaks the transaction on
+   the handle the page already holds, which reaches the same message and needs
+   no page global.
+
+The suite grew three checks. Two make this tab the receiving side of the
+channel, which every check before had as the acting side: the keep setting is
+changed in the other tab and this one has to follow, once each way. The third
+reads the progress card on the stub, because `verify_page.py` is the only check
+that read it before and that one needs a real model: the plate, the exposure and
+the percentage, with the exposure asserted against the percentage the card shows
+rather than against a number.
+
+### The ten reads `verify_page.py` makes out of the page
+
+They were ruled on after slice 9, as a task of its own, because slice 10 cannot
+move the run wiring while the net holds a name the page owns. Seven convert onto
+a DOM fact the page already reads, and each one asserts the same or more:
+
+| Read | The DOM fact that replaces it |
+|---|---|
+| `view` | the `aria-label` of the frame the strip marks selected, which the design pins |
+| `setSelect` | the megapixel button under `#tier-sizes`, which is also the control a held panel blocks |
+| `progressState`, `renderProgress` | the `.progress-state` element the poll writes and the page's observer reads |
+| `runStartedAt` | `#go`'s `data-started`, published beside the run state the button already carries |
+| `renderStrip` | a redraw from a DOM action: showing the frame already on the stage |
+| `gallery` | the caption under the print, and what Reuse prompt hands back |
+
+`renderProgress`, `runStartedAt` and `view` stop being names the check reads at
+all, which is better than converting them.
+
+Three stay: `learnedCost`, `costKey` and `stepSeconds`. The only DOM fact that
+carries them is the estimate sentence under the run button, and in the state
+those checks read it, the prompt is empty and the button shows a blocker
+sentence instead. An exact rate traded for a rounded sentence that is not on
+screen asserts less, so the three stay in the page.
+
+The conversions were proved without a GPU: `verify_page.py` runs against the
+stub at 179 of 180, and the one check it cannot make there is the mask's colour
+at the reference's size, which needs real pixels. So a change to this net can be
+checked in seconds before it costs a run, with the run left to prove the engine.
 
 ## Non-goals
 

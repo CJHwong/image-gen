@@ -195,6 +195,43 @@ def frames(page):
     return page.get_by_role("button", name=FRAME)
 
 
+def shown_frame(page):
+    """The frame on the stage, by the label the strip gives the frame it shows.
+
+    The page holds the shown frame as an index of its own. The strip carries the
+    same identity in the `aria-label` of the frame it marks selected, and that
+    label is the one the design pins, so the claim reads from the DOM.
+    """
+    return page.locator("#strip .frame.selected").get_attribute("aria-label")
+
+
+def set_phase(page, stage, step, total, label="", stopping=False):
+    """Put the run into a phase, the way the server puts it there.
+
+    The poll swaps a `.progress-state` element into `#progress`, and the page's
+    own observer reads its attributes and repaints. So a check that needs a
+    phase writes that element, which is the input the page already consumes, and
+    the page draws itself. The element is replaced rather than rewritten, and
+    the poller stays where it is: the observer watches for children, and taking
+    the poller out would stop the run reporting.
+    """
+    page.evaluate(
+        """([stage, step, total, label, stopping]) => {
+             const slot = document.getElementById('progress');
+             const old = slot.querySelector('.progress-state');
+             const node = document.createElement('div');
+             node.className = 'progress-state';
+             node.dataset.stage = stage;
+             node.dataset.step = step;
+             node.dataset.total = total;
+             node.dataset.label = label;
+             node.dataset.stopping = stopping ? '1' : '0';
+             if (old) old.replaceWith(node); else slot.append(node);
+           }""",
+        [stage, step, total, label, stopping],
+    )
+
+
 def toggle_look(page, row, label):
     """Open the Look row, then pick or unpick the option. A pick closes the row again.
 
@@ -414,10 +451,13 @@ with sync_playwright() as playwright:
     # Before the first step the estimate is the only number and it never moves, so the
     # reading phase says how long it has been reading instead: a slow engine then looks
     # alive rather than frozen.
-    # LEFT: the page's own state. Naming it is the only way to put the page in the
-    # phase this reads, and the design's contract does not name it.
-    page.evaluate("""() => { runStartedAt = Date.now() - 95000;
-        progressState = {stage: 'running', step: 0, total: 20}; renderProgress(); }""")
+    # The phase is set the way the server sets it, as the `.progress-state`
+    # element the poll swaps in, so the page repaints from its own observer and
+    # nothing here calls the page's drawing. The run's start is the page's own
+    # state and the run button publishes it, so that is where a check that needs
+    # the page 95 seconds into its reading phase writes it.
+    page.evaluate("() => { document.getElementById('go').dataset.started = String(Date.now() - 95000); }")
+    set_phase(page, "running", 0, 20)
     reading = page.inner_text("#status")
     check(
         "the reading phase counts the time it has been reading",
@@ -426,15 +466,17 @@ with sync_playwright() as playwright:
     )
     # A stop that has not landed yet says when it will, because an engine inside this
     # process can only stop where it looks, and before the first step there is nothing.
-    # LEFT: the page's own state, and the class it keeps that state in.
-    page.evaluate("""() => { document.body.classList.add('stopping'); renderProgress(); }""")
+    # The body's class is the page's own state for a stop, and writing the
+    # phase again is what a poll does, so the page repaints with the class on.
+    page.evaluate("() => { document.body.classList.add('stopping'); }")
+    set_phase(page, "running", 0, 20)
     check(
         "a stop before the first step says when it lands",
         page.inner_text("#status").startswith("Stopping when the first step arrives"),
         page.inner_text("#status"),
     )
-    # LEFT: the page's own state again.
-    page.evaluate("""() => { progressState = {stage: 'running', step: 3, total: 20}; renderProgress(); }""")
+    # The same phase, one step further on.
+    set_phase(page, "running", 3, 20)
     check(
         "a stop after a step says it lands at the end of that step",
         page.inner_text("#status").startswith("Stopping at the end of this step"),
@@ -568,8 +610,11 @@ with sync_playwright() as playwright:
     frames(page).nth(1).click()
     # LEFT: the pencil loop is an SVG drawn inside the shown frame, with no role.
     check("picking a frame draws the pencil loop", page.locator("#strip .frame.selected .mark.draw").count() == 1)
-    # LEFT: the page's own redraw entry point.
-    page.evaluate("renderStrip()")
+    # The strip draws its frames again whenever the gallery it reads changes, and
+    # picking the frame already on the stage is one of those times: the page
+    # shows it again and the element draws its tree again. The loop belongs to
+    # the pick, so the second draw does not repeat it.
+    frames(page).nth(1).click()
     check(
         "a redraw does not draw it again",
         page.locator("#strip .frame.selected .mark.draw").count() == 0
@@ -641,13 +686,14 @@ with sync_playwright() as playwright:
     )
     page.evaluate("() => document.querySelectorAll('#strip .frame.clone').forEach((node) => node.remove())")
 
-    # LEFT: the page's own state, which is the index of the frame on the stage.
+    # The shown frame is read from the strip's own label for it, so the check
+    # binds to the accessible name the design pins and not to a page global.
     page.mouse.click(200, 200)
-    first = page.evaluate("view")
+    first = shown_frame(page)
     page.keyboard.press("ArrowRight")
-    check("ArrowRight steps outside full screen", page.evaluate("view") != first)
+    check("ArrowRight steps outside full screen", shown_frame(page) != first)
     page.keyboard.press("ArrowLeft")
-    check("ArrowLeft steps back outside full screen", page.evaluate("view") == first)
+    check("ArrowLeft steps back outside full screen", shown_frame(page) == first)
 
     # Full screen
     page.keyboard.press("f")
@@ -655,11 +701,11 @@ with sync_playwright() as playwright:
     # LEFT: the element the browser hands to full screen is the page's own pane,
     # and the browser reports it as a node rather than as a role.
     check("F enters full screen", page.evaluate("document.fullscreenElement === document.querySelector('.work')"))
-    first = page.evaluate("view")
+    first = shown_frame(page)
     page.keyboard.press("ArrowRight")
-    check("ArrowRight shows the next frame", page.evaluate("view") != first)
+    check("ArrowRight shows the next frame", shown_frame(page) != first)
     page.keyboard.press("ArrowLeft")
-    check("ArrowLeft goes back", page.evaluate("view") == first)
+    check("ArrowLeft goes back", shown_frame(page) == first)
     page.screenshot(path=OUT + "2b-fullscreen.png")
     # The binding here is a role with a name, and it resolves without the
     # stylesheet. The reach does not: with the stylesheet refused, the fullscreen
@@ -1485,13 +1531,21 @@ with sync_playwright() as playwright:
     rewrite = rewrite_prompt(page, button, typed)
     page.click("#go")
     wait_idle(page)
-    # LEFT: the page's own state: the words a frame was made from, kept apart from
-    # the prompt the run was given.
-    kept = page.evaluate("() => { const e = gallery[gallery.length - 1]; return e ? [e.typed, e.prompt] : null; }")
+    # The card's own record of the run is what it shows. The caption under the
+    # print reads back the prompt the model was given, and Reuse prompt hands
+    # back the words that were typed before the rewrite replaced them.
+    # LEFT: the caption has no role it keeps. It is a paragraph until it is cut
+    # to two lines and a button after, so the one element that carries the whole
+    # prompt is bound by its own class here, as it is above.
+    on_the_card = page.locator("#stage-bar .prompt-line").inner_text()
+    page.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Reuse prompt").click()
+    time.sleep(0.25)
+    typed_back = page.input_value("#prompt")
     check(
         "the card keeps the words you typed, apart from the rewritten prompt",
-        bool(kept) and kept[0] == typed and kept[1] == rewrite["prompt"].strip(),
-        f"typed={kept[0]!r} sent={kept[1][:40]!r}" if kept else "no gallery entry",
+        typed_back == typed and on_the_card == rewrite["prompt"].strip(),
+        f"typed={typed_back!r} sent={on_the_card[:40]!r}",
     )
 
     # The check that would have caught a panel locked with `disabled`. A disabled
@@ -1499,9 +1553,11 @@ with sync_playwright() as playwright:
     # sent a run with no prompt, no mode and no size.
     posted = {}
     page.on("request", lambda request: posted.update(parse_post(request)) if "/generate" in request.url else None)
-    # The field is a contract id. `setSelect` is the page's own setter, and setting
-    # the select directly would not run what the page runs when a size changes.
-    page.evaluate("setSelect(document.getElementById('size'), '512x512')")
+    # The size is picked the way a person picks it, on the button that names its
+    # megapixels. That is the setter the page runs when a size changes, and it is
+    # also the stronger claim: a panel left held puts `pointer-events: none` on
+    # that button, so a click that does not land is the failure this guards.
+    page.locator("#tier-sizes").get_by_role("button", name="0.3 MP", exact=True).click()
     page.fill("#prompt", "a cat")
     page.dispatch_event("#prompt", "input")
     page.click("#go")
@@ -1518,3 +1574,4 @@ with sync_playwright() as playwright:
 
 failed = [name for name, passed, _ in results if not passed]
 print(f"\n{len(results) - len(failed)}/{len(results)} passed", "FAILED: " + ", ".join(failed) if failed else "")
+sys.exit(1 if failed else 0)

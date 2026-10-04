@@ -26,6 +26,9 @@
 <script type="module" src="/page/components/reference-list.js"></script>
 <script type="module" src="/page/components/region-mark.js"></script>
 <script type="module" src="/page/components/image-strip.js"></script>
+<script type="module" src="/page/components/toast-host.js"></script>
+<script type="module" src="/page/components/progress-card.js"></script>
+<script type="module" src="/page/lib/store.js"></script>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <link rel="stylesheet" href="/page/page.css">
 </head>
@@ -81,7 +84,10 @@
     <section class="stage">
       <div class="canvas" id="canvas"></div>
       <div class="stage-bar" id="stage-bar" hidden></div>
-      <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+      <!-- The messages are components/toast-host.js, which draws them from its
+           own list. The host stays `#toasts`, with the role a query reaches it
+           by and the polite live region it already had. -->
+      <toast-host class="toasts" id="toasts" role="status" aria-live="polite"></toast-host>
     </section>
 
     <section class="strip-wrap" id="strip-wrap" hidden>
@@ -1062,9 +1068,12 @@
       redraw: renderStrip,
       renderStage: renderStage,
       release: release,
-      forget: forget,
+      // The ways out of the gallery ask the store to forget the image. The
+      // store's handle is not here yet when the strip's is: two modules, two
+      // doors, and no order between them, so this asks through the page.
+      forget: function (work, message) { kept.forget(work, message); },
       notify: showToast,
-      keptFields: function () { return KEPT_FIELDS; },
+      keptFields: function () { return kept.fields(); },
       keeping: function () { return keeping; },
     });
   });
@@ -1115,7 +1124,7 @@
         if (runLook.labels.length) entry.look = runLook;
       }
       gallery.unshift(entry);
-      keepEntry(entry);
+      kept.keep(entry);
       arrivedId = entry.id;
       if (view !== 'progress') view = entry.id;
       node.remove();
@@ -1210,13 +1219,9 @@
       stageBar.innerHTML = '';
       stageBar.hidden = false;
       stageBar.classList.add('reserved');
-      const card = document.createElement('div');
-      card.className = 'card';
-      const now = progressNow();
-      paintPlate(card, now.running, now.percent);
-      card.innerHTML = '<div class="plate"><div class="exposure"></div><span class="percent num"></span></div>'
-        + '<div class="edge"><span>' + EDGE_NAME + '</span><span>' + frameNumber(nextId) + '</span></div>';
-      canvas.append(card);
+      // The card is components/progress-card.js. htmx keeps `#progress`, the
+      // element the poll swaps, and that module draws this and never touches it.
+      progressCard.mount(canvas, EDGE_NAME, frameNumber(nextId));
       fitStage();
       renderProgress();
       return;
@@ -1629,7 +1634,7 @@
   // An image made in this tab carries its base64. A kept one reads it from its
   // blob only when it is used, so a long strip does not hold every image twice.
   function referFrom(entry) {
-    const ready = entry.b64 ? Promise.resolve(entry.b64) : blobOf(entry.src).then(function (blob) {
+    const ready = entry.b64 ? Promise.resolve(entry.b64) : kept.blobOf(entry.src).then(function (blob) {
       return new Promise(function (resolve, reject) {
         const reader = new FileReader();
         reader.onload = function () { resolve(reader.result.split(',')[1]); };
@@ -1713,17 +1718,13 @@
   document.getElementById('clear-gallery').addEventListener('click', function () { strip.clear(); });
 
   // ---- Kept images --------------------------------------------------------------
-  // Each image and its facts go to IndexedDB, so a reload or a new tab brings
-  // them back; localStorage holds about 5 MB, a few images. The store belongs to
-  // this address and port. Every change goes out on a channel, so each open tab
-  // shows the same strip. The server allows one run at a time, so two tabs
-  // never number two new images at once.
+  // The database and the channel belong to lib/store.js. Two things stay here,
+  // and both are read before a deferred module can be fetched: the keep
+  // setting, which the strip note above and the leave warning below read while
+  // the page is still parsing, and the gallery array itself. The server allows
+  // one run at a time, so two tabs never number two new images at once.
   const KEEP_KEY = 'studio-keep';
-  const KEPT_FIELDS = ['id', 'seed', 'width', 'height', 'steps', 'elapsed', 'position', 'mode', 'prompt',
-    'typed', 'look', 'negative', 'sources'];
-  const channel = new BroadcastChannel('studio-gallery');
   let keeping = readKeep();
-  let store = null;
 
   function readKeep() {
     try {
@@ -1734,66 +1735,11 @@
     }
   }
 
-  function openStore() {
-    if (!store) {
-      store = new Promise(function (resolve, reject) {
-        const request = indexedDB.open('studio', 1);
-        request.onupgradeneeded = function () { request.result.createObjectStore('images', { keyPath: 'id' }); };
-        request.onsuccess = function () { resolve(request.result); };
-        request.onerror = function () { reject(request.error); };
-      });
-    }
-    return store;
-  }
-
-  // Run one request on the images store. It settles when the transaction ends,
-  // so a write has landed before any other tab hears of it.
-  function inStore(access, work) {
-    return openStore().then(function (database) {
-      return new Promise(function (resolve, reject) {
-        const transaction = database.transaction('images', access);
-        const request = work(transaction.objectStore('images'));
-        transaction.oncomplete = function () { resolve(request ? request.result : undefined); };
-        transaction.onabort = function () { reject(transaction.error); };
-      });
-    });
-  }
-
-  function blobOf(url) {
-    return fetch(url).then(function (response) { return response.blob(); });
-  }
-
-  function keepEntry(entry) {
-    if (!keeping) return;
-    Promise.all([blobOf(entry.src), entry.before ? blobOf(entry.before) : null]).then(function ([png, before]) {
-      const record = { png: png, before: before };
-      KEPT_FIELDS.forEach(function (field) { record[field] = entry[field]; });
-      return inStore('readwrite', function (images) { return images.add(record); });
-    }).then(function () {
-      channel.postMessage({ kind: 'add', id: entry.id });
-    }).catch(function (error) {
-      showToast('error', 'The browser did not keep image ' + frameNumber(entry.id) + ': ' + error.message
-        + ' It stays in this tab until a reload. Download it to keep it.');
-    });
-  }
-
-  // Delete from the store, then tell the other tabs. With keeping off there is
-  // nothing stored, and each tab's strip is its own.
-  function forget(work, message) {
-    if (!keeping) return;
-    inStore('readwrite', work).then(function () {
-      channel.postMessage(message);
-    }).catch(function (error) {
-      showToast('error', 'The browser did not remove the image: ' + error.message);
-    });
-  }
-
   // A kept image joins the strip in order, newest first, and moves the frame
-  // numbers past it.
-  function addKept(record) {
-    if (gallery.some(function (entry) { return entry.id === record.id; })) return;
-    const entry = { src: URL.createObjectURL(record.png), before: record.before && URL.createObjectURL(record.before) };
-    KEPT_FIELDS.forEach(function (field) { entry[field] = record[field]; });
+  // numbers past it. The record is lib/store.js's to rebuild and this array is
+  // the page's to hold, so the module builds the entry and the page files it.
+  function admit(entry) {
+    if (gallery.some(function (other) { return other.id === entry.id; })) return;
     const later = gallery.findIndex(function (other) { return other.id < entry.id; });
     gallery.splice(later < 0 ? gallery.length : later, 0, entry);
     nextId = Math.max(nextId, entry.id + 1);
@@ -1805,35 +1751,6 @@
     renderStrip();
     renderStage();
   }
-
-  function loadKept() {
-    if (!keeping) return;
-    inStore('readonly', function (images) { return images.getAll(); }).then(function (records) {
-      records.forEach(addKept);
-      showNewest();
-    }).catch(function (error) {
-      showToast('error', 'The kept images did not load: ' + error.message);
-    });
-  }
-
-  channel.addEventListener('message', function (event) {
-    const message = event.data;
-    if (message.kind === 'remove') strip.drop(message.id);
-    if (message.kind === 'clear') strip.dropAll();
-    if (message.kind === 'keep') {
-      keeping = message.on;
-      markKeep();
-      renderStrip();
-    }
-    if (message.kind !== 'add' || !keeping) return;
-    inStore('readonly', function (images) { return images.get(message.id); }).then(function (record) {
-      if (!record) return;
-      addKept(record);
-      showNewest();
-    }).catch(function (error) {
-      showToast('error', 'An image from another tab did not load: ' + error.message);
-    });
-  });
 
   // Off empties the store at once; the images stay in the open tabs until a
   // reload. On keeps what this tab shows now, oldest first.
@@ -1848,16 +1765,10 @@
     } catch (error) {
       showToast('error', 'The keep setting applies to this tab only: ' + error.message);
     }
-    channel.postMessage({ kind: 'keep', on: on });
+    kept.announce(on);
     markKeep();
     renderStrip();
-    if (!on) {
-      inStore('readwrite', function (images) { images.clear(); }).catch(function (error) {
-        showToast('error', 'The kept images were not removed: ' + error.message);
-      });
-      return;
-    }
-    gallery.slice().reverse().forEach(keepEntry);
+    if (on) gallery.slice().reverse().forEach(kept.keep);
   }
 
   function markKeep() {
@@ -1865,21 +1776,50 @@
     if (item) item.setAttribute('aria-checked', String(keeping));
   }
 
+  // The kept images belong to lib/store.js, which owns the database and the
+  // channel and takes the page's own helpers on the door below. What it cannot
+  // read for itself is named here: the array and the setting it must not keep a
+  // second copy of, the page's own draws, and what a message from another tab
+  // does to the strip. Nothing is asked of it before it arrives: the kept
+  // images of a reload are its own first job, and it is asked for them here.
+  let kept = null;
+  document.addEventListener('store-ready', function (event) {
+    kept = event.detail.configure({
+      admit: admit,
+      showNewest: showNewest,
+      keeping: function () { return keeping; },
+      // A message another tab sent about the strip. The three kinds are the
+      // removal, the clear and the keep setting, and each one moves something
+      // here. An image the other tab made travels by its own path, because the
+      // picture is too big for a message.
+      heard: function (message) {
+        if (message.kind === 'remove') strip.drop(message.id);
+        if (message.kind === 'clear') strip.dropAll();
+        if (message.kind === 'keep') {
+          keeping = message.on;
+          markKeep();
+          renderStrip();
+        }
+      },
+      frameNumber: frameNumber,
+      notify: showToast,
+    });
+    kept.load();
+  });
+
   // ---- Toasts -----------------------------------------------------------------
-  // Errors stay until closed, because they say what to fix. Anything else
-  // clears itself.
-  const toasts = document.getElementById('toasts');
-  function showToast(kind, text) {
-    const toast = document.createElement('div');
-    toast.className = 'toast ' + kind;
-    toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
-    const message = document.createElement('p');
-    message.textContent = text;
-    toast.innerHTML = icon(kind === 'error' ? 'alert' : 'info');
-    toast.append(message, iconButton('x', 'Dismiss', function () { toast.remove(); }));
-    toasts.append(toast);
-    if (kind !== 'error') setTimeout(function () { toast.remove(); }, 4000);
-  }
+  // The messages are components/toast-host.js, which draws them from its own
+  // list. The page keeps the one name that toasts through: its own code calls
+  // it, and so do the modules that toast while they work, off the global scope.
+  //
+  // No message is sent before the host is here, and that is measured rather
+  // than assumed. The classic script toasts nothing while it starts, and the
+  // one message a startup can raise is lib/store.js's, from a module that is
+  // evaluated after this one. Delaying every module by half a second, which is
+  // the worst a cold load does, keeps that message and raises no page error.
+  let toastHost = null;
+  document.addEventListener('toast-ready', function (event) { toastHost = event.detail; });
+  function showToast(kind, text) { toastHost.notify(kind, text); }
 
   // ---- Run, progress, cancel --------------------------------------------------
   // The poller clocks itself off its own response, and stops when the server
@@ -1890,7 +1830,13 @@
   let progressState = null;
   let pace = null;          // how fast this run's steps arrive, for the time left
 
-  let runStartedAt = 0;
+  // When the run in flight started. The button it belongs to carries it, beside
+  // the run state it already publishes, so the page reads its own state from
+  // the DOM the way the checks do and nothing has to reach into a closure to
+  // put the page in a phase.
+  function startedAt() {
+    return Number(go.dataset.started) || 0;
+  }
 
   // While a run goes, the run button is Cancel. A click in the first half
   // second is the second half of a double click on Generate, so it waits.
@@ -1900,7 +1846,7 @@
     if (!busy()) return;
     event.preventDefault();
     const implicit = event.detail === 0 && document.activeElement !== go;
-    if (implicit || Date.now() - runStartedAt < 500) return;
+    if (implicit || Date.now() - startedAt() < 500) return;
     requestCancel();
   });
 
@@ -1996,7 +1942,7 @@
     progressSlot.innerHTML = POLLER;
     htmx.process(progressSlot);
     if (fresh) {
-      runStartedAt = Date.now();
+      go.dataset.started = String(Date.now());
       runKey = costKey();
       runPixels = targetPixels();
       runEstimate = currentMode().estimate;
@@ -2148,17 +2094,16 @@
     return { running: running, percent: running ? Math.round(state.step / state.total * 100) : 0 };
   }
 
-  // Exposure only grows with a sweep. A drop, at the next image of a batch or a
-  // new run, jumps back to the left edge at once.
-  function paintPlate(plate, running, percent) {
-    const rewind = percent < (parseFloat(plate.style.getPropertyValue('--exposed')) || 0);
-    plate.classList.toggle('rewind', rewind);
-    plate.classList.toggle('waiting', !running);
-    plate.style.setProperty('--exposed', percent + '%');
-    if (!rewind) return;
-    void plate.offsetWidth;   // apply the drop while the sweep is off
-    plate.classList.remove('rewind');
-  }
+  // The card belongs to components/progress-card.js, which draws the plate and
+  // owns the exposure on it. htmx keeps `#progress`, the element the poll swaps
+  // and whose children carry the next `hx-get`, and the module never touches
+  // it. Its handle arrives on the same door as the rest. The page asks it
+  // nothing before a run, and a run needs a click, so the module is always here
+  // first.
+  let progressCard = null;
+  document.addEventListener('progress-card-ready', function (event) {
+    progressCard = event.detail;
+  });
 
   function renderProgress() {
     if (!busy()) return;
@@ -2190,7 +2135,7 @@
     // like. The elapsed time does move, so the reading phase says how long it has been
     // reading and a slow engine is visibly still working.
     const reading = running && state && state.step === 0;
-    const soFar = runStartedAt ? spell(Math.max(0, (Date.now() - runStartedAt) / 1000)) + ' so far' : '';
+    const soFar = startedAt() ? spell(Math.max(0, (Date.now() - startedAt()) / 1000)) + ' so far' : '';
     const left = running && !stopping ? (reading ? soFar : timeLeft()) : '';
     // While stopping, the phase text says when the stop lands. It used to be a bare
     // "Stopping", and the sentence built for this case was written and never shown.
@@ -2199,11 +2144,7 @@
         left.charAt(0).toLowerCase() + left.slice(1)].filter(Boolean).join(', ')
       : stepText;
     document.title = (running ? '(' + now.percent + '%) ' : '') + BASE_TITLE;
-    document.querySelectorAll('.card, .frame.pending .still').forEach(function (plate) {
-      paintPlate(plate, running, now.percent);
-      const percent = plate.querySelector('.percent');
-      if (percent) percent.textContent = running ? now.percent + '%' : '';
-    });
+    progressCard.paintAll(running, now.percent);
   }
 
   function sideChannel(event) {
@@ -2251,7 +2192,7 @@
     if (sideChannel(event)) return;
     const fresh = event.detail.elt === form;
     if (fresh) {
-      toasts.innerHTML = '';
+      toastHost.clear();
       // The copy comes first: startWork moves the stage to the progress card, and
       // the frame the region was drawn on is part of what Cancel has to put back.
       cleared = snapshotInputs();
@@ -2519,7 +2460,8 @@
 
   renderRewriteButton();
 
-  loadKept();
+  // The kept images are asked for on the store's own door: that module owns the
+  // database, and reading it back is the first thing it does.
 </script>
 </body>
 </html>
