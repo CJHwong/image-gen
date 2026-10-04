@@ -36,6 +36,15 @@ Run this flow when you add a backend. Also run it when you change one: its capab
    - Write unit tests for how the form maps to the engine arguments.
    - Write one `live` test that loads the real weights.
    - Give each fix a test, then remove the fix once and watch that test fail.
+   - Run a mutation proof against a copy of the tree, never the shared page directory. Another
+     worker may be testing against that tree at the same moment, and a mutation running on it
+     looks exactly like a flaky check in the report you read next.
+   - Serve the copy from inside the copy. Start the studio with
+     `cd <copy> && uv run --project <repo> python -c "from studio.__main__ import main; main()"`,
+     and never with the `studio` console script. The console script puts its own `bin` directory
+     on `sys.path`, so it imports the repo's `studio` and serves the unmutated tree. A green run
+     then certifies the very thing it failed to test. Fetch the mutated file off the running
+     server first, and read the result only once the mutation is in what it serves.
 8. **Pass the gates.**
    - Run `prek run --all-files`. It runs ruff, ty, import-linter and the secret scan. `--all-files` skips untracked files; while files are untracked, pass `--files $(git ls-files -co --exclude-standard)` instead.
    - Run `uv run pytest`, then `uv run pytest -m live -k <id>`. The first one fails when the statement or branch coverage of `studio/` drops below 100%.

@@ -42,12 +42,14 @@ URL = f"http://127.0.0.1:{PORT}/"
 MEASURE = "--coverage" in sys.argv
 HEADED = "--headed" in sys.argv
 # How the page says a run is in flight, and how it says one has finished. The run
-# button is the one a user reads this from: it is Generate when idle and Cancel
-# while a run goes. Reading the body's `busy` class instead would bind the suite
-# to a class name, and a refactor that renamed it would break the very checks
-# meant to catch that refactor.
-RUNNING = re.compile("^Cancel$")
-IDLE = re.compile("^Generate")
+# button publishes that state on itself, and the button is where a user reads the
+# state from: it is Generate when idle and Cancel while a run goes. Reading the
+# button's name instead made these checks depend on the stylesheet, which composes
+# the name by hiding all but one of the button's four labels: with no stylesheet
+# the name was the whole concatenation, and the waits below timed out instead of
+# failing.
+RUNNING = "#go[data-state='busy']"
+IDLE = "#go[data-state='idle']"
 FRAME = re.compile(r"^(generate|edit), seed ")
 results = []
 
@@ -116,11 +118,11 @@ def watch_rewrites(page, into):
 
 
 def wait_until_running(page):
-    page.get_by_role("button", name=RUNNING).wait_for(state="visible", timeout=30000)
+    page.locator(RUNNING).wait_for(state="visible", timeout=30000)
 
 
 def wait_until_idle(page):
-    page.get_by_role("button", name=IDLE).wait_for(state="visible", timeout=600000)
+    page.locator(IDLE).wait_for(state="visible", timeout=600000)
 
 
 def frames(page):
@@ -162,7 +164,7 @@ def run_once(page, prompt, steps=2):
     page.dispatch_event("#prompt", "input")
     page.click("#go")
     wait_until_running(page)
-    page.get_by_role("button", name=RUNNING).wait_for(state="hidden", timeout=600000)
+    page.locator(RUNNING).wait_for(state="hidden", timeout=600000)
     page.wait_for_timeout(400)
 
 
@@ -242,6 +244,34 @@ with sync_playwright() as playwright:
     watch_rewrites(page, rewrites)
     page.goto(URL)
 
+    # The page keeps its CSS in a file of its own. No other check in this suite
+    # reads a style, so this is the one that names a stylesheet which failed to
+    # load. It reads the loaded sheet back and counts its rules instead of pinning
+    # a value, so a restyle does not move the check.
+    rules = page.evaluate(
+        """() => {
+             const sheet = Array.from(document.styleSheets).find(
+               (one) => one.href && new URL(one.href).pathname === '/page/page.css');
+             return sheet ? sheet.cssRules.length : 0;
+           }"""
+    )
+    check(
+        "the stylesheet loads from the studio and carries the page's rules",
+        rules > 100,
+        f"{rules} rules",
+    )
+
+    # A live region is not a role a browser computes, so both hosts carry the
+    # role outright and a query reaches them by role instead of by id. The toast
+    # host is always in the tree, so it is read here; the run readout is read
+    # while a run shows it, in the block at the end.
+    status_roles = page.get_by_role("status", include_hidden=True).evaluate_all("nodes => nodes.map((node) => node.id)")
+    check(
+        "the toast host is a status a role query reaches",
+        "toasts" in status_roles,
+        str(status_roles),
+    )
+
     # The header, and the mode the page opens on.
     check(
         "the header names the model and its badge",
@@ -275,10 +305,41 @@ with sync_playwright() as playwright:
         and page.locator("#edit-sizes").is_visible()
         and page.locator("#size-chips").is_hidden(),
     )
+    # The run button names the verb of the mode it is in, and one verb only. The
+    # name is read here and again after the switch, because the claim is that it
+    # follows the mode rather than that it is one of the two.
+    verb_edit = page.get_by_role("button", name=re.compile(r"^Edit\b")).count() == 1
+
+    # The resolution buttons drive the field the form submits, and the one in
+    # force marks itself. Their names follow the chosen ratio, so the button is
+    # taken by its place under its own id and not by its name.
+    resolution = page.locator("#edit-sizes button").nth(1)
+    wanted_resolution = resolution.get_attribute("data-value")
+    resolution.click()
+    check(
+        "a resolution button sets the field it drives and marks itself",
+        page.locator("#resolution").input_value() == wanted_resolution
+        and resolution.get_attribute("aria-pressed") == "true",
+        f"{page.locator('#resolution').input_value()} for {wanted_resolution}",
+    )
+    check(
+        "the caption reads the shape an edit will take",
+        page.locator("#size-caption").inner_text() == "shape follows the image",
+        page.locator("#size-caption").inner_text(),
+    )
+    # The pick is put back, so the size the later runs submit is the one they
+    # submitted before this block.
+    page.locator("#edit-sizes button").nth(0).click()
+
     page.locator("label[for=mode-generate]").click()
     check(
         "Generate asks for a size and not for a resolution",
         page.locator("#size-chips").is_visible() and page.locator("#edit-sizes").is_hidden(),
+    )
+    check(
+        "the run button offers the verb of the mode it is in, and one verb only",
+        verb_edit and page.get_by_role("button", name=re.compile(r"^Generate\b")).count() == 1,
+        f"edit {verb_edit}",
     )
 
     # A ratio chip sets the size the form actually submits.
@@ -288,6 +349,15 @@ with sync_playwright() as playwright:
         "a ratio chip sets the size the form submits",
         submitted == "1152x768" and "768" in page.locator("#size-caption").inner_text(),
         f"{submitted} / {page.locator('#size-caption').inner_text()}",
+    )
+    # The chip in force marks itself and only it: `aria-pressed` is what a
+    # reader of the DOM, and the stylesheet, has to tell the shape by.
+    pressed = page.locator("#size-chips button[aria-pressed=true]")
+    check(
+        "a ratio chip marks itself as pressed, and only the one in force",
+        page.get_by_role("button", name="3:2", exact=True).get_attribute("aria-pressed") == "true"
+        and pressed.count() == 1,
+        str(pressed.all_inner_texts()),
     )
 
     # Under the ratio are the sizes of that shape. Picking one sets the size the
@@ -301,16 +371,44 @@ with sync_playwright() as playwright:
     )
     page.get_by_role("button", name="0.9 MP", exact=True).click()
 
+    # Match asks for pixels and not for a shape, so there is no shape whose sizes
+    # could be offered. The pick is put back after it, so the size the later runs
+    # submit is the one they submitted before this check.
+    page.get_by_role("button", name="Match", exact=True).click()
+    check(
+        "Match hides the sizes, because the shape is not a choice then",
+        page.locator("#tier-sizes").is_hidden() and page.locator("#size").input_value() == "match",
+        page.locator("#size").input_value(),
+    )
+    page.get_by_role("button", name="3:2", exact=True).click()
+
     # A Look chip names itself on its row, marks itself, and reaches the model in
     # the prompt. A pick closes the row, so the mark is read by opening it again.
     page.click("details:has(summary:has-text('Look')) summary")
     camera = page.get_by_role("button", name=re.compile("^Camera"))
+    shut = camera.get_attribute("aria-expanded")
     camera.click()
+    open_now = camera.get_attribute("aria-expanded")
     page.get_by_role("button", name="Close-up 85mm", exact=True).click()
+    check(
+        "a Look row says whether it is open, and a pick closes it again",
+        shut == "false" and open_now == "true" and camera.get_attribute("aria-expanded") == "false",
+        f"shut {shut}, open {open_now}, after the pick {camera.get_attribute('aria-expanded')}",
+    )
     check(
         "picking a Look chip names it on its row",
         "85mm" in camera.inner_text(),
         camera.inner_text().replace("\n", " ")[:40],
+    )
+    # The row is named for itself and then its pick. The two are one word in the
+    # markup and the space between them is the cascade's: `display: flex` on the
+    # toggle makes the pick a block of its own, and a text node would put a space
+    # in with the stylesheet refused, where the name has always read "Lightnone".
+    # The other half of this pair is checked at the end, with `page.css` refused.
+    check(
+        "a Look row is named for itself and its pick, with the space the cascade draws",
+        page.get_by_role("button", name="Camera Close-up 85mm", exact=True).count() == 1,
+        camera.aria_snapshot(),
     )
     camera.click()
     check(
@@ -327,15 +425,62 @@ with sync_playwright() as playwright:
         and page.locator("#look-adds").is_hidden(),
     )
     page.get_by_role("button", name="Close-up 85mm", exact=True).click()
+
+    # A pick from a row's own chips puts a chip under the prompt and takes the
+    # row's chips away, so the content above the row changes height and the row
+    # would slide out from under the pointer. The sidebar scrolls by as much.
+    # The chip is scrolled into view first, so the click below cannot scroll the
+    # sidebar itself and leave this measuring its own setup.
+    light = page.get_by_role("button", name=re.compile("^Light"))
+    light.click()
+    overcast = page.get_by_role("button", name="Overcast", exact=True)
+    overcast.scroll_into_view_if_needed()
+    before = light.bounding_box()["y"]
+    overcast.click()
+    after = light.bounding_box()["y"]
+    check(
+        "a pick leaves its row where the pointer left it",
+        abs(after - before) <= 2,
+        f"the row moved {round(after - before, 1)} px",
+    )
+    page.get_by_role("button", name="Remove Overcast").click()
+    page.wait_for_timeout(200)
+
+    # Only the Realism row carries an avoid part, and it is shown wherever the
+    # mode declares a negative prompt, because it is what the model will be told
+    # not to draw.
+    page.get_by_role("button", name=re.compile("^Realism")).click()
+    page.get_by_role("button", name="Real person", exact=True).click()
+    note = page.locator("#look-adds .look-avoids")
+    # Read without waiting: an absent note is a failed check and not a timeout,
+    # so the suite goes on to the checks after it.
+    said = note.inner_text() if note.count() else ""
+    check(
+        "a Look whose avoid part rides the negative says what it will carry",
+        "beauty filter" in said and "twice as long" in said,
+        said[:70],
+    )
+    page.get_by_role("button", name="Remove Real person").click()
+    page.wait_for_timeout(200)
     page.click("details:has(summary:has-text('Look')) summary")
 
     # The Advanced summary reads back what the panel holds. It only carries that
     # sentence while the panel is closed, so each read closes it first.
     page.click("#advanced summary")
+    clear_absent = page.locator("#clear-seed").is_hidden()
     page.fill("#steps", "5")
     page.dispatch_event("#steps", "input")
+    check(
+        "each slider's readout follows its own input",
+        page.locator("#steps-value").inner_text() == page.locator("#steps").input_value()
+        and page.locator("#guidance-value").inner_text() == page.locator("#guidance").input_value()
+        and page.locator("#cfg-value").inner_text() == page.locator("#cfg").input_value(),
+        f"{page.locator('#steps-value').inner_text()} / {page.locator('#guidance-value').inner_text()}"
+        f" / {page.locator('#cfg-value').inner_text()}",
+    )
     page.fill("#seed", "4242")
     page.dispatch_event("#seed", "input")
+    clear_present = page.locator("#clear-seed").is_visible()
     page.click("#advanced summary")
     summary = page.locator("#advanced summary").inner_text()
     check(
@@ -345,6 +490,14 @@ with sync_playwright() as playwright:
     )
     page.click("#advanced summary")
     page.click("#clear-seed")
+    check(
+        "Clear shows exactly while there is a seed, and takes it away with it",
+        clear_absent
+        and clear_present
+        and page.locator("#seed").input_value() == ""
+        and page.locator("#clear-seed").is_hidden(),
+        f"absent {clear_absent}, present {clear_present}, seed {page.locator('#seed').input_value()!r}",
+    )
     page.click("#advanced summary")
     check("clearing the seed goes back to random", "random seed" in page.locator("#advanced summary").inner_text())
 
@@ -356,7 +509,7 @@ with sync_playwright() as playwright:
     wait_until_running(page)
     check(
         "a run in flight offers Cancel and blocks the count",
-        page.get_by_role("button", name="Cancel").is_visible()
+        page.locator(RUNNING).is_visible()
         and page.get_by_role("button", name=re.compile("change the count")).is_disabled(),
     )
     wait_until_idle(page)
@@ -388,11 +541,20 @@ with sync_playwright() as playwright:
     wait_until_running(page)
     check(
         "the run button is the one a user cancels with",
-        page.get_by_role("button", name="Cancel", exact=True).is_visible(),
+        page.locator(RUNNING).is_visible(),
+    )
+    # One verb and nothing else, with the stylesheet loaded. The page hides the
+    # labels it is not using, so two of them showing at once means a rule has
+    # taken the choice back from the DOM, which is what a failed stylesheet used
+    # to look like. The same claim is made with the stylesheet refused at the end.
+    check(
+        "the run button is called Cancel and nothing else",
+        page.get_by_role("button", name="Cancel", exact=True).count() == 1,
+        page.locator("#go").aria_snapshot(),
     )
     page.wait_for_timeout(700)
     began = time.monotonic()
-    page.get_by_role("button", name="Cancel", exact=True).click()
+    page.locator(RUNNING).click()
     wait_until_idle(page)
     stopped = time.monotonic() - began
     check(
@@ -430,6 +592,117 @@ with sync_playwright() as playwright:
         f"{before_theme} then {after_theme}",
     )
     check("picking a theme closes the menu", page.locator("#theme-menu").is_hidden())
+
+    # The menu reads the theme back out of the store, so the pick is marked where
+    # a user sees it. The closed menu leaves the accessibility tree, so it is
+    # opened again before the marks are read.
+    page.click("#theme-toggle")
+    page.wait_for_timeout(150)
+    check(
+        "the theme menu marks the theme in force",
+        page.get_by_role("menuitemradio", name="Leica M").get_attribute("aria-checked") == "true"
+        and page.get_by_role("menuitemradio", name="Darkroom").get_attribute("aria-checked") == "false",
+        page.get_by_role("menuitemradio", name="Leica M").get_attribute("aria-checked"),
+    )
+    page.keyboard.press("Escape")
+
+    # The pick is kept in this browser, and the inline head script applies it
+    # before the menu exists. The check above cannot see that: it reads the
+    # document the pick itself painted. A fresh page in this context can.
+    fresh = page.context.new_page()
+    fresh.on("pageerror", lambda error: errors.append("theme page: " + str(error)))
+    fresh.goto(URL)
+    check(
+        "a fresh page opens on the saved theme",
+        fresh.evaluate("() => document.documentElement.getAttribute('data-theme')") == "leica",
+        str(fresh.evaluate("() => document.documentElement.getAttribute('data-theme')")),
+    )
+    fresh.close()
+
+    # ---- The four menus, and how each one closes -------------------------------
+    # One manager owns the four menus, so they share one way in and the same ways
+    # out. A pick closes the menu, and a check above reads one from two of them.
+    # These read the other ways out, on the count menu: it is the shortest, and it
+    # keeps the run the rest of the suite does out of the picture.
+    page.click("#count-toggle")
+    page.wait_for_timeout(200)
+    opened = page.locator("#count-toggle").get_attribute("aria-expanded")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    check(
+        "Escape closes a menu, clears its toggle's aria-expanded and puts focus back",
+        opened == "true"
+        and page.locator("#count-menu").is_hidden()
+        and page.locator("#count-toggle").get_attribute("aria-expanded") == "false"
+        and page.evaluate("() => document.activeElement.id") == "count-toggle",
+        f"expanded {opened}, then focus {page.evaluate('() => document.activeElement.id')}",
+    )
+
+    page.click("#count-toggle")
+    page.wait_for_timeout(200)
+    page.locator("body").click(position={"x": 5, "y": 5})
+    page.wait_for_timeout(200)
+    check(
+        "a click outside closes the open menu",
+        page.locator("#count-menu").is_hidden()
+        and page.locator("#count-toggle").get_attribute("aria-expanded") == "false",
+        page.locator("#count-toggle").get_attribute("aria-expanded"),
+    )
+
+    page.click("#count-toggle")
+    page.wait_for_timeout(200)
+    page.click("#theme-toggle")
+    page.wait_for_timeout(200)
+    check(
+        "opening one menu closes the one already open",
+        page.locator("#count-menu").is_hidden() and page.locator("#theme-menu").is_visible(),
+        f"count hidden {page.locator('#count-menu').is_hidden()}, "
+        f"theme visible {page.locator('#theme-menu').is_visible()}",
+    )
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+
+    page.click("#count-toggle")
+    page.wait_for_timeout(200)
+    first_item = page.evaluate("() => document.activeElement.textContent.trim()")
+    page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(200)
+    walked_to = page.evaluate("() => document.activeElement.textContent.trim()")
+    check(
+        "the arrow keys walk a menu's items",
+        walked_to != first_item and walked_to.endswith("images"),
+        f"{first_item} then {walked_to}",
+    )
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+
+    # The store's one rule is invisible in the page while the theme is its only
+    # consumer: a redraw scoped to the theme draws the same DOM a global redraw
+    # would. So the rule is checked on the store itself, through the module the
+    # page already loaded. `progress` and `view` are fields no consumer names.
+    store_rules = page.evaluate("""async () => {
+      const store = await import('/page/lib/state.js');
+      const byField = [];
+      const byGroup = [];
+      store.subscribe(['progress'], (field) => byField.push(field));
+      store.subscribe(['results'], (field) => byGroup.push(field));
+      store.set('view', 'a');
+      const other = byField.length;
+      const otherGroup = byGroup.length;
+      store.set('progress', 'b');
+      const named = byField.length;
+      const namedGroup = byGroup.length;
+      store.set('progress', 'b');
+      const same = byField.length;
+      store.set('progress', 'c');
+      const changed = byField.length;
+      return { other, otherGroup, named, namedGroup, same, changed };
+    }""")
+    check(
+        "the store redraws only the consumers that named the changed field",
+        store_rules == {"other": 0, "otherGroup": 1, "named": 1, "namedGroup": 2, "same": 1, "changed": 2},
+        str(store_rules),
+    )
 
     # The guide is built on its first open, so it is asked for before it is read.
     page.click("#guide-toggle")
@@ -472,6 +745,19 @@ with sync_playwright() as playwright:
     check("a run of two keeps two images", frames(page) == before + 2, f"{before} before, {frames(page)} after")
 
     # ---- A reference the user chooses ------------------------------------------
+    # The empty zone and the tile that offers one more are drawn by the reference
+    # tree, and nothing else here reads them: the checks below bind to the
+    # thumbnails, the note and the remove, so a tree that lost its empty state
+    # would still pass. The checks in this block read that part of it.
+    empty = page.locator("#refs-empty")
+    check(
+        "the empty zone names what the mode wants",
+        empty.is_visible()
+        and page.locator("#refs-title").inner_text() == "Start from an image"
+        and page.locator("#refs-sub").inner_text() == "Optional. Drop, paste or choose one.",
+        page.locator("#refs-title").inner_text(),
+    )
+
     # A reference is read from a file, and the page measures it. The size caption
     # and the mask both take their shape from that measurement, so the measured
     # size is what this reads back.
@@ -484,6 +770,22 @@ with sync_playwright() as playwright:
         # The caption prints a real times sign between the two numbers.
         page.get_by_role("img", name="reference-a.png").is_visible() and "768 × 512" in chosen,  # noqa: RUF001
         chosen,
+    )
+    check(
+        "an empty zone stands down, and the edit words name what to add",
+        empty.is_hidden()
+        and page.locator("#refs-title").inner_text() == "Add the image to edit"
+        and page.locator("#refs-sub").inner_text().startswith("Drop, paste or choose up to "),
+        f"{page.locator('#refs-title').inner_text()} / {page.locator('#refs-sub').inner_text()}",
+    )
+    # The thumbnail carries the name of the image it holds, which is how a
+    # sighted user tells two references apart, and the tile offers one more while
+    # the mode takes one.
+    check(
+        "a thumbnail carries its own name, and a tile offers one more",
+        page.locator("#thumbs .thumb").first.get_attribute("title") == "reference-a.png"
+        and page.locator("#thumbs .add-tile").count() == 1,
+        str(page.locator("#thumbs .thumb").first.get_attribute("title")),
     )
     page.set_input_files("#reference", str(SCRATCH / "reference-b.png"))
     page.get_by_role("img", name="reference-b.png").wait_for(state="visible", timeout=10000)
@@ -585,6 +887,32 @@ with sync_playwright() as playwright:
         thumbs.count() == 0 and page.locator("#refs-note").is_hidden(),
         f"{thumbs.count()} thumbnails left",
     )
+    # Empty again in edit mode: the zone comes back with the edit words, and no
+    # tile offers one more, because there is nothing to add to.
+    check(
+        "emptying the list brings the empty zone back",
+        page.locator("#refs-empty").is_visible()
+        and page.locator("#refs-title").inner_text() == "Add the image to edit"
+        and page.locator("#thumbs .add-tile").count() == 0,
+        page.locator("#refs-title").inner_text(),
+    )
+    # Off the edit mode the tile is gone even with an image in the list: a
+    # generate starts from one image, so there is no room to offer, and the note
+    # says the image is there to be replaced rather than counted against a limit.
+    # A page of its own, so the mode switch does not empty the form the checks
+    # below set up.
+    other_context = browser.new_context(viewport={"width": 1440, "height": 900})
+    other = other_context.new_page()
+    other.goto(URL)
+    other.set_input_files("#reference", str(SCRATCH / "reference-a.png"))
+    other.get_by_role("img", name="reference-a.png").wait_for(state="visible", timeout=10000)
+    check(
+        "a generate holds one image and offers no tile",
+        other.locator("#thumbs .add-tile").count() == 0
+        and other.locator("#refs-note").inner_text() == "Drop or paste another image to replace it.",
+        other.locator("#refs-note").inner_text(),
+    )
+    other_context.close()
 
     # ---- Marking a region ------------------------------------------------------
     # A stroke may only land on the picture it marks, so the brush appears only
@@ -602,6 +930,19 @@ with sync_playwright() as playwright:
         and page.locator("#region-field").is_hidden(),
         brush.get_attribute("aria-label"),
     )
+    # A template that names the region is offered only where the brush is in hand,
+    # and until one is drawn the run says what it waits for. The prompt is cleared
+    # again, so the rows below are the only instruction the later checks see.
+    page.click("#templates-toggle")
+    page.get_by_role("menuitem", name="Mark a region").click()
+    check(
+        "a template that names the region waits for a drawn one",
+        page.locator("#go-sub").inner_text() == "Draw the region this prompt names",
+        page.locator("#go-sub").inner_text(),
+    )
+    page.fill("#prompt", "")
+    page.dispatch_event("#prompt", "input")
+    page.wait_for_timeout(200)
 
     # The magnifier is a canvas drawn over the print. It carries no accessible name
     # by design (it is hidden from assistive technology), so this counts the
@@ -749,7 +1090,7 @@ with sync_playwright() as playwright:
     )
     frame_nodes(page).nth(1).click()
     page.wait_for_timeout(250)
-    page.get_by_role("button", name=RUNNING).wait_for(state="hidden", timeout=600000)
+    page.locator(RUNNING).wait_for(state="hidden", timeout=600000)
     page.wait_for_timeout(600)
     masked = posted[-1] if posted else {}
     carried = json.loads(masked.get("references", "[]"))
@@ -930,17 +1271,51 @@ with sync_playwright() as playwright:
         stepped != second_frame and stage_text(page) == second_frame,
         f"{second_frame[:40]} then {stepped[:40]}",
     )
+    # A step corrects the strip's own scroll and focus across the redraw, and
+    # the redraw lands after the key returns. The correction is the strip's, so
+    # the frame it shows is the one focus ends on.
+    frame_nodes(page).nth(0).click()
+    page.wait_for_timeout(250)
+    page.keyboard.press("ArrowRight")
+    page.wait_for_timeout(300)
+    shown = page.locator("#strip .frame.selected").get_attribute("aria-label")
+    focused = page.evaluate("document.activeElement.getAttribute('aria-label')")
+    check(
+        "an arrow key leaves focus on the frame it shows",
+        focused == shown,
+        f"{shown} shown, focus on {focused}",
+    )
 
     # ---- The strip the user keeps ----------------------------------------------
     # Every way out of the strip has to leave the page consistent: the count, the
     # stage and the browser's own store all follow the same move.
     before_remove = frames(page)
+    # The frames after the one that goes are moved along and not rebuilt. A
+    # rebuilt frame reloads its image, so the image the browser held is the
+    # claim, and it is why the strip keys each frame by its own image.
+    kept_thumb = frame_nodes(page).last.locator("img").element_handle()
+    kept_src = page.evaluate("(img) => img.src", kept_thumb)
+    page.evaluate(
+        """(img) => {
+      window.__reloaded = 0;
+      img.addEventListener('load', () => { window.__reloaded++; });
+    }""",
+        kept_thumb,
+    )
     page.get_by_role("button", name="Remove", exact=True).click()
-    page.wait_for_timeout(300)
+    page.wait_for_timeout(400)
     check(
         "Remove takes the shown frame off the strip",
         frames(page) == before_remove - 1,
         f"{before_remove} before, {frames(page)} after",
+    )
+    check(
+        "a frame the strip moves along keeps its own image",
+        page.evaluate("(img) => img.isConnected", kept_thumb)
+        and page.evaluate("(img) => img.src", kept_thumb) == kept_src
+        and page.evaluate("window.__reloaded") == 0,
+        f"connected {page.evaluate('(img) => img.isConnected', kept_thumb)}, "
+        f"reloads {page.evaluate('window.__reloaded')}",
     )
 
     downloads = []
@@ -1160,8 +1535,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(2500)
     check(
         "a run the server never answers stops and says so",
-        "The server did not answer." in page.locator("#toasts").inner_text()
-        and page.get_by_role("button", name=IDLE).is_visible(),
+        "The server did not answer." in page.locator("#toasts").inner_text() and page.locator(IDLE).is_visible(),
         page.locator("#toasts").inner_text().strip()[:90],
     )
     page.unroute("**/generate")
@@ -1351,6 +1725,50 @@ with sync_playwright() as playwright:
         alerts.first.inner_text()[:110],
     )
     context.close()
+
+    # ---- What the run button is called, and what a role query reaches ----------
+    # The button's name is composed from the DOM, not from the cascade: the page
+    # sets `hidden` on the labels it is not using, so a stylesheet that fails to
+    # load still leaves exactly one label in the name. It used to be the
+    # stylesheet that hid them, and a refused one left the name as
+    # "GenerateEdit Cancel Stopping…", which is noise to a screen reader and
+    # matched no verb. The page is loaded again with the stylesheet refused, so
+    # this check cannot pass on the cascade by accident.
+    plain_context = browser.new_context(viewport={"width": 1440, "height": 900})
+    plain_context.route("**/page/page.css", lambda route: route.abort())
+    plain = plain_context.new_page()
+    plain.goto(URL)
+    set_steps(plain, 1)
+    plain.fill("#prompt", "a pear on a table")
+    plain.dispatch_event("#prompt", "input")
+    plain.click("#go")
+    plain.locator(RUNNING).wait_for(state="visible", timeout=30000)
+    check(
+        "the run button is called Cancel with no stylesheet at all",
+        plain.get_by_role("button", name="Cancel", exact=True).count() == 1,
+        plain.locator("#go").aria_snapshot(),
+    )
+    check(
+        "the run readout is a status a role query reaches while a run goes",
+        "status" in plain.get_by_role("status").evaluate_all("nodes => nodes.map((node) => node.id)"),
+        str(plain.get_by_role("status").evaluate_all("nodes => nodes.map((node) => node.id)")),
+    )
+    plain.locator(RUNNING).wait_for(state="hidden", timeout=600000)
+
+    # The other half of the row-name pair. A row's name is its own name and then
+    # its pick, and the stylesheet is what puts a space between them, so a
+    # refused one reads them as one word. This is the check that catches a text
+    # node added between the two, which no check with the stylesheet in place
+    # can see.
+    plain.click("#look summary")
+    plain.locator("#look-rows").get_by_role("button", name=re.compile("^Light")).click()
+    plain.locator("#look-rows").get_by_role("button", name="Overcast", exact=True).click()
+    check(
+        "a Look row's name is the row and its pick as one word with no stylesheet at all",
+        plain.get_by_role("button", name="LightOvercast", exact=True).count() == 1,
+        plain.locator("#look-rows").aria_snapshot().replace("\n", " ")[:120],
+    )
+    plain_context.close()
 
     check("no page errors", not errors, str(errors)[:200])
     if session is not None:

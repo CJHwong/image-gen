@@ -39,6 +39,11 @@ A batch is a chain of requests, one per image. Progress is a poll of `/progress`
 
 The page knows two mode ids, `generate` and `edit`, and the params `size`, `resolution`, `steps`, `guidance`, `cfg`, `strength` and `negative`. An edit may also carry a marked region: the page appends it as the last image of the run, and replaces the prompt's `[the region you marked]` with that image's number. Only a mode that declares `region_marking` is offered the tool. A backend declares the ones it supports. A new kind of param needs a control in `web/page.html`.
 
+## The page
+
+`web/page.html` is one file, 2,522 lines as the refactor stands, and most of its logic now lives in
+modules under `web/lib/` and `web/components/`, which the static route serves. `web/PAGE-REFACTOR.md` is the design for taking it apart into Lit components, light DOM, with no bundler. Read it before you change how the page is built. It also lists the ids, roles and attributes that the e2e checks pin, and those must not move: `tests/e2e/verify_ui.py` is the executable version of that contract.
+
 ## Tests
 
 - The tree under `tests/` mirrors the tree under `studio/`. The module `studio/a/b/c.py` is tested by `tests/a/b/c/test_c.py`. A shared helper lives in `tests/support/` and mirrors no module. `tests/e2e/` holds the browser checks and mirrors nothing.
