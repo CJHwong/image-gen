@@ -62,6 +62,13 @@ FRAME = re.compile(r"^(generate|edit), seed ")
 BADGE = "[title='The weights loaded']"
 # The drawing tools, each of which names itself.
 BRUSH = re.compile(r"^Brush width")
+# How long a prompt rewrite may take. The qwen21 rewriter is a fine-tuned 9B model
+# measured 2026-09-27 at 22 to 32 seconds per answer, and its first use in a
+# process also loads 18.84 GB of weights. Two minutes is about four times the
+# measured answer and leaves room for that load. A wait sized for the stub is a
+# wait that fails on the engine this check exists for.
+# See the module docstring and MAX_TOKENS in gateways/qwen21/rewriter.py.
+REWRITE_TIMEOUT = 120000
 
 
 def check(name, passed, detail=""):
@@ -153,6 +160,26 @@ def wait_idle(page):
     """
     page.locator(RUN_IDLE).wait_for(state="visible", timeout=600000)
     time.sleep(0.5)
+
+
+def rewrite_prompt(page, button, typed):
+    """Press the rewriter and take its answer off the wire.
+
+    The answer is a second model's, so its wording cannot be asserted: the stub
+    writes one sentence and the real rewriter writes the user a paragraph. The
+    claim is that the page applied whatever came back, and the response is what
+    makes that claim checkable on both engines. Both waits are the rewriter's own
+    cost, which is minutes and not seconds.
+    """
+    with page.expect_response(lambda response: "/rewrite" in response.url, timeout=REWRITE_TIMEOUT) as answer:
+        button.click()
+    body = json.loads(answer.value.text())
+    page.wait_for_function(
+        "(typed) => document.getElementById('prompt').value.trim() !== typed",
+        arg=typed,
+        timeout=REWRITE_TIMEOUT,
+    )
+    return body
 
 
 def button(page, name):
@@ -1289,12 +1316,14 @@ with sync_playwright() as playwright:
     # The row is back with its instruction in it, which is the region: a row is
     # drawn for each colour a stroke was drawn in, so a row means a stroke. The
     # composed sentence is read too, because the row's text is what it is built
-    # from and a row that came back empty would pass on the row alone.
+    # from and a row that came back empty would pass on the row alone. The area it
+    # names is red: a swatch colours the next mark and the colour belongs to the
+    # stroke, so the red picked earlier in this pass is still the brush in hand.
     check(
         "Cancel puts the region and its instruction back",
         mark.count() == 1
         and region_rows(page).nth(0).input_value() == "change the sky to dusk"
-        and "change the sky to dusk in the orange area" in page.inner_text("#region-preview"),
+        and "change the sky to dusk in the red area" in page.inner_text("#region-preview"),
         page.inner_text("#region-preview")[-70:],
     )
 
@@ -1422,39 +1451,38 @@ with sync_playwright() as playwright:
     check("edit empty offers a picker", button(page, "Choose an image").is_visible())
     check("no leave warning after clear", not leave_blocked(page))
 
-    # The prompt rewriter. The stub reports it for both modes and answers with a
-    # longer prompt, so the whole path is checkable with no GPU.
+    # The prompt rewriter. Both the stub and the engine report it for both modes
+    # and answer with a longer prompt, so the whole path is checkable on either.
     page.reload()
     wait_idle(page)
     button = page.locator("#rewrite-toggle")
     check("the rewrite button is offered where the backend has a rewriter", button.is_visible())
-    page.fill("#prompt", "a cat")
+    typed = "a cat"
+    page.fill("#prompt", typed)
     page.dispatch_event("#prompt", "input")
-    button.click()
-    page.wait_for_function(
-        "() => document.getElementById('prompt').value.indexOf('written for the stub') >= 0", timeout=15000
-    )
+    before_size = page.input_value("#size")
+    rewrite = rewrite_prompt(page, button, typed)
+    prompt = page.input_value("#prompt")
     check(
         "pressing it puts the rewritten prompt in the box",
-        "written for the stub" in page.input_value("#prompt"),
-        page.input_value("#prompt")[:60],
+        # The box holds the answer itself, and the answer is the toggle's own job:
+        # a longer prompt than the one that was typed.
+        prompt == rewrite["prompt"] and len(prompt) > len(typed),
+        f"{len(typed)} characters typed, {len(prompt)} back",
     )
-    # The stub answers with 3:2, and the page applies it: one of the mode's own
-    # sizes, chosen because its shape matches.
+    # A shape the rewriter named is applied, so the run draws what it described.
+    # A rewriter that named none leaves the menu alone, which is the page's rule.
     check(
         "a shape from the rewriter is applied to the size menu",
-        page.input_value("#size") == "1152x768",
-        page.input_value("#size"),
+        page.input_value("#size") == (rewrite["size"] or before_size),
+        f"the rewriter named {rewrite['size']!r}, the menu shows {page.input_value('#size')!r}",
     )
 
     # Your own words survive a rewrite: `typed` holds the short text you wrote,
     # while `prompt` stays the paragraph the run was actually given.
-    page.fill("#prompt", "a cat")
+    page.fill("#prompt", typed)
     page.dispatch_event("#prompt", "input")
-    button.click()
-    page.wait_for_function(
-        "() => document.getElementById('prompt').value.indexOf('written for the stub') >= 0", timeout=15000
-    )
+    rewrite = rewrite_prompt(page, button, typed)
     page.click("#go")
     wait_idle(page)
     # LEFT: the page's own state: the words a frame was made from, kept apart from
@@ -1462,7 +1490,7 @@ with sync_playwright() as playwright:
     kept = page.evaluate("() => { const e = gallery[gallery.length - 1]; return e ? [e.typed, e.prompt] : null; }")
     check(
         "the card keeps the words you typed, apart from the rewritten prompt",
-        bool(kept) and kept[0] == "a cat" and "written for the stub" in kept[1],
+        bool(kept) and kept[0] == typed and kept[1] == rewrite["prompt"].strip(),
         f"typed={kept[0]!r} sent={kept[1][:40]!r}" if kept else "no gallery entry",
     )
 
