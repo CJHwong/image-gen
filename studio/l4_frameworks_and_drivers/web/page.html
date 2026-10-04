@@ -1200,6 +1200,9 @@
     region.dropStale(busy() || view === 'progress' ? '' : 'The mark went with its picture.');
     canvas.innerHTML = '';
     stageBar.hidden = true;
+    // Cleared, or the last frame's facts stay in this hidden bar. A check read them as the
+    // run's own, which turned an engine failure into a report about the wrong mode.
+    stageBar.innerHTML = '';
     stageBar.classList.remove('reserved');
     if (view === 'progress' && busy()) {
       // The caption's room is kept through the run, so the frame does not
