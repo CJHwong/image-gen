@@ -552,6 +552,32 @@ with sync_playwright() as playwright:
         page.get_by_role("button", name="Cancel", exact=True).count() == 1,
         page.locator("#go").aria_snapshot(),
     )
+    # The progress card is the page's own drawing of a run, and the module that
+    # draws it is new: its plate, its exposure and its percentage are what the
+    # real-run check reads, so the stub reads them here too. The exposure is the
+    # same reading as the percentage, held on the plate where the cascade picks
+    # it up, so the two are asserted against each other and not against a
+    # number. A step has to have landed for the percentage to read anything.
+    page.wait_for_function(
+        "() => { const p = document.querySelector('.card .percent');"
+        " return Boolean(p && p.textContent && p.textContent !== '0%'); }",
+        timeout=30000,
+    )
+    card = page.evaluate(
+        """() => ({
+             percent: document.querySelector('.card .percent').textContent,
+             exposed: getComputedStyle(document.querySelector('.card .exposure'))
+               .getPropertyValue('--exposed').trim(),
+           })"""
+    )
+    check(
+        "the progress card paints the exposure the percentage reads",
+        page.locator(".card .plate").count() == 1
+        and page.locator(".card .percent").count() == 1
+        and page.locator(".card .edge").inner_text().strip() != ""
+        and card["exposed"] == card["percent"],
+        f"{card['percent']} shown, --exposed {card['exposed']}",
+    )
     page.wait_for_timeout(700)
     began = time.monotonic()
     page.locator(RUNNING).click()
@@ -1424,6 +1450,31 @@ with sync_playwright() as playwright:
         frames(page) == kept + 1 and frames(tab) == kept + 1,
         f"{kept} kept, {frames(page)} in the first tab, {frames(tab)} in the second",
     )
+
+    # The channel runs both ways, and every check above had this tab as the one
+    # that acts. This is the other direction: the setting is changed in the
+    # other tab, and this one has to move with it. The strip note is where a
+    # user reads which of the two is in force, so it is where the move is read.
+    # It goes back on, because the images this tab keeps are what the checks
+    # below read.
+    keep_switch(tab).click()
+    page.wait_for_timeout(800)
+    check(
+        "turning keeping off in the other tab reaches this one",
+        "this tab" in page.locator("#strip-note").inner_text()
+        and keep_switch(page).get_attribute("aria-checked") == "false",
+        page.locator("#strip-note").inner_text(),
+    )
+    keep_switch(tab).click()
+    page.wait_for_timeout(1500)
+    check(
+        "turning it back on in the other tab reaches this one too",
+        "this tab" not in page.locator("#strip-note").inner_text()
+        and keep_switch(page).get_attribute("aria-checked") == "true",
+        page.locator("#strip-note").inner_text(),
+    )
+    page.keyboard.press("Escape")
+
     # An image that arrives from the other tab is read back out of the store. An
     # image the store will not read has to be reported, or the strip stays one
     # short with nothing said about it. The stub always reads one, so the read is
@@ -1673,26 +1724,22 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(500)
     page.keyboard.press("Escape")
 
-    # The store is opened once and the handle kept, so a browser that refuses to
-    # open one is only reachable at that first moment. The page is asked for a
-    # second open with the browser's own API broken underneath it.
+    # The page opens the store once and keeps the handle, so after that first
+    # moment `indexedDB.open` is never called again and breaking it would prove
+    # nothing. What the page asks of the handle is what is broken here instead:
+    # the same failure path, reached on the handle the page already holds.
     page.evaluate("""() => {
-      window.__realOpen = indexedDB.open.bind(indexedDB);
-      indexedDB.open = function () {
-        const request = { error: new Error('the store refused to open') };
-        setTimeout(function () { if (request.onerror) request.onerror(); }, 0);
-        return request;
-      };
-      store = null;
+      window.__realTransaction = IDBDatabase.prototype.transaction;
+      IDBDatabase.prototype.transaction = function () { throw new Error('the store refused the request'); };
     }""")
-    run_once(page, "a pear the store cannot open for", steps=1)
+    run_once(page, "a pear the store cannot serve", steps=1)
     page.wait_for_timeout(1500)
     check(
-        "a store the browser refuses to open is reported the same way",
+        "a store the handle refuses to serve is reported the same way",
         "did not keep image" in page.locator("#toasts").inner_text(),
         page.locator("#toasts").inner_text().strip()[:100],
     )
-    page.evaluate("() => { indexedDB.open = window.__realOpen; store = null; }")
+    page.evaluate("() => { IDBDatabase.prototype.transaction = window.__realTransaction; }")
 
     # ---- When the browser will not keep the images -----------------------------
     # The store is a browser API and no control makes it fail, so the suite breaks
