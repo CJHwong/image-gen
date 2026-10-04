@@ -429,6 +429,11 @@ held, so the check holds the node and reads its `src` and its load count across 
 removal. `verify_page.py` already made that claim on a real run; the suite now
 makes it on the stub too.
 
+`verify_page.py` reads the strip's own frames for its reduced-motion claim as
+well: the entrance a frame arrived with, and the loop a pick draws. The loop's
+markup moved into the module with this slice, so the check reads it from the
+frame and not from the page global that the probe before it used.
+
 The gallery array and the shown frame stayed the page's. A run's answer, a kept
 image and another tab's message all write the array, and the last two are slice
 9's; the page mirrors it into the store, as it does the references. The progress

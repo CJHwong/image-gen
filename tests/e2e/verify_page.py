@@ -559,6 +559,33 @@ with sync_playwright() as playwright:
     check("the strip keeps its thumbnails", page.evaluate("(img) => img.isConnected", thumb))
     check("thumbnails use blob URLs", page.evaluate("(img) => img.src.startsWith('blob:')", thumb))
 
+    # Reduced motion: nothing animates. Both names are read off the frames the
+    # strip really drew, and not off a probe built in the page. A probe passes
+    # even if the component stops emitting the classes. The probe this replaces
+    # read `MARK`, the page's own copy of the loop, out of the global scope, and
+    # slice 8 moved that markup into `components/image-strip.js`, so the global
+    # it read no longer existed. Two picks, so the second frame carries the loop
+    # the pick draws, and the first frame keeps the entrance it arrived with.
+    frames(page).nth(1).click()
+    frames(page).nth(0).click()
+    page.emulate_media(reduced_motion="reduce")
+    # LEFT: the loop is an SVG inside the shown frame, and its class is what
+    # carries the animation, so no role reaches it.
+    animated = page.evaluate("""() => {
+        const frame = document.querySelector('#strip .frame.arrive');
+        const loop = document.querySelector('#strip .frame.selected .mark.draw path');
+        return [frame, loop].map(el => el ? getComputedStyle(el).animationName : 'not drawn');
+    }""")
+    check("reduced motion stops every animation", all(name == "none" for name in animated), str(animated))
+    page.emulate_media(reduced_motion="no-preference")
+    # The same frame with motion allowed, so a page that animates nothing at all
+    # cannot pass the check above.
+    normal = page.evaluate("""() => {
+        const frame = document.querySelector('#strip .frame.arrive');
+        return frame ? getComputedStyle(frame).animationName : 'not drawn';
+    }""")
+    check("normal motion animates", normal == "join", normal)
+
     # The left column keeps its width whatever the strip holds. It used to lose
     # that width to the strip's content, which pushed the stage, the print and
     # the caption over the controls at the right. Filling the strip with 16:9
@@ -1373,33 +1400,6 @@ with sync_playwright() as playwright:
     page.click("label[for=mode-edit]")
     check("edit empty offers a picker", button(page, "Choose an image").is_visible())
     check("no leave warning after clear", not leave_blocked(page))
-
-    # Reduced motion: nothing animates
-    # LEFT: the page's own state, in the mark's own markup, and the animation names
-    # computed style reports. A probe built inside the page has no role to bind.
-    page.emulate_media(reduced_motion="reduce")
-    animated = page.evaluate("""() => {
-        const probe = document.createElement('div');
-        probe.innerHTML = '<div class="frame arrive"></div><div class="card waiting"><div class="exposure"></div></div>'
-          + MARK.replace('class="mark"', 'class="mark draw"');
-        document.getElementById('canvas').append(probe);
-        const names = [...probe.querySelectorAll('.frame, .exposure, .mark path')]
-          .map(e => getComputedStyle(e).animationName);
-        probe.remove();
-        return names;
-    }""")
-    check("reduced motion stops every animation", all(name == "none" for name in animated), str(animated))
-    page.emulate_media(reduced_motion="no-preference")
-    # LEFT: the same probe, with the animation it names.
-    normal = page.evaluate("""() => {
-        const probe = document.createElement('div');
-        probe.innerHTML = '<div class="frame arrive"></div>';
-        document.getElementById('canvas').append(probe);
-        const name = getComputedStyle(probe.firstChild).animationName;
-        probe.remove();
-        return name;
-    }""")
-    check("normal motion animates", normal == "join", normal)
 
     # The prompt rewriter. The stub reports it for both modes and answers with a
     # longer prompt, so the whole path is checkable with no GPU.
