@@ -679,11 +679,32 @@ with sync_playwright() as playwright:
         " if (split && split !== window.splits[window.splits.length - 1]) window.splits.push(split);"
         " requestAnimationFrame(sample); })()"
     )
+    before = frames(page).count()
     page.click("#go")
     wait_idle(page)
-    # LEFT: the summary line again.
+    # The run's own answer is the frame that arrives, and the summary line
+    # describes the frame the stage shows. A run that answers nothing, an engine
+    # error or a refused edit, leaves the stage on the frame before it, whose
+    # summary reads "Generated". So the summary alone cannot tell an edit that
+    # answered from an edit that never arrived: it would report a mode the page
+    # never posted. Three claims make that impossible. The frame count says the
+    # run answered. The stage says it holds a frame, which only a draw of an
+    # entry does: the bar and its summary outlive a draw that had no entry to
+    # make, so a summary can be read off the frame before without this. And the
+    # toast is what the page said when the run answered nothing. It carries the
+    # reason for an engine error until it is dismissed, and for four seconds when
+    # it reports a stop.
+    arrived = frames(page).count()
+    shots = page.locator(".shot").count()
+    # LEFT: the print's own frame, which has no role, and the summary line again.
     made = page.inner_text(".facts .made")
-    check("an edit names its source frame", made == f"Edited from {source}", made)
+    check(
+        "the edit answers a frame, the stage shows it, and it names its source",
+        arrived == before + 1 and shots == 1 and made == f"Edited from {source}",
+        f"{before} frames before, {arrived} after; the stage shows {shots}; "
+        f"the summary says {made!r}; the page says: "
+        + (page.locator("#toasts").inner_text().strip().replace("\n", " ") or "nothing"),
+    )
     page.get_by_role("button", name=f"Show frame {source}").click()
     # LEFT: the film frame's numbers again.
     check("the source link shows that frame", page.inner_text(".shot .edge span:last-child") == source)
