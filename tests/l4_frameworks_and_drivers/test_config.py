@@ -6,13 +6,7 @@ import pytest
 
 from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
 
-SETTINGS = (
-    'default_backend = "qwen21"\n'
-    'visible_backends = ["qwen21"]\n'
-    "[qwen21]\n"
-    "quantize = 0\n"
-    'edit_script = "qwen21/qwen21_edit.py"\n'
-)
+SETTINGS = 'default_backend = "qwen21"\nvisible_backends = ["qwen21"]\n[qwen21]\nquantize = 0\n'
 
 
 def write(tmp_path: Path, text: str) -> Path:
@@ -34,8 +28,8 @@ def test_a_quantize_of_zero_means_the_full_precision_weights(tmp_path: Path):
 def test_a_path_setting_resolves_against_the_settings_file(tmp_path: Path):
     """A path in studio.toml is relative to the file, not to the shell's directory,
     so the server starts the same from any working directory."""
-    config = load_config(write(tmp_path, SETTINGS))
-    assert config.backend("qwen21")["edit_script"] == str(tmp_path / "qwen21/qwen21_edit.py")
+    config = load_config(write(tmp_path, 'default_backend = "flux2"\n[flux2]\nmodel_dir = "weights/klein"\n'))
+    assert config.backend("flux2")["model_dir"] == str(tmp_path / "weights/klein")
 
 
 def test_a_tilde_path_setting_expands_to_the_home_directory(tmp_path: Path):
@@ -59,6 +53,11 @@ def test_the_flag_quantize_lands_on_the_backend_the_page_opens_with(tmp_path: Pa
 def test_a_file_with_no_visible_list_offers_its_default(tmp_path: Path):
     config = load_config(write(tmp_path, 'default_backend = "flux2"\n'))
     assert config.visible_backends == ("flux2",)
+
+
+def test_a_setting_that_is_present_comes_back(tmp_path: Path):
+    config = load_config(write(tmp_path, SETTINGS))
+    assert config.required("qwen21", "quantize") is None  # 0 in the file, read as no quantization
 
 
 def test_a_missing_setting_is_named_with_its_section(tmp_path: Path):

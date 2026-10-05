@@ -5,10 +5,9 @@ picture the run will carry and lengthens an edit instruction. Both are
 fine-tuned Qwen3.5-VL 9B, 18.84 GB in bf16, and both answer in JSON after an
 optional thinking block.
 
-They run on MLX, the same engine the generate half uses, so unlike the edit
-engine they need no child process. The child exists because torch and MLX cannot
-share one process, and mlx-vlm does not pull torch. Its import is deferred to the
-first rewrite and costs 1.6s, so a studio that never rewrites never pays it.
+They run on MLX, the same engine the two image models use, so they share this
+process. Its import is deferred to the first rewrite and costs 1.6s, so a studio
+that never rewrites never pays it.
 
 The two models do not both fit beside anything, so this adapter keeps at most one
 resident and drops it when the other mode asks.

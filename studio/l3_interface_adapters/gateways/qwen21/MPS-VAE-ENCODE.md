@@ -1,7 +1,10 @@
 # The MPS VAE encode defect
 
-Status: worked around in `qwen21_edit.py`, root cause not yet proven, nothing
-filed upstream.
+Status: root cause not yet proven, nothing filed upstream. This is no longer a
+workaround anywhere in this repo: mflux 0.21.0 ported the Qwen3-VL vision tower,
+so instruction editing runs on MLX and never puts an image through a PyTorch MPS
+VAE encoder. What is left here is an upstream defect and the plan for reporting
+it. It stays because the defect is not ours and is not yet filed.
 
 ## Symptom
 
@@ -26,9 +29,11 @@ The macOS build matters. See "The OS lead" below.
 
 ## Evidence
 
-`vae_device_sweep.py` in this directory runs one image through
-`vae.encode` then `vae.decode`, with no transformer and no pipeline. It sets
-the VAE dtype and the input dtype together, so dtype is genuinely controlled.
+`vae_device_sweep.py` used to sit in this directory and run one image through
+`vae.encode` then `vae.decode`, with no transformer and no pipeline. It set the
+VAE dtype and the input dtype together, so dtype was genuinely controlled. It
+went with the rest of the diffusers path, so until it is rewritten these numbers
+cannot be reproduced from this repo.
 
 ```
 source                       mean  147.6  contrast  64.2  p1-p99   4.7-230.3
@@ -74,14 +79,16 @@ Each one tested as a single variable:
 A high-pass measure *rises* under the defect, 19.6 to 39.4. That is added
 weave-like noise, not recovered detail.
 
-## The workaround
+## The workaround, and where it went
 
-`qwen21_edit.py` wraps `_encode_vae_image` and runs that one call on CPU in
-fp32. Everything else stays on MPS. It is the default. `--vae-encode-on-mps`
-restores the broken path for retesting.
+`qwen21_edit.py` wrapped `_encode_vae_image` and ran that one call on CPU in
+fp32, leaving everything else on MPS. `--vae-encode-on-mps` restored the broken
+path for retesting. The file and the flag both went when the diffusers edit path
+did, so nothing in this repo avoids the defect any more, and nothing in this repo
+can reach it either.
 
-Encode runs once per reference image, so the cost is about 16s on a 1024 edit,
-202s against 186s. Peak memory does not change at 45.6 GiB.
+Encode ran once per reference image, so the cost was about 16s on a 1024 edit,
+202s against 186s. Peak memory did not change at 45.6 GiB.
 
 ## The OS lead
 
@@ -134,9 +141,13 @@ the probe. It should be numerically transparent. That is untested.
 
 ## Next steps, cheapest first
 
-1. **Update macOS past 26.7 (25G229) and rerun `vae_device_sweep.py`.** If the
-   defect vanishes, there is nothing to upstream and the workaround becomes an
-   OS-version guard.
+1. **Rewrite the sweep and rerun it.** It is short: one image through
+   `vae.encode` then `vae.decode`, no transformer and no pipeline, the VAE dtype
+   and the input dtype set together. It needs an environment with torch and
+   diffusers, which this repo no longer has. Then update macOS past 26.7
+   (25G229) and run it again. If the defect vanishes there is nothing to
+   upstream, and the finding becomes an OS-version guard for anyone still on the
+   old build.
 2. **Unset `PYTORCH_ENABLE_MPS_FALLBACK` and rerun the encode.** If it raises,
    the error names the offending op for free.
 3. **Repeat on a synthetic input and two more images.** One image and one run is

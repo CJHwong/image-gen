@@ -88,7 +88,7 @@ def main():
     except Exception as error:
         sys.exit(f"Could not load the model: {error}")
     print(f"\nReady on http://{args.host}:{args.port}", flush=True)
-    print("The server writes nothing to disk. Ctrl-C to stop.\n", flush=True)
+    print("Nothing is kept: an edit's references live in a temp folder for that run. Ctrl-C to stop.\n", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

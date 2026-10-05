@@ -1383,9 +1383,10 @@ wheels = [
 
 [[package]]
 name = "mflux"
-version = "0.19.2"
-source = { git = "https://github.com/mflux-community/mflux?rev=8c00dab2505a96019df9d30bc9c223bf20d733c4#8c00dab2505a96019df9d30bc9c223bf20d733c4" }
+version = "0.21.0"
+source = { git = "https://github.com/mflux-community/mflux?rev=f63b4f0f00c8dba5de94f478c9e4be62dbc70ddc#f63b4f0f00c8dba5de94f478c9e4be62dbc70ddc" }
 dependencies = [
+    { name = "anyio" },
     { name = "filelock" },
     { name = "fonttools" },
     { name = "hf-transfer" },
@@ -2824,7 +2825,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mflux", git = "https://github.com/mflux-community/mflux?rev=8c00dab2505a96019df9d30bc9c223bf20d733c4" },
+    { name = "mflux", git = "https://github.com/mflux-community/mflux?rev=f63b4f0f00c8dba5de94f478c9e4be62dbc70ddc" },
     { name = "mlx-vlm", specifier = ">=0.7.3" },
     { name = "pillow" },
 ]

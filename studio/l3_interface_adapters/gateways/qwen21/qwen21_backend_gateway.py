@@ -4,12 +4,13 @@ from studio.l3_interface_adapters.gateways.qwen21.capabilities import qwen21_cap
 
 
 class Qwen21BackendGateway(ImageBackendGateway):
-    """Two engines behind one backend: mflux for generate, the diffusers child for edit.
+    """Two mflux models behind one backend: the text-to-image variant for generate,
+    the instruction-edit variant for edit.
 
-    Only one of them fits in memory. The edit engine loads the full Qwen3-VL,
-    vision tower included, and measured 38.7 GiB allocated on MPS; mflux peaks
-    at 30.7 GB. Both would not fit on a 64 GB machine, so each run frees the
-    other engine first. Rebuilding the mflux model after an edit measured 3.8s.
+    The edit variant builds the Qwen3-VL vision tower that the text-to-image
+    variant never loads, so the two do not both fit on a 64 GB machine and each
+    run frees the other model first. The generate peak measured 30.68 GB.
+    Rebuilding the generate model after an edit measured 3.8s.
     """
 
     def __init__(self, generator, edit, badge: str):

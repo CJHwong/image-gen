@@ -4,8 +4,11 @@ version = "0.1.0"
 description = "A local web page for image generation. The model backends plug in as adapters."
 requires-python = ">=3.11"
 dependencies = [
-    # The same commit the qwen21 CLI pins. It carries the qwen21, flux2 and krea2 ports.
-    "mflux @ git+https://github.com/mflux-community/mflux@8c00dab2505a96019df9d30bc9c223bf20d733c4",
+    # The mflux 0.21.0 release, tag v.0.21.0. It carries the qwen21 text-to-image
+    # port, the instruction-edit variant with the vision tower, the viggle_turbo
+    # scheduler, and LoRA loading. The edit variant is why there is no diffusers
+    # child any more: see gateways/qwen21/PORTABILITY.md.
+    "mflux @ git+https://github.com/mflux-community/mflux@f63b4f0f00c8dba5de94f478c9e4be62dbc70ddc",
     "pillow",
     # The prompt rewriters, a second model per mode. MLX like mflux, so it shares
     # this process and needs no child; the import is deferred to the first
@@ -34,22 +37,18 @@ target-version = "py311"
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 ignore = ["E501"]
 
-# These scripts run in their own environments: the PEP 723 ones on diffusers, the
-# browser checks through `uv run --with playwright`. diffusers cannot resolve in
-# this venv, so ty cannot check these files here. torch does resolve: mflux pulls
-# it as a dependency. Pass `--cov=studio`, the directory, not `--cov=studio/__main__`:
-# coverage reads any source entry that is not a directory as a package name, and
-# the entry then matches nothing.
+# The browser checks run in their own environments, through `uv run --with
+# playwright`, so ty cannot check them here. Pass `--cov=studio`, the directory,
+# not `--cov=studio/__main__`: coverage reads any source entry that is not a
+# directory as a package name, and the entry then matches nothing.
 [tool.ty.src]
 exclude = [
-    "studio/l3_interface_adapters/gateways/qwen21/qwen21_edit.py",
-    "studio/l3_interface_adapters/gateways/qwen21/vae_device_sweep.py",
     "tests/e2e/verify_*.py",
 ]
 
 # Branch coverage as well as statement coverage. A statement can run while one side
 # of its condition never does, and then no test has proved that path: the first run
-# with this on left three such branches, in stdio_child and main.
+# with this on left three such branches that no test had reached.
 [tool.coverage.run]
 branch = true
 

@@ -21,12 +21,12 @@ def settings(tmp_path: Path, text: str, **flags):
 
 
 def test_only_the_offered_backends_are_built(tmp_path: Path):
-    config = settings(tmp_path, 'default_backend = "qwen21"\n[qwen21]\nedit_script = "edit.py"\n')
+    config = settings(tmp_path, 'default_backend = "qwen21"\n[qwen21]\nquantize = 0\n')
     assert list(build_backends(config)) == ["qwen21"]
 
 
 def test_a_missing_setting_is_named(tmp_path: Path):
-    config = settings(tmp_path, 'default_backend = "qwen21"\n[qwen21]\nedit_script = "edit.py"\n', backend="flux2")
+    config = settings(tmp_path, 'default_backend = "qwen21"\n[qwen21]\nquantize = 0\n', backend="flux2")
     with pytest.raises(ConfigError, match=r"model_dir under \[flux2\]"):
         build_backends(config)
 
