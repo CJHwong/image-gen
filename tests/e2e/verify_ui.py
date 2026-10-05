@@ -1814,6 +1814,12 @@ with sync_playwright() as playwright:
     tab.get_by_role("menuitemradio", name=FIRST, exact=True).click()
     tab.wait_for_function(toggle_reads(FIRST), timeout=180000)
 
+    # The frames made above reached the first tab as well: a kept image goes out
+    # on the store's channel and every open tab admits it. The store checks below
+    # count the frames in the first tab's strip, so this puts it back at empty.
+    page.get_by_role("button", name="Clear all").click()
+    page.wait_for_timeout(800)
+
     # A browser store the page cannot write to has to be reported, not passed over:
     # an image that is silently not kept is lost at the next reload. The stub never
     # fails that way, so the browser's own store is broken underneath the page.

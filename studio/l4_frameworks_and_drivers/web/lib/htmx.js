@@ -322,8 +322,8 @@ function harvest() {
       // Which model made this one, taken now because the page knows it now. A
       // switch reloads the page but keeps the strip, so without this every frame
       // would wear whichever model was selected last. `edgeName` is the active
-      // model's, in the form the edge draws, and it is on the handle this module
-      // already reads.
+      // model's, in the form the edge draws, and the page hands it to this module
+      // on the run handle, beside `takeFrameId`.
       backend: page.edgeName,
       sources: runSources,
       before: data.mode === 'edit' ? batchSource : null,
