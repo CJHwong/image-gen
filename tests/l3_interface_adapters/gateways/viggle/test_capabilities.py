@@ -90,8 +90,10 @@ def test_the_looks_and_templates_the_sample_passed_are_offered():
         "Add an object",
         "Turn into a skeleton",
         "Turn into a pose figure",
+        "Mark a region",
     ]
-    assert generate.region_marking is False and edit.region_marking is False
+    # The mark is offered on edit, which is where the tool lives, and not on generate.
+    assert generate.region_marking is False and edit.region_marking is True
 
 
 def test_every_mode_carries_an_estimate_and_a_badge():

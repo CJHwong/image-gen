@@ -1875,6 +1875,25 @@ with sync_playwright() as playwright:
         and any("-viggle_turbo-generate-" in name for name in downloads),
         str(downloads),
     )
+    # The region tool is offered here too, on this model's own measurement. Its brush
+    # mounts on a print that is an edit's own reference, so the frame goes through Edit
+    # this and the reference comes back off, which is the path the capabilities suite
+    # uses for the same question.
+    tab.locator("label[for=mode-edit]").click()
+    tab.wait_for_timeout(300)
+    frame_nodes(tab).first.click()
+    tab.wait_for_timeout(300)
+    tab.get_by_role("button", name="Edit this", exact=True).click()
+    tab.wait_for_timeout(700)
+    check(
+        "the second model offers the region tool, so its mark can be drawn",
+        tab.locator("#canvas canvas").count() >= 1,
+        f"{tab.locator('#canvas canvas').count()} canvases on the print",
+    )
+    for taken in tab.get_by_role("button", name=re.compile("^Remove ")).all():
+        taken.click()
+    tab.locator("label[for=mode-generate]").click()
+    tab.wait_for_timeout(250)
 
     # A record written before a frame carried its model has none. It must read
     # back without error, and it must not wear the model selected now: that claim
