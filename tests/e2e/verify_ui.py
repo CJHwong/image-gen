@@ -1739,7 +1739,10 @@ with sync_playwright() as playwright:
     )
     # The aids this model kept are the ones its own sample passed, and they are
     # offered on the page rather than only in the capabilities. The counts are the
-    # sample's: 8 Look rows and 7 generate templates.
+    # sample's: 8 Look rows and 7 generate templates. The header is drawn by the
+    # page's own script and the rows by a deferred module, so the wait is on a row.
+    medium = tab.locator("#look-rows").get_by_role("button", name=re.compile("^Medium"))
+    medium.wait_for(state="visible", timeout=30000)
     check(
         "the second model offers the prompt aids its own sample kept",
         tab.locator("#look").is_visible()
