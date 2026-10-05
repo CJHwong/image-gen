@@ -582,8 +582,37 @@ with sync_playwright() as playwright:
     # with no role. The frame's own name carries the seed and the size.
     check("a plain run says Generated", page.inner_text(".facts .made") == "Generated", page.inner_text(".facts .made"))
     # LEFT: the page's own state: the rate it learned for the shape it just ran.
-    learned = page.evaluate("() => learnedCost[costKey()] || 0")
-    check("a run teaches the step rate", 0.3 < learned < 20, f"{learned:.2f} s per step at 1 MP")
+    # It is asserted against the run the page itself recorded, not against a
+    # plausible range of numbers. A busy machine makes every rate slow, and a bound
+    # on the number alone failed a check about the page while the machine was merely
+    # contended: 35.81 s per step against a ceiling of 20. The learned rate is the
+    # mean interval the page saw between steps, so it sits just under the run's own
+    # elapsed per step, and the tolerance leaves room for the load and the encode
+    # that an interval between steps does not include.
+    run = page.evaluate(
+        """() => {
+             const facts = document.querySelector('#stage-bar .facts');
+             const text = facts ? facts.innerText : '';
+             // The bar writes the shape with a multiplication sign, matched here by its
+             // escape so this file holds no ambiguous character of its own.
+             const shape = text.match(/(\\d+)\\s*[\\u00d7x]\\s*(\\d+)/);
+             const steps = text.match(/(\\d+) steps/);
+             const took = text.match(/Took (\\d+) s/);
+             const picked = document.querySelector('input[name=mode]:checked');
+             const mode = picked && STUDIO.modes.find(function (m) { return m.id === picked.value; });
+             if (!shape || !steps || !took || !mode) return null;
+             const pixels = Number(shape[1]) * Number(shape[2]);
+             return {
+               elapsed: Number(took[1]) / Number(steps[1]),
+               learned: learnedCost[costKey()] * Math.pow(pixels / 1e6, mode.estimate.exponent),
+             };
+           }"""
+    )
+    check(
+        "a run teaches the step rate",
+        run is not None and 0.3 * run["elapsed"] < run["learned"] <= 1.05 * run["elapsed"],
+        f"learned {run['learned']:.2f} s/step against the run's own {run['elapsed']:.2f}" if run else "no facts",
+    )
     # LEFT: the caption is the only place the reader sees the whole prompt, and it
     # has no role until it is long enough to be cut. Binding it by its own text
     # would make the text the assertion is about the very thing that finds it.
