@@ -155,6 +155,11 @@ def edge_model(page):
     return page.locator("#canvas .shot .edge span").first.inner_text().strip()
 
 
+def edge_of(name):
+    """A model's name as the edge prints it: capitals, with the dashes opened out."""
+    return name.upper().replace("-", " ")
+
+
 def toggle_reads(name):
     """A wait condition for a switch: the title button names the model asked for.
 
@@ -1756,7 +1761,7 @@ with sync_playwright() as playwright:
     held += 1
     check(
         "a frame made on one model names that model on its edge",
-        frames(tab) == held and edge_model(tab) == FIRST.upper(),
+        frames(tab) == held and edge_model(tab) == edge_of(FIRST),
         f"{frames(tab)} images, edge {edge_model(tab)!r}",
     )
     tab.click("#backend-toggle")
@@ -1766,7 +1771,7 @@ with sync_playwright() as playwright:
     tab.wait_for_timeout(1000)
     check(
         "the switch keeps the strip, and the frame still names its own model",
-        frames(tab) == held and edge_model(tab) == FIRST.upper(),
+        frames(tab) == held and edge_model(tab) == edge_of(FIRST),
         f"{frames(tab)} images, edge {edge_model(tab)!r}",
     )
     # Six steps and only six: the distilled schedule is the set of nodes the
@@ -1775,7 +1780,7 @@ with sync_playwright() as playwright:
     tab.wait_for_timeout(600)
     check(
         "a frame made after the switch names the model that made it",
-        frames(tab) == held + 1 and edge_model(tab) == SECOND.upper(),
+        frames(tab) == held + 1 and edge_model(tab) == edge_of(SECOND),
         f"{frames(tab)} images, edge {edge_model(tab)!r}",
     )
 
