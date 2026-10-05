@@ -9,10 +9,13 @@ backend declares no guidance, no negative prompt and no cfg. And mflux's
 `ViggleTurboScheduler` raises on any step count but six, before the model loads,
 so that field is not a default the user may move.
 
-No Looks and no templates. ARCHITECTURE.md says to leave them out until they are
-tested on this model, and nobody has tested them on the distilled schedule.
-Region marking is out for the same reason: the mark's bounding power was measured
-on the 40-step base, not here.
+No Looks and no templates yet. ARCHITECTURE.md says to leave them out until they
+are tested on this model, and nobody has tested them on the distilled schedule.
+
+Region marking is out, and that one is measured rather than pending. On the two
+fixtures the 40-step base was measured on, six steps scored 2.2x and 2.5x where the
+base keeps 15.8x and 28.8x: the change spilled over the whole frame instead of
+staying in the mark. A six-step run cannot hold a mark, so the tool is not offered.
 """
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
@@ -48,13 +51,22 @@ RESOLUTION = ParamSpec(
     ),
 )
 
-# The base model's numbers, which the adapter does not change: the same
-# transformer runs, with Viggle's LoRA on top. They are a placeholder until the
-# first real six-step run on this machine, and the page corrects the rate from
-# its own steps anyway. The table they came from is in
-# gateways/qwen21/capabilities.py beside the constants.
+# Measured 2026-10-05 on the M5 Pro, six steps, one reference, and set against the
+# base model's constants. Viggle can only run six steps, so the fixed cost cannot be
+# separated from the per-step cost the way the base model's was; what these say is
+# whether that pair still predicts a six-step run.
+#
+#   measured total   0.26 MP   0.59 MP   1.05 MP
+#   generate            5.9s      9.9s     23.6s
+#   edit               18.8s     19.3s     37.3s
+#
+# Generate is the base model's pair within 15% at all three sizes, so it keeps them.
+# Edit does not: the base model's overhead of 30 is fitted from two-step and
+# twenty-two-step runs and dominates a six-step one, predicting 35, 44 and 60
+# seconds against those. The same per-step curve with this backend's own overhead of
+# 10 predicts 15, 24 and 40, inside 24% at all three.
 GENERATE_ESTIMATE = Estimate(3.15, 1.53, 3, overhead_per_image=True)
-EDIT_ESTIMATE = Estimate(4.72, 1.336, 30, overhead_per_image=True, match_cap=EDIT_MATCH_CAP)
+EDIT_ESTIMATE = Estimate(4.72, 1.336, 10, overhead_per_image=True, match_cap=EDIT_MATCH_CAP)
 
 GENERATE = ModeSpec(
     id="generate",
