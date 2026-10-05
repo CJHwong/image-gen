@@ -644,6 +644,84 @@ mutated:
 | the Look stops reaching the sent prompt | `lib/form.js` | 1 check: the posted prompt carries the Look |
 | the double-click guard widens to 30 s | `lib/htmx.js` | 2 checks: Cancel stops the run, and puts back what Run emptied |
 
+## Two fixes after slice 10
+
+Both came from a user running the refactored page. Each one was reproduced on
+the stub and measured before anything moved.
+
+### The first entry fitted the print to a stage that had already shrunk
+
+The user's words: "when first enter the page, the previewing image is in wrong
+size." A tab that opens on kept images is the case. The store reads them back,
+`renderStrip` un-hides `#strip-wrap`, and `renderStage` draws the print, all in
+one task. The frames inside `<image-strip>` are a Lit render, so they land a
+microtask later. The strip grows, the stage loses that height, and the print
+keeps the size it was fitted to.
+
+Measured at 1440 by 900, with a canvas read patched on the page: `fitStage` read
+a canvas 695 px tall, the strip's frame landed, and the canvas settled at 616 px.
+The print kept 613 px of height, where the settled stage gives it 534 px. Nothing
+re-fit it, so it stayed wrong until the next window resize.
+
+`components/stage.js` watches the canvas with a `ResizeObserver` and fits again
+whenever the box it fitted to moves. The callback runs after layout and before
+paint, so the wrong size is never painted. The watcher covers every other move of
+that box as well, the strip among them. The window's own resize listener stays:
+it costs one call and it is the older contract.
+
+### The stage bar moved with the prompt
+
+The user's words: "elements inside stage-bar should have static position. not
+affect by width or length of prompt." The caption is clamped to two lines, but it
+took one or two of them by its content. The bar takes its height from the
+caption, so the controls in the row moved, and the stage takes its height from
+the bar, so the print resized as a user walked the strip.
+
+Measured with each shape written into the caption of a shown frame:
+
+| Viewport | Caption | Bar | Stage | The actions' top |
+|---|---|---|---|---|
+| 1440 by 900 | one line | 82 | 616 | 684 |
+| 1440 by 900 | two lines | 85 | 612 | 682 |
+| 1000 by 900 | one line | 66 | 614 | 683 |
+| 1000 by 900 | two lines | 87 | 593 | 672 |
+
+The actions' left never moved with the caption at any width tried, so the width
+was already free: `.about` takes `flex: 1` and the caption is what wraps inside
+it. Only the height was coupled.
+
+`.prompt-line` in `page.css` now reserves two lines, filled or not. The clamp
+still cuts a longer prompt, and the caption's watcher still marks the cut, since a
+one-line caption has nothing to open. The bar's height is then a fact of the
+viewport and not of the prompt.
+
+### The two checks, and how each one was proved
+
+The suite is 139 checks, two more than slice 10 left.
+
+| Check | The claim |
+|---|---|
+| the first entry fits the print to the stage it lands in | The size a settled tab gives the print equals the size the same page gives it after a resize. |
+| the stage does not move when the caption changes length | The bar and the stage keep one box with a one-line caption and a two-line one, the caption read with each shape written into it. |
+
+Each one was proved by mutation, served from a copy of the page directory and run
+from inside that copy, with a control copy that had nothing mutated:
+
+| Mutation | Result |
+|---|---|
+| the watcher never observes the stage | 138 of 139; the one failure is "the first entry fits the print to the stage it lands in", 914 by 609 on entry against 795 by 530 after a re-fit |
+| the caption reserves no second line | 138 of 139; the one failure is "the stage does not move when the caption changes length", one line 82 against two lines 85 |
+| nothing | 139 of 139 |
+
+The suite passed 139 of 139 in every run, twice with the coverage read, and the
+coverage is the same both times: 630/637 functions, the inline script 111/114 and
+the modules 519/523. The module line grew by one function with the watcher, and
+the suite runs it. `uv run pytest` stays at 100 percent of statements and
+branches.
+
+The two other consumers of the page stay green: `verify_capabilities.py` at 61
+of 61 and `verify_storage.py` at 20 of 20.
+
 ## Non-goals
 
 1. No bundler, no npm, no build step.

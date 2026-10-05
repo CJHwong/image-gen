@@ -7,6 +7,14 @@
 // would fit a plate that is not drawn yet and mark a caption that has not
 // wrapped. The module owns its own redraw, and the page asks for it.
 //
+// The fit is measured from the canvas's own box, and that box is not final when
+// the draw lands: `#strip-wrap` is unhidden in the same task, but the frames
+// inside `<image-strip>` are drawn by a Lit element a microtask later, and the
+// strip grows and takes the stage's height with it. Nothing re-fit the print, so
+// a first entry measured a stage taller than the one it painted into and kept a
+// print too big for it until the next resize. The watcher below re-fits whenever
+// the box the print was fitted to moves, whatever moved it.
+//
 // The page's own script is still a classic script, so it cannot import this
 // module. The listener is registered while the markup is parsed and this fires
 // while the module is evaluated: after the markup, before any interaction, so
@@ -64,6 +72,12 @@ export function fitStage() {
   const pic = page.canvas.querySelector('.pic');
   if (pic) fitBox(pic, Number(pic.dataset.ratio), 1);
 }
+
+// The stage's own box is what the print is fitted to, so a change to it is a
+// reason to fit again: the strip's frames landing, the bar's height moving, a
+// full screen entry. The callback runs after layout and before paint, so the
+// print is the right size in the first frame the change paints.
+const stageWatch = new ResizeObserver(function () { fitStage(); });
 
 export function selected() {
   const gallery = page.gallery();
@@ -470,6 +484,7 @@ document.dispatchEvent(new CustomEvent('stage-ready', {
   detail: {
     configure: function (helpers) {
       Object.assign(page, helpers);
+      stageWatch.observe(page.canvas);
       return handle;
     },
   },

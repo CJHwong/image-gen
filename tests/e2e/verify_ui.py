@@ -1248,6 +1248,30 @@ with sync_playwright() as playwright:
         and caption.get_attribute("aria-expanded") == "false",
     )
 
+    # The bar takes its height from the caption, and the stage takes its height
+    # from the bar, so a caption that grew and shrank with the prompt moved every
+    # control in the row and resized the picture as the user walked the strip.
+    # Two lines are reserved now, filled or not. The caption is read with each
+    # shape written into it, which is the one way to hold the frame still while
+    # the prompt changes length; the claim is on the bar and the stage.
+    shapes = caption.first.evaluate("""(node) => {
+      const box = (el) => { const b = el.getBoundingClientRect();
+        return [Math.round(b.y), Math.round(b.height)]; };
+      const bar = document.getElementById('stage-bar');
+      const canvas = document.getElementById('canvas');
+      const read = () => ({bar: box(bar), stage: box(canvas), caption: box(node)});
+      const written = node.textContent;
+      node.textContent = 'a pear';
+      const short = read();
+      node.textContent = written;
+      return {short: short, long: read()};
+    }""")
+    check(
+        "the stage does not move when the caption changes length",
+        shapes["short"] == shapes["long"],
+        f"one line {shapes['short']}, two lines {shapes['long']}",
+    )
+
     # The badge on an edit names the frame it was made from, and that name is a way
     # back to it. The way back is read from what the stage says once it arrives,
     # not from a file name: one download carries the model, the mode and the seed,
@@ -1440,6 +1464,30 @@ with sync_playwright() as playwright:
         "a second tab shows the images the first one kept",
         frames(tab) == kept,
         f"{kept} kept, {frames(tab)} in the second tab",
+    )
+
+    # A tab that opens on kept images is the first entry: the store reads them
+    # back, un-hides the strip and draws the print in one task, and the strip's
+    # frames arrive from a Lit render a microtask later. The stage the print was
+    # fitted to is not the stage it lands in, and nothing re-fit it, so the first
+    # entry kept a print too big for it until the next resize. The claim is that
+    # the size a settled page gives the print is the size fitStage gives it: the
+    # same page re-fits it on a resize, and the two have to agree.
+    def printed(pane):
+        # The print is the first image in the frame; a frame shown against its
+        # source carries a second one over it.
+        box = pane.locator("#canvas .pic img").first.bounding_box()
+        return (round(box["width"]), round(box["height"]))
+
+    tab.wait_for_timeout(200)
+    on_entry = printed(tab)
+    tab.evaluate("() => window.dispatchEvent(new Event('resize'))")
+    tab.wait_for_timeout(200)
+    refitted = printed(tab)
+    check(
+        "the first entry fits the print to the stage it lands in",
+        on_entry == refitted and on_entry[0] > 100,
+        f"{on_entry[0]}x{on_entry[1]} on entry, {refitted[0]}x{refitted[1]} after a re-fit",
     )
 
     # The strip is one strip across the tabs: a run in one reaches the other over
