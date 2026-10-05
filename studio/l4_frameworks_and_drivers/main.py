@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
+from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase
 from studio.l2_use_cases.prepare_backend_use_case import PrepareBackendUseCase
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
+from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
 from studio.l2_use_cases.rewrite_prompt_use_case import RewritePromptUseCase
 from studio.l2_use_cases.run_image_use_case import RunImageUseCase
 from studio.l2_use_cases.switch_backend_use_case import SwitchBackendUseCase
@@ -19,6 +21,9 @@ from studio.l3_interface_adapters.gateways.gpu_thread import GpuThread
 from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
 from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
 from studio.l3_interface_adapters.gateways.in_memory_reference_store_gateway import InMemoryReferenceStoreGateway
+from studio.l3_interface_adapters.gateways.in_memory_rewrite_progress_gateway import (
+    InMemoryRewriteProgressGateway,
+)
 from studio.l3_interface_adapters.gateways.prompt_rewriters import (
     CatalogPromptRewriter,
     NoPromptRewriter,
@@ -165,6 +170,9 @@ def assemble_studio(backends: dict, rewriters: dict, default_id: str, visible_id
     catalog = InMemoryBackendCatalogGateway(confined, default_id=default_id, visible_ids=visible_ids)
     rewriter = ThreadConfinedPromptRewriter(CatalogPromptRewriter(rewriters, catalog), gpu)
     progress = InMemoryProgressGateway()
+    # The rewrite publishes its own phase, because the page draws that button from
+    # it: a rewrite is worth stopping, and only once the model is writing.
+    rewrite_progress = InMemoryRewriteProgressGateway()
     cancel = CancelRunUseCase(progress, catalog)
     controller = FormController(
         describe=DescribeStudioUseCase(catalog, rewriter),
@@ -178,7 +186,9 @@ def assemble_studio(backends: dict, rewriters: dict, default_id: str, visible_id
         read_progress=ReadProgressUseCase(progress),
         cancel=cancel,
         switch=SwitchBackendUseCase(catalog, engine_lock),
-        rewrite=RewritePromptUseCase(rewriter, catalog),
+        rewrite=RewritePromptUseCase(rewriter, catalog, rewrite_progress),
+        read_rewrite_progress=ReadRewriteProgressUseCase(rewrite_progress),
+        cancel_rewrite=CancelRewriteUseCase(rewrite_progress),
     )
     presenter = HtmlPresenter(PAGE.read_text(encoding="utf-8"))
     return Studio(

@@ -49,6 +49,10 @@ HEADED = "--headed" in sys.argv
 # failing.
 RUNNING = "#go[data-state='busy']"
 IDLE = "#go[data-state='idle']"
+# The rewrite button's own two states, read from the label it shows. A rewrite is
+# long enough to be worth stopping, so where it can be stopped is what these name.
+VERB_IS_CANCEL = "() => document.getElementById('rewrite-toggle').innerText.trim() === 'Cancel'"
+VERB_IS_REWRITE = "() => document.getElementById('rewrite-toggle').innerText.trim() === 'Rewrite'"
 FRAME = re.compile(r"^(generate|edit), seed ")
 # The two models studio.toml offers, in the picker's order. The switch is between
 # these, so what ships decides them. Each name is read exactly: the second carries
@@ -200,6 +204,16 @@ def run_once(page, prompt, steps=2):
 def stage_text(page):
     """What the bar under the print says about the frame it shows."""
     return page.locator("#stage-bar").inner_text().replace("\n", " ")
+
+
+def rewrite_verb(page):
+    """The verb the rewrite button shows, as a user reads it.
+
+    The button carries one label per stage and `hidden` picks which one, so the
+    rendered text is exactly that verb. No class name is bound here, and a label
+    that is hidden contributes nothing.
+    """
+    return page.locator("#rewrite-toggle").inner_text().strip()
 
 
 def stroke(page, box, start, end):
@@ -634,6 +648,41 @@ with sync_playwright() as playwright:
         "the rewrite toggle replaces the prompt with a longer one",
         len(rewritten) > len(typed) and rewritten != typed,
         rewritten[:70],
+    )
+
+    # A rewrite is worth stopping, so the button offers it: locked while the
+    # rewriter gets ready, which is when a cold one loads about 19 GB, and Cancel
+    # once it writes. The stub spends 1.2s preparing and 3s writing in slices, so
+    # both phases last long enough to read here.
+    page.fill("#prompt", "a pear")
+    page.dispatch_event("#prompt", "input")
+    typed = page.locator("#prompt").input_value()
+    page.click("#rewrite-toggle")
+    page.wait_for_timeout(300)
+    check(
+        "the rewrite button is locked while the rewriter gets ready",
+        rewrite_verb(page) == "Rewrite" and page.locator("#rewrite-toggle").is_disabled(),
+        f"{rewrite_verb(page)!r}, disabled {page.locator('#rewrite-toggle').is_disabled()}",
+    )
+    page.wait_for_function(VERB_IS_CANCEL, timeout=30000)
+    check(
+        "the rewrite button becomes Cancel once the model writes",
+        page.locator("#rewrite-toggle").is_enabled(),
+        rewrite_verb(page),
+    )
+    page.click("#rewrite-toggle")
+    check(
+        "cancelling a rewrite says it is stopping",
+        rewrite_verb(page).startswith("Stopping"),
+        rewrite_verb(page),
+    )
+    page.wait_for_function(VERB_IS_REWRITE, timeout=30000)
+    page.wait_for_timeout(400)
+    check(
+        "a cancelled rewrite leaves the prompt as it was and says nothing alarming",
+        page.locator("#prompt").input_value() == typed
+        and "The rewrite failed" not in page.locator("#toasts").inner_text(),
+        f"{page.locator('#prompt').input_value()[:30]!r}, toast {page.locator('#toasts').inner_text().strip()[:50]!r}",
     )
 
     # A theme from the theme menu reaches the document, not only the menu.
@@ -1849,7 +1898,9 @@ with sync_playwright() as playwright:
     page.route("**/rewrite", lambda route: route.abort())
     page.fill("#prompt", "a pear")
     page.dispatch_event("#prompt", "input")
-    page.get_by_role("button", name="Rewrite").click()
+    # The id, not the name: this button carries three labels, and the name a role
+    # query computes is all of them at once.
+    page.click("#rewrite-toggle")
     page.wait_for_timeout(2500)
     check(
         "a rewrite that cannot reach the server says so",

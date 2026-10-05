@@ -170,8 +170,12 @@ def rewrite_prompt(page, button, typed):
     claim is that the page applied whatever came back, and the response is what
     makes that claim checkable on both engines. Both waits are the rewriter's own
     cost, which is minutes and not seconds.
+
+    The route is matched exactly. The page polls `/rewrite/state` while a rewrite
+    runs, and a substring match on `/rewrite` would take a poll's answer for the
+    rewriter's.
     """
-    with page.expect_response(lambda response: "/rewrite" in response.url, timeout=REWRITE_TIMEOUT) as answer:
+    with page.expect_response(lambda response: response.url.endswith("/rewrite"), timeout=REWRITE_TIMEOUT) as answer:
         button.click()
     body = json.loads(answer.value.text())
     page.wait_for_function(

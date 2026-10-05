@@ -1,8 +1,9 @@
 """The rewriters that hold no model: the routing one, the absent one, and the stub."""
 
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 
-from studio.l1_entities.errors import InvalidJob
+from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.image_job import ReferenceImage
 from studio.l1_entities.prompt_rewrite import PromptRewrite
 from studio.l2_use_cases.boundaries.backend_catalog_gateway import BackendCatalogGateway
@@ -16,7 +17,14 @@ class NoPromptRewriter(PromptRewriterGateway):
     def modes(self) -> tuple[str, ...]:
         return ()
 
-    def rewrite(self, prompt: str, mode: str, references: tuple[ReferenceImage, ...]) -> PromptRewrite:
+    def rewrite(
+        self,
+        prompt: str,
+        mode: str,
+        references: tuple[ReferenceImage, ...],
+        on_writing: Callable[[], None],
+        should_stop: Callable[[], bool],
+    ) -> PromptRewrite:
         raise InvalidJob("This backend has no prompt rewriter.")
 
     def release(self) -> None:
@@ -39,8 +47,15 @@ class CatalogPromptRewriter(PromptRewriterGateway):
     def modes(self) -> tuple[str, ...]:
         return self._active().modes()
 
-    def rewrite(self, prompt: str, mode: str, references: tuple[ReferenceImage, ...]) -> PromptRewrite:
-        return self._active().rewrite(prompt, mode, references)
+    def rewrite(
+        self,
+        prompt: str,
+        mode: str,
+        references: tuple[ReferenceImage, ...],
+        on_writing: Callable[[], None],
+        should_stop: Callable[[], bool],
+    ) -> PromptRewrite:
+        return self._active().rewrite(prompt, mode, references, on_writing, should_stop)
 
     def release(self) -> None:
         for rewriter in self._rewriters.values():
@@ -59,10 +74,35 @@ class StubPromptRewriter(PromptRewriterGateway):
 
     MODES = ("generate", "edit")
 
+    # The stub writes in slices, so a page check can watch both phases and stop the
+    # middle of one. The real rewriter loads about 19 GB in the first phase and
+    # writes for 22 to 32 seconds in the second, so the shape is the same and only
+    # the clock is shorter. The preparing slice is long enough for a poll to see it.
+    PREPARING_SECONDS = 1.2
+    WRITING_SLICE_SECONDS = 0.6
+    WRITING_SLICES = 5
+
     def modes(self) -> tuple[str, ...]:
         return self.MODES
 
-    def rewrite(self, prompt: str, mode: str, references: tuple[ReferenceImage, ...]) -> PromptRewrite:
+    def rewrite(
+        self,
+        prompt: str,
+        mode: str,
+        references: tuple[ReferenceImage, ...],
+        on_writing: Callable[[], None],
+        should_stop: Callable[[], bool],
+    ) -> PromptRewrite:
+        time.sleep(self.PREPARING_SECONDS)
+        # A stop cannot land during the load, here as on the real one. It is
+        # remembered instead, and nothing is written after it.
+        if should_stop():
+            raise Cancelled("stopped while the stub got ready")
+        on_writing()
+        for _ in range(self.WRITING_SLICES):
+            time.sleep(self.WRITING_SLICE_SECONDS)
+            if should_stop():
+                raise Cancelled("stopped while the stub wrote")
         return PromptRewrite(prompt=f"{prompt} A longer version of it, written for the stub.", ratio="3:2")
 
     def release(self) -> None:

@@ -658,7 +658,19 @@ function setupModes() {
 // A toggle that rewrote each run was tried first. It cannot be built this way:
 // htmx handles the submit from a listener of its own, and a listener added
 // later never gets to hold the request.
-let rewriting = false;
+//
+// The button is the job's only control, so it carries the job's state. The
+// server splits a rewrite in two: `preparing` is the weight load, and `writing`
+// starts at the first segment of the answer. A warm load is instant and a cold
+// one is about a minute. Only `writing` has something a press can stop, so only
+// `writing` offers Cancel.
+const rewriteStages = {
+  preparing: { title: 'The rewriter is getting its weights ready', status: 'The rewriter is getting ready' },
+  writing: { title: 'Stop the rewrite and keep the prompt you typed', status: 'Rewriting the prompt, about 30s' },
+  stopping: { title: 'Stopping the rewrite', status: 'Stopping the rewrite' },
+};
+let rewriteStage = 'idle';
+let rewritePoll = null;
 
 // The text you typed before a rewrite replaced the box. Held apart so the card
 // keeps your own words, which the rewritten paragraph otherwise overwrites.
@@ -668,24 +680,94 @@ function rewriteOffered() {
   return (page.studio.rewrite_modes || []).indexOf(currentMode().id) >= 0;
 }
 
+// Which verb shows is the DOM's and never the cascade's. The run button's labels
+// follow the same rule: `hidden` picks the label. A stylesheet that never loads
+// then leaves one verb in the button's name and not three run together.
+function showRewriteVerb(button, stage) {
+  button.querySelector('.rewrite-idle').hidden = stage !== 'idle' && stage !== 'preparing';
+  button.querySelector('.rewrite-cancel').hidden = stage !== 'writing';
+  button.querySelector('.rewrite-stopping').hidden = stage !== 'stopping';
+}
+
 function renderRewriteButton() {
   const button = document.getElementById('rewrite-toggle');
   if (!button) return;
   button.hidden = !rewriteOffered();
   const empty = !page.el.promptInput.value.trim();
-  button.disabled = rewriting || page.busy() || empty;
-  button.title = rewriting
-    ? 'Locked while the prompt is being rewritten.'
-    : empty
-      ? 'Write a prompt to rewrite first. A marked run takes its instruction in the region rows.'
-      : 'Rewrite the prompt into a longer instruction before generating';
+  showRewriteVerb(button, rewriteStage);
+  button.disabled = rewriteStage === 'preparing' || rewriteStage === 'stopping'
+    || (rewriteStage === 'idle' && (page.busy() || empty));
+  const stage = rewriteStages[rewriteStage];
+  button.title = stage ? stage.title : (empty
+    ? 'Write a prompt to rewrite first. A marked run takes its instruction in the region rows.'
+    : 'Rewrite the prompt into a longer instruction before generating');
   // The readout belongs to a run while one is going, so a rewrite only borrows
   // it when nothing else is. Without this a press looks like nothing happened
   // for half a minute, and the button stays live for a second press.
   if (page.busy()) return;
   const status = document.getElementById('status');
-  status.hidden = !rewriting;
-  if (rewriting) page.el.statusText.textContent = 'Rewriting the prompt, about 30s';
+  status.hidden = rewriteStage === 'idle';
+  if (stage) page.el.statusText.textContent = stage.status;
+}
+
+// What the rewriter reports is the page's only view of the job while the answer
+// is still coming. The poll is a plain fetch and not htmx, so it stays out of
+// the run's own request handling.
+function pollRewriteState() {
+  fetch('/rewrite/state').then(function (answer) { return answer.json(); }).then(function (state) {
+    // A reply that arrives after the request settled or after a cancel press
+    // describes a job this page is no longer holding.
+    if (rewriteStage === 'idle' || rewriteStage === 'stopping') return;
+    // The state only moves forward, from preparing to writing. A reply that
+    // still says preparing must not take Cancel away from a job that is already
+    // writing, and a reply that says idle before the request is even registered
+    // must not move the button at all.
+    if (state.stage === 'writing') {
+      rewriteStage = 'writing';
+      renderRewriteButton();
+    }
+    rewritePoll = setTimeout(pollRewriteState, 400);
+  }).catch(function () {
+    // The rewriter's own answer decides when the panel is released, so a state
+    // that cannot be read needs no retry: the job settles on its own and the
+    // button takes the release with it.
+  });
+}
+
+function stopRewritePoll() {
+  if (rewritePoll === null) return;
+  clearTimeout(rewritePoll);
+  rewritePoll = null;
+}
+
+// The press that starts a job. The panel is held for the whole of it, and the
+// poll runs until the request settles, whichever way it settles.
+async function startRewrite() {
+  rewriteStage = 'preparing';
+  holdPanel('Locked while the prompt is being rewritten.', true);
+  renderRewriteButton();
+  pollRewriteState();
+  try {
+    await rewritePrompt();
+  } catch (error) {
+    page.notify('error', 'The rewrite failed: ' + error.message);
+  }
+  stopRewritePoll();
+  rewriteStage = 'idle';
+  holdPanel('Locked while the prompt is being rewritten.', false);
+  renderRewriteButton();
+}
+
+// A cancel press. The panel is released by the rewrite's own answer and not by
+// this request, because the rewriter can be mid-segment when the cancel lands.
+function cancelRewrite() {
+  rewriteStage = 'stopping';
+  stopRewritePoll();
+  renderRewriteButton();
+  fetch('/rewrite/cancel', { method: 'POST' }).catch(function () {
+    // The rewrite's own answer releases the panel, so a cancel that never lands
+    // needs no report: the button leaves Stopping… when the job stops.
+  });
 }
 
 async function rewritePrompt() {
@@ -706,6 +788,10 @@ async function rewritePrompt() {
     throw new Error(text || answer.statusText);
   }
   if (result.error) throw new Error(result.error);
+  // A cancelled rewrite answers with no prompt, so nothing here is applied: the
+  // box keeps the words the user typed and `rewrittenFrom` stays as it was, so
+  // the card still shows their own sentence.
+  if (result.cancelled) return result;
   rewrittenFrom = typed;
   promptInput.value = result.prompt;
   growPrompt();
@@ -743,9 +829,10 @@ function applyHold() {
   const reason = Array.from(holds).join(' ');
   held = [];
   page.el.form.querySelectorAll('input, textarea, select, button').forEach(function (control) {
-    // The Run button is Cancel while a run is going, so holding it would trap
-    // the user with no way out.
-    if (control.id === 'go') return;
+    // The Run button is Cancel while a run is going, and the rewrite button is
+    // Cancel while a rewrite is writing, so holding either would trap the user
+    // with no way out.
+    if (control.id === 'go' || control.id === 'rewrite-toggle') return;
     const text = control.tagName === 'TEXTAREA' || (control.tagName === 'INPUT' && control.type === 'text');
     if (text) {
       if (control.readOnly) return;
@@ -934,17 +1021,12 @@ function wire() {
   });
 
   document.getElementById('rewrite-toggle').addEventListener('click', function () {
-    if (rewriting || page.busy() || !el.promptInput.value.trim()) return;
-    rewriting = true;
-    holdPanel('Locked while the prompt is being rewritten.', true);
-    renderRewriteButton();
-    rewritePrompt()
-      .catch(function (error) { page.notify('error', 'The rewrite failed: ' + error.message); })
-      .then(function () {
-        rewriting = false;
-        holdPanel('Locked while the prompt is being rewritten.', false);
-        renderRewriteButton();
-      });
+    // The press is Cancel once the rewriter writes, and dead while it loads its
+    // weights, because a load has nothing to stop.
+    if (rewriteStage === 'writing') { cancelRewrite(); return; }
+    if (rewriteStage !== 'idle') return;
+    if (page.busy() || !el.promptInput.value.trim()) return;
+    startRewrite();
   });
 
   // The prompt box carries an instruction the button depends on, so its state is

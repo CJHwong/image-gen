@@ -130,8 +130,13 @@
             <div class="head-actions">
             <button type="button" class="pill" id="templates-toggle" aria-expanded="false"
               aria-controls="templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
+            <!-- The button carries the rewrite's three verbs, and `hidden` picks
+                 one, never a rule in the cascade: a stylesheet that fails to load
+                 must not leave it named "RewriteCancelStopping…". The browser
+                 checks reach this button by its id `#rewrite-toggle`, so the id
+                 stays on the button and never on a label. -->
             <button type="button" class="pill" id="rewrite-toggle" hidden
-              title="Rewrite the prompt into a longer instruction before generating"><svg class="icon"><use href="#i-sparkle"/></svg>Rewrite</button>
+              title="Rewrite the prompt into a longer instruction before generating"><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle">Rewrite</span><span class="rewrite-cancel" hidden>Cancel</span><span class="rewrite-stopping" hidden>Stopping&hellip;</span></button>
             </div>
           </div>
           <div class="menu" id="templates" role="menu" hidden></div>

@@ -10,10 +10,13 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from studio.l1_entities.errors import InvalidJob, UnreadableImage
 from studio.l1_entities.image_job import ReferenceImage
+from studio.l1_entities.rewrite_progress import RewriteProgress
 from studio.l1_entities.run_progress import RunProgress
+from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase, StudioView
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
+from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
 from studio.l2_use_cases.rewrite_prompt_use_case import RewritePromptUseCase, RewriteRequest, RewriteResponse
 from studio.l2_use_cases.run_image_use_case import RunImageRequest, RunImageResponse, RunImageUseCase
 from studio.l2_use_cases.switch_backend_use_case import SwitchBackendUseCase
@@ -28,6 +31,8 @@ class FormController:
         cancel: CancelRunUseCase,
         switch: SwitchBackendUseCase,
         rewrite: RewritePromptUseCase,
+        read_rewrite_progress: ReadRewriteProgressUseCase,
+        cancel_rewrite: CancelRewriteUseCase,
     ):
         self._describe = describe
         self._run = run
@@ -35,6 +40,8 @@ class FormController:
         self._cancel = cancel
         self._switch = switch
         self._rewrite = rewrite
+        self._read_rewrite_progress = read_rewrite_progress
+        self._cancel_rewrite = cancel_rewrite
 
     def page(self) -> StudioView:
         return self._describe.execute()
@@ -50,6 +57,12 @@ class FormController:
 
     def cancel(self) -> None:
         self._cancel.execute()
+
+    def rewrite_state(self) -> RewriteProgress:
+        return self._read_rewrite_progress.execute()
+
+    def cancel_rewrite(self) -> None:
+        self._cancel_rewrite.execute()
 
     def switch(self, form: Mapping[str, str]) -> None:
         self._switch.execute(form.get("backend", ""))

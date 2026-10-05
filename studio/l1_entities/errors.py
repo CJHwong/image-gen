@@ -23,7 +23,7 @@ class ReferenceExpired(StudioError):
 
 
 class Cancelled(StudioError):
-    """The run stopped because the page asked it to."""
+    """A run or a rewrite stopped because the page asked it to."""
 
 
 class BackendBusy(StudioError):

@@ -17,8 +17,8 @@ class ThreadConfinedPromptRewriter(PromptRewriterGateway):
     def modes(self):
         return self._rewriter.modes()
 
-    def rewrite(self, prompt, mode, references):
-        return self._thread.call(self._rewriter.rewrite, prompt, mode, references)
+    def rewrite(self, prompt, mode, references, on_writing, should_stop):
+        return self._thread.call(self._rewriter.rewrite, prompt, mode, references, on_writing, should_stop)
 
     def release(self):
         self._thread.call(self._rewriter.release)

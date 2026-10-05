@@ -14,12 +14,14 @@ class Recording(PromptRewriterGateway):
 
     def __init__(self):
         self.threads = []
+        self.callables = []
 
     def modes(self):
         return ("generate", "edit")
 
-    def rewrite(self, prompt, mode, references):
+    def rewrite(self, prompt, mode, references, on_writing, should_stop):
         self.threads.append(threading.get_ident())
+        self.callables.append((on_writing, should_stop))
         return PromptRewrite(prompt=f"longer {prompt}")
 
     def release(self):
@@ -40,16 +42,32 @@ def test_a_rewrite_runs_on_the_gpu_thread_with_the_arguments_it_was_given():
     # straight from a request thread aborts the process.
     seen = []
 
-    def rewrite(prompt, mode, references):
+    def rewrite(prompt, mode, references, on_writing, should_stop):
         seen.append(threading.get_ident())
         return PromptRewrite(prompt=f"longer {prompt}")
 
     rewriter = Mock()
     rewriter.rewrite.side_effect = rewrite
-    answer = ThreadConfinedPromptRewriter(rewriter, GpuThread()).rewrite("a cat", "generate", ())
+    on_writing, should_stop = Mock(), Mock()
+    answer = ThreadConfinedPromptRewriter(rewriter, GpuThread()).rewrite(
+        "a cat", "generate", (), on_writing, should_stop
+    )
     assert answer.prompt == "longer a cat"
-    assert rewriter.rewrite.call_args.args == ("a cat", "generate", ())
+    assert rewriter.rewrite.call_args.args == ("a cat", "generate", (), on_writing, should_stop)
     assert seen != [threading.get_ident()]
+
+
+def test_both_callables_reach_the_rewriter_on_the_gpu_thread():
+    # The adapter calls the phase report and reads the stop flag on the model's
+    # own thread, so a stop cannot cross threads to reach the loop that reads it.
+    on_writing, should_stop = Mock(), Mock()
+    rewriter = Recording()
+    answer = ThreadConfinedPromptRewriter(rewriter, GpuThread()).rewrite(
+        "a cat", "generate", (), on_writing, should_stop
+    )
+    assert answer.prompt == "longer a cat"
+    assert rewriter.callables == [(on_writing, should_stop)]
+    assert rewriter.threads[0] != threading.get_ident()
 
 
 def test_a_release_runs_on_the_gpu_thread():
@@ -65,4 +83,4 @@ def test_a_failure_on_the_gpu_thread_reaches_the_caller():
     rewriter = Mock()
     rewriter.rewrite.side_effect = RuntimeError("no weights")
     with pytest.raises(RuntimeError, match="no weights"):
-        ThreadConfinedPromptRewriter(rewriter, GpuThread()).rewrite("a cat", "generate", ())
+        ThreadConfinedPromptRewriter(rewriter, GpuThread()).rewrite("a cat", "generate", (), Mock(), Mock())

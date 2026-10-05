@@ -28,6 +28,10 @@ def make_handler(controller: FormController, presenter: HtmlPresenter) -> type[B
                 self._send(presenter.page(controller.page()))
             elif self.path == "/progress":
                 self._send(presenter.progress(controller.progress()))
+            elif self.path == "/rewrite/state":
+                # The page polls this while a rewrite is in flight, so it is data
+                # the page reads, not a fragment it appends.
+                self._send(presenter.rewrite_state(controller.rewrite_state()), content_type="application/json")
             elif self.path.startswith("/page/"):
                 self._send_page_asset(self.path.removeprefix("/page/"))
             else:
@@ -52,6 +56,11 @@ def make_handler(controller: FormController, presenter: HtmlPresenter) -> type[B
                     self._outcome(lambda: presenter.rewrite(controller.rewrite(form)), as_json=True),
                     content_type="application/json",
                 )
+            elif self.path == "/rewrite/cancel":
+                # The rewrite answers on its own request, so this one only asks for
+                # the stop, the way `/cancel` does for a run.
+                controller.cancel_rewrite()
+                self._send("", status=204, content_type="text/plain")
             else:
                 self._send("not found", status=404, content_type="text/plain")
 

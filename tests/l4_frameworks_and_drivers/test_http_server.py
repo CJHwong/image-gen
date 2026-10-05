@@ -16,11 +16,23 @@ from studio.l4_frameworks_and_drivers.main import assemble_studio
 from tests.support.fakes import FakeBackendGateway
 
 
+def fast(rewriter):
+    """Set the stub's two clocks to zero on the instance, so a route answers at once."""
+    rewriter.PREPARING_SECONDS = 0
+    rewriter.WRITING_SLICE_SECONDS = 0
+    return rewriter
+
+
 @pytest.fixture
 def served():
-    """A real server on a free port over two fake backends, so a route runs for real."""
+    """A real server on a free port over two fake backends, so a route runs for real.
+
+    The stub's rewriter sleeps while it writes, so the fixture sets the stub's two
+    clocks to zero. A route test reads status and body, and never the clock.
+    """
     backends = {"fake": FakeBackendGateway(), "other": FakeBackendGateway("other", "Other")}
-    studio = assemble_studio(backends, {name: StubPromptRewriter() for name in backends}, "fake", ("fake", "other"))
+    rewriters = {name: fast(StubPromptRewriter()) for name in backends}
+    studio = assemble_studio(backends, rewriters, "fake", ("fake", "other"))
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield studio, server
@@ -110,6 +122,19 @@ def test_a_form_the_engine_refuses_arrives_as_one_error_line(served):
 
 def test_the_cancel_route_answers_with_no_content(served):
     assert call(served[1], "/cancel", b"")[:2] == (204, "text/plain")
+
+
+def test_the_rewrite_state_route_answers_the_three_fields_the_page_reads(served):
+    """The page polls this while a rewrite is in flight, so it is JSON and not a
+    fragment. With nothing in flight it reports the idle state."""
+    status, content_type, body = call(served[1], "/rewrite/state")
+    assert status == 200 and content_type == "application/json"
+    assert json.loads(body) == {"running": False, "stage": "idle", "stopping": False}
+
+
+def test_the_rewrite_cancel_route_answers_with_no_content(served):
+    """The stop is a flag the rewriter reads, so the route reports nothing back."""
+    assert call(served[1], "/rewrite/cancel", b"") == (204, "text/plain", "")
 
 
 def test_the_backend_route_switches_the_page_to_the_other_backend(served):
