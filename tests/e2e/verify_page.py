@@ -69,6 +69,19 @@ BRUSH = re.compile(r"^Brush width")
 # wait that fails on the engine this check exists for.
 # See the module docstring and MAX_TOKENS in gateways/qwen21/rewriter.py.
 REWRITE_TIMEOUT = 120000
+# The rewrite button's two states, read from the label it shows. A rewrite is long
+# enough to be worth stopping, so where it can be stopped is what these name.
+VERB_IS_CANCEL = "() => document.getElementById('rewrite-toggle').innerText.trim() === 'Cancel'"
+VERB_IS_REWRITE = "() => document.getElementById('rewrite-toggle').innerText.trim() === 'Rewrite'"
+
+
+def rewrite_verb(page):
+    """The verb the rewrite button shows, as a user reads it.
+
+    The button carries one label per stage and `hidden` picks which one, so the
+    rendered text is exactly that verb and a hidden label contributes nothing.
+    """
+    return page.locator("#rewrite-toggle").inner_text().strip()
 
 
 def check(name, passed, detail=""):
@@ -1510,6 +1523,30 @@ with sync_playwright() as playwright:
     typed = "a cat"
     page.fill("#prompt", typed)
     page.dispatch_event("#prompt", "input")
+    # A rewrite is worth stopping, so the button offers it. The first press of a
+    # session is also the only one that shows the load, which is 35 GB off the disk
+    # on a server that has not rewritten yet: locked while that runs, Cancel once
+    # the model writes, and a press on Cancel leaves the typed words alone.
+    button.click()
+    page.wait_for_timeout(300)
+    check(
+        "the rewrite button is locked while the rewriter loads",
+        rewrite_verb(page) == "Rewrite" and button.is_disabled(),
+        f"{rewrite_verb(page)!r}, disabled {button.is_disabled()}",
+    )
+    page.wait_for_function(VERB_IS_CANCEL, timeout=REWRITE_TIMEOUT)
+    check(
+        "the rewrite button becomes Cancel while the model writes",
+        button.is_enabled(),
+        rewrite_verb(page),
+    )
+    button.click()
+    page.wait_for_function(VERB_IS_REWRITE, timeout=REWRITE_TIMEOUT)
+    check(
+        "cancelling a real rewrite leaves the prompt as it was",
+        page.input_value("#prompt") == typed,
+        page.input_value("#prompt")[:40],
+    )
     before_size = page.input_value("#size")
     rewrite = rewrite_prompt(page, button, typed)
     prompt = page.input_value("#prompt")
