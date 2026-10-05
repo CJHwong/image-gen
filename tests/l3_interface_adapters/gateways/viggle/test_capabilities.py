@@ -53,12 +53,12 @@ def test_generate_takes_one_reference_and_edit_takes_ten():
 
 
 def test_the_looks_and_templates_the_sample_passed_are_offered():
-    """Every row and template below ran on this model's own schedule and did what
-    its sentence says. An option chosen on the 40-step base is not evidence on a
-    distilled one, so nothing untested is offered beside them: the count is the
-    number of options the sample kept, and one it did not run is named to prove the
-    cut is real. PROMPTS.md holds the sample. Region marking stays out, because six
-    steps has not been shown to hold a mark."""
+    """Every row and template below ran on this model's own schedule and did what its
+    sentence says. An option chosen on the 40-step base is not evidence on a distilled
+    one, so nothing untested is offered beside them: the count is the number of options
+    the sample kept, and the one it ran and dropped is named to prove the cut is real.
+    PROMPTS.md holds the sample. Region marking stays out, because the tool's wording
+    and brush were tested on the base and not on this schedule."""
     generate = capabilities().mode("generate")
     assert [row.name for row in generate.looks] == [
         "Medium",
@@ -71,7 +71,7 @@ def test_the_looks_and_templates_the_sample_passed_are_offered():
         "Portrait",
     ]
     kept = [option[0] for row in generate.looks for option in row.options]
-    assert len(kept) == 18 and "Phone snapshot" not in kept
+    assert len(kept) == 30 and "Deep focus" not in kept
     assert [template.name for template in generate.templates] == [
         "Portrait photo",
         "Product shot",
