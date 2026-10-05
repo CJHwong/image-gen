@@ -18,10 +18,9 @@ the real backend declares, and a run finishes in seconds instead of minutes:
     uv run --with playwright python tests/e2e/verify_ui.py <port> --headed    # watch it run
     uv run --with playwright python tests/e2e/verify_ui.py <port> --coverage  # and measure
 
-With `--backend <id>` on the server, the page offers two backends and the picker
-appears, which is what makes the backend switch reachable:
-
-    uv run studio --stub --port <port> --backend flux2
+The picker is offered only while studio.toml lists more than one backend, and it
+lists the two this suite switches between. So the shipping settings are the ones
+to run it against, and the switch needs no flag.
 """
 
 import json
@@ -51,6 +50,11 @@ HEADED = "--headed" in sys.argv
 RUNNING = "#go[data-state='busy']"
 IDLE = "#go[data-state='idle']"
 FRAME = re.compile(r"^(generate|edit), seed ")
+# The two models studio.toml offers, in the picker's order. The switch is between
+# these, so what ships decides them. Each name is read exactly: the second carries
+# the first inside it, and a substring match would find both rows.
+FIRST = "Qwen-Image-2.1"
+SECOND = "Qwen-Image-2.1-viggle-turbo"
 results = []
 
 # The page reads a reference from a file, so the upload path needs real pixels on
@@ -139,6 +143,26 @@ def frames(page):
 def frame_nodes(page):
     """The kept frames, found by the label the page gives each one."""
     return page.get_by_role("button", name=FRAME)
+
+
+def edge_model(page):
+    """The model the print's edge names for the frame it shows.
+
+    The edge prints the model over the frame number, as two spans. A frame whose
+    model was never recorded prints no model at all, so this reads the first span
+    alone rather than the whole edge, which would carry the frame number too.
+    """
+    return page.locator("#canvas .shot .edge span").first.inner_text().strip()
+
+
+def toggle_reads(name):
+    """A wait condition for a switch: the title button names the model asked for.
+
+    Read exactly, from the button's own span. A role query is a substring match,
+    and the second model's name carries the first one inside it, so a role query
+    would find the old title and pass before the page had reloaded at all.
+    """
+    return "() => document.querySelector('#backend-toggle .name').textContent === " + json.dumps(name)
 
 
 def set_steps(page, steps):
@@ -1545,11 +1569,11 @@ with sync_playwright() as playwright:
     # the page or empty the strip.
     page.click("#backend-toggle")
     page.wait_for_timeout(250)
-    page.get_by_role("menuitemradio", name="Qwen-Image-2.1").click()
+    page.get_by_role("menuitemradio", name=FIRST, exact=True).click()
     page.wait_for_timeout(1000)
     check(
         "picking the model the page is already on leaves the strip alone",
-        page.get_by_role("button", name="Qwen-Image-2.1").is_visible() and frames(page) == kept + 1,
+        page.get_by_role("button", name=FIRST).is_visible() and frames(page) == kept + 1,
         f"{frames(page)} images after picking the current model",
     )
 
@@ -1601,12 +1625,12 @@ with sync_playwright() as playwright:
     # of the page here: one that never reaches the server, and one it refuses.
     page.route("**/backend", lambda route: route.abort())
     page.click("#backend-toggle")
-    page.get_by_role("menuitemradio", name="FLUX.2 klein 9B").click()
+    page.get_by_role("menuitemradio", name=SECOND, exact=True).click()
     page.wait_for_timeout(2000)
     check(
         "a switch that cannot reach the server says so and leaves the page as it was",
         "The switch failed" in page.locator("#toasts").inner_text()
-        and page.get_by_role("button", name="Qwen-Image-2.1").is_visible()
+        and page.get_by_role("button", name=FIRST).is_visible()
         and frames(page) == kept + 1,
         page.locator("#toasts").inner_text().strip()[:90],
     )
@@ -1616,7 +1640,7 @@ with sync_playwright() as playwright:
         lambda route: route.fulfill(status=500, content_type="text/html", body="<p>The model did not load.</p>"),
     )
     page.click("#backend-toggle")
-    page.get_by_role("menuitemradio", name="FLUX.2 klein 9B").click()
+    page.get_by_role("menuitemradio", name=SECOND, exact=True).click()
     page.wait_for_timeout(2000)
     check(
         "a switch the server refuses says why and leaves the page as it was",
@@ -1690,38 +1714,105 @@ with sync_playwright() as playwright:
     tab.wait_for_timeout(250)
     check(
         "the picker offers every backend the page may use",
-        tab.get_by_role("menuitemradio", name="FLUX.2 klein 9B").is_visible()
-        and tab.get_by_role("menuitemradio", name="Qwen-Image-2.1").get_attribute("aria-checked") == "true",
+        tab.get_by_role("menuitemradio", name=SECOND, exact=True).is_visible()
+        and tab.get_by_role("menuitemradio", name=FIRST, exact=True).get_attribute("aria-checked") == "true",
     )
     # LEFT: the second line of a row has no role of its own and is hidden from
     # assistive technology on purpose, so it is read as text of the row it is in.
     check(
         "each model says what it is before you switch to it",
-        "Full quality" in tab.get_by_role("menuitemradio", name="Qwen-Image-2.1").inner_text()
-        and "Uncensored" in tab.get_by_role("menuitemradio", name="FLUX.2 klein 9B").inner_text(),
-        tab.get_by_role("menuitemradio", name="Qwen-Image-2.1").inner_text(),
+        "Full quality" in tab.get_by_role("menuitemradio", name=FIRST, exact=True).inner_text()
+        and "six steps" in tab.get_by_role("menuitemradio", name=SECOND, exact=True).inner_text(),
+        tab.get_by_role("menuitemradio", name=SECOND, exact=True).inner_text(),
     )
-    tab.get_by_role("menuitemradio", name="FLUX.2 klein 9B").click()
-    tab.get_by_role("button", name="FLUX.2 klein 9B").wait_for(state="visible", timeout=180000)
+    tab.get_by_role("menuitemradio", name=SECOND, exact=True).click()
+    tab.wait_for_function(toggle_reads(SECOND), timeout=180000)
     check(
         "switching the model reloads the page as that model",
-        tab.get_by_role("button", name="FLUX.2 klein 9B").is_visible(),
+        tab.get_by_role("button", name=SECOND).is_visible(),
         tab.locator("#backend-toggle").inner_text(),
     )
     tab.click("#backend-toggle")
     tab.wait_for_timeout(250)
-    tab.get_by_role("menuitemradio", name="Qwen-Image-2.1").click()
-    tab.get_by_role("button", name="Qwen-Image-2.1").wait_for(state="visible", timeout=180000)
+    tab.get_by_role("menuitemradio", name=FIRST, exact=True).click()
+    tab.wait_for_function(toggle_reads(FIRST), timeout=180000)
     check(
         "the picker switches back, so the server is left as it was found",
-        tab.get_by_role("button", name="Qwen-Image-2.1").is_visible(),
+        tab.get_by_role("button", name=FIRST, exact=True).is_visible(),
         tab.locator("#backend-toggle").inner_text(),
     )
-    # NOT YET CHECKED HERE: that a frame names the model that made it rather than
-    # the one selected now. It needs two frames from two different models in one
-    # strip, so the run has to happen on qwen21, then on flux2 after a switch, and
-    # both edges compared. With one model active the old global and the per-frame
-    # field read identically, so a check here would pass either way.
+
+    # A frame keeps the model that made it, and the switch keeps the strip. Both
+    # need two models in one strip: while one model serves the page, the frame's
+    # own field and the page's global read the same, so either check would pass
+    # whichever way the page worked. Keeping has to be on, or the reload after the
+    # switch leaves nothing to compare.
+    if not keep_switch(tab).is_checked():
+        keep_switch(tab).click()
+        tab.wait_for_timeout(500)
+    held = frames(tab)
+    run_once(tab, "a pear on a wooden table")
+    tab.wait_for_timeout(600)
+    held += 1
+    check(
+        "a frame made on one model names that model on its edge",
+        frames(tab) == held and edge_model(tab) == FIRST.upper(),
+        f"{frames(tab)} images, edge {edge_model(tab)!r}",
+    )
+    tab.click("#backend-toggle")
+    tab.wait_for_timeout(250)
+    tab.get_by_role("menuitemradio", name=SECOND, exact=True).click()
+    tab.wait_for_function(toggle_reads(SECOND), timeout=180000)
+    tab.wait_for_timeout(1000)
+    check(
+        "the switch keeps the strip, and the frame still names its own model",
+        frames(tab) == held and edge_model(tab) == FIRST.upper(),
+        f"{frames(tab)} images, edge {edge_model(tab)!r}",
+    )
+    # Six steps and only six: the distilled schedule is the set of nodes the
+    # adapter was trained on, so this model has no other step count to ask for.
+    run_once(tab, "a pear on a wooden table", steps=6)
+    tab.wait_for_timeout(600)
+    check(
+        "a frame made after the switch names the model that made it",
+        frames(tab) == held + 1 and edge_model(tab) == SECOND.upper(),
+        f"{frames(tab)} images, edge {edge_model(tab)!r}",
+    )
+
+    # A record written before a frame carried its model has none. It must read
+    # back without error, and it must not wear the model selected now: that claim
+    # is the reading the field exists to remove. One record is copied in without
+    # the field, which is the only way to hold an old record on purpose.
+    tab.evaluate(
+        """async () => {
+             const db = await new Promise(function (resolve, reject) {
+               const request = indexedDB.open('studio', 1);
+               request.onsuccess = function () { resolve(request.result); };
+               request.onerror = function () { reject(request.error); };
+             });
+             const read = db.transaction('images', 'readonly').objectStore('images');
+             const all = await new Promise(function (resolve) {
+               const request = read.getAll();
+               request.onsuccess = function () { resolve(request.result); };
+             });
+             const old = Object.assign({}, all[0], { id: all[0].id + 9000 });
+             delete old.backend;
+             db.transaction('images', 'readwrite').objectStore('images').add(old);
+           }"""
+    )
+    tab.reload()
+    tab.wait_for_timeout(1500)
+    frame_nodes(tab).first.click()
+    tab.wait_for_timeout(400)
+    check(
+        "a frame with no model recorded names none, rather than the one selected now",
+        edge_model(tab) == "",
+        edge_model(tab) or "no model printed",
+    )
+    tab.click("#backend-toggle")
+    tab.wait_for_timeout(250)
+    tab.get_by_role("menuitemradio", name=FIRST, exact=True).click()
+    tab.wait_for_function(toggle_reads(FIRST), timeout=180000)
 
     # A browser store the page cannot write to has to be reported, not passed over:
     # an image that is silently not kept is lost at the next reload. The stub never

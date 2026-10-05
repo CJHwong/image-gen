@@ -325,9 +325,10 @@ export function renderStage() {
   const edge = document.createElement('div');
   edge.className = 'edge';
   // The model that made this frame, not the one selected now. A record written
-  // before this field existed has none, and falls back to the active name, which
-  // is what every frame showed before.
-  edge.innerHTML = '<span>' + (entry.backend || page.edgeName) + '</span><span>' + frameNumber(entry.id) + '</span>';
+  // before this field existed has none, and none is invented for it: the active
+  // model's name is a claim about a picture that model did not make, which is
+  // the reading this field exists to remove. There the frame number stands alone.
+  edge.innerHTML = '<span>' + (entry.backend || '') + '</span><span>' + frameNumber(entry.id) + '</span>';
   shot.append(pic, edge);
   if (region.onPrint()) shot.classList.add('marking');
   // A brush on the print takes the drag that the divided view's divider would
