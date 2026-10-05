@@ -311,7 +311,10 @@ def main():
         page.click("#backend-toggle")
         check(
             "the menu marks the current model",
-            page.locator("#backend-menu [aria-checked=true]").inner_text() == "Qwen-Image-2.1",
+            # The row's name, not the row's text: the text carries the description
+            # the picker draws under the name, and the name is pinned on the row.
+            page.locator("#backend-menu [aria-checked=true]").get_attribute("aria-label") == "Qwen-Image-2.1",
+            page.locator("#backend-menu [aria-checked=true]").inner_text().replace("\n", " ")[:60],
         )
         page.get_by_role("menuitemradio", name="Tiny").click()
         page.wait_for_function("STUDIO.backend.id === 'tiny'")

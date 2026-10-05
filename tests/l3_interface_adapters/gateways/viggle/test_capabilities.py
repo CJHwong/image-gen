@@ -52,14 +52,46 @@ def test_generate_takes_one_reference_and_edit_takes_ten():
     assert (edit.min_references, edit.max_references) == (1, 10)
 
 
-def test_nothing_untested_on_this_model_is_offered():
-    """ARCHITECTURE.md leaves Looks and templates out until they are tested on the
-    model, and nobody has tested them on the distilled schedule. The marked region
-    is the same: its bounding power was measured on the 40-step base."""
-    for mode_id in ("generate", "edit"):
-        mode = capabilities().mode(mode_id)
-        assert mode.looks == () and mode.templates == ()
-        assert mode.region_marking is False
+def test_the_looks_and_templates_the_sample_passed_are_offered():
+    """Every row and template below ran on this model's own schedule and did what
+    its sentence says. An option chosen on the 40-step base is not evidence on a
+    distilled one, so nothing untested is offered beside them: the count is the
+    number of options the sample kept, and one it did not run is named to prove the
+    cut is real. PROMPTS.md holds the sample. Region marking stays out, because six
+    steps has not been shown to hold a mark."""
+    generate = capabilities().mode("generate")
+    assert [row.name for row in generate.looks] == [
+        "Medium",
+        "Film",
+        "Color",
+        "Light",
+        "Camera",
+        "Room for text",
+        "Realism",
+        "Portrait",
+    ]
+    kept = [option[0] for row in generate.looks for option in row.options]
+    assert len(kept) == 18 and "Phone snapshot" not in kept
+    assert [template.name for template in generate.templates] == [
+        "Portrait photo",
+        "Product shot",
+        "Landscape",
+        "Poster with text",
+        "Illustration",
+        "Deadpan absurdity",
+        "Banner",
+    ]
+    edit = capabilities().mode("edit")
+    assert [template.name for template in edit.templates] == [
+        "Change a color or material",
+        "Replace the background",
+        "Add text",
+        "Alternate reality",
+        "Add an object",
+        "Turn into a skeleton",
+        "Turn into a pose figure",
+    ]
+    assert generate.region_marking is False and edit.region_marking is False
 
 
 def test_every_mode_carries_an_estimate_and_a_badge():

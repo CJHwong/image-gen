@@ -9,8 +9,10 @@ backend declares no guidance, no negative prompt and no cfg. And mflux's
 `ViggleTurboScheduler` raises on any step count but six, before the model loads,
 so that field is not a default the user may move.
 
-No Looks and no templates yet. ARCHITECTURE.md says to leave them out until they
-are tested on this model, and nobody has tested them on the distilled schedule.
+No Looks and no templates were inherited. They were sampled on this model's own
+schedule, and what survived is declared below. An option chosen on the 40-step
+base is not evidence on a distilled schedule, and every option here was run next
+to the bare prompt and did what its sentence says.
 
 Region marking is out because six steps has not been established to hold a mark, and
 the measurements contradict each other. On the base model's own circle fixture, three
@@ -24,11 +26,55 @@ is not offering it.
 """
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
+from studio.l3_interface_adapters.gateways.prompt_aids import pick_looks, pick_templates
 from studio.l3_interface_adapters.gateways.qwen_image_sizes import EDIT_MATCH_CAP, EDIT_RESOLUTIONS, SIZES
 
 MATCH = "match"
 MAX_BATCH = 4
 MAX_REFERENCES = 10
+
+# What the six-step sample kept, and nothing else. Every option here ran on this
+# model's own schedule, at 768 x 768 and seed 1234, next to the bare prompt, and
+# changed the image the way its sentence says. The options left out were not
+# sampled on this model at all, so they stay out until someone runs them.
+# PROMPTS.md holds the tables, the fixture of each row, and the limits: one seed,
+# and no negative prompt on this backend to carry an avoid part.
+LOOKS = pick_looks(
+    {
+        "Medium": ("Documentary", "Watercolor", "Skeleton"),
+        "Film": ("Portra 400", "Black and white"),
+        "Color": ("Warm", "Vivid"),
+        "Light": ("Soft window light", "Golden hour", "Night with neon"),
+        "Camera": ("Close-up 85mm", "Wide 24mm", "Top-down"),
+        "Room for text": ("Left", "Top"),
+        "Realism": ("Real person",),
+        "Portrait": ("Over the shoulder", "Candid glance"),
+    }
+)
+# The whole of each mode's templates, less Mark a region, which needs the draw
+# tool this backend does not offer.
+GENERATE_TEMPLATES = pick_templates(
+    (
+        "Portrait photo",
+        "Product shot",
+        "Landscape",
+        "Poster with text",
+        "Illustration",
+        "Deadpan absurdity",
+        "Banner",
+    )
+)
+EDIT_TEMPLATES = pick_templates(
+    (
+        "Change a color or material",
+        "Replace the background",
+        "Add text",
+        "Alternate reality",
+        "Add an object",
+        "Turn into a skeleton",
+        "Turn into a pose figure",
+    )
+)
 
 # Six, and only six. Both bounds are the same number because the schedule is not
 # a preference: it is the set of sigma nodes the student was trained on.
@@ -79,6 +125,8 @@ GENERATE = ModeSpec(
     params=(SIZE, STEPS, STRENGTH),
     max_references=1,
     prompt_hint="Describe the image. Put any text you want rendered in quotes.",
+    looks=LOOKS,
+    templates=GENERATE_TEMPLATES,
     estimate=GENERATE_ESTIMATE,
 )
 EDIT = ModeSpec(
@@ -89,6 +137,7 @@ EDIT = ModeSpec(
     max_references=MAX_REFERENCES,
     prompt_hint="For example: make it night, with the lights on",
     prompt_required="An edit instruction is required.",
+    templates=EDIT_TEMPLATES,
     estimate=EDIT_ESTIMATE,
 )
 
