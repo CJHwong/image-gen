@@ -41,8 +41,9 @@ The page knows two mode ids, `generate` and `edit`, and the params `size`, `reso
 
 ## The page
 
-`web/page.html` is one file, 2,522 lines as the refactor stands, and most of its logic now lives in
-modules under `web/lib/` and `web/components/`, which the static route serves. `web/PAGE-REFACTOR.md` is the design for taking it apart into Lit components, light DOM, with no bundler. Read it before you change how the page is built. It also lists the ids, roles and attributes that the e2e checks pin, and those must not move: `tests/e2e/verify_ui.py` is the executable version of that contract.
+`web/page.html` is one file, 921 lines as the refactor stands, of which 658 are its inline
+script, and the rest of its logic lives in modules under `web/lib/` and `web/components/`,
+which the static route serves. `web/PAGE-REFACTOR.md` is the design for taking it apart into Lit components, light DOM, with no bundler. Read it before you change how the page is built. It also lists the ids, roles and attributes that the e2e checks pin, and those must not move: `tests/e2e/verify_ui.py` is the executable version of that contract.
 
 ## Tests
 

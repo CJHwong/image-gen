@@ -16,6 +16,7 @@ import pytest
 
 import studio.__main__ as entry
 from studio.l4_frameworks_and_drivers import engines
+from studio.l4_frameworks_and_drivers.config import load_config
 
 SETTINGS = (
     'default_backend = "qwen21"\n'
@@ -24,6 +25,10 @@ SETTINGS = (
     "quantize = 0\n"
     'edit_script = "qwen21/qwen21_edit.py"\n'
 )
+
+# The same, with the two rewriters named. A settings file written before they
+# existed has no such keys and must still boot.
+SETTINGS_WITH_REWRITERS = SETTINGS + 'rewrite_generate_model = "Qwen/PE-T2I"\nrewrite_edit_model = "Qwen/PE-I2I"\n'
 
 
 def settings_file(tmp_path: Path, text: str = SETTINGS) -> Path:
@@ -59,6 +64,35 @@ def test_a_good_run_serves_until_ctrl_c_then_frees_the_engine(tmp_path, monkeypa
     printed = capsys.readouterr().out
     assert "Loading Qwen-Image-2.1 (bf16)." in printed
     assert "Ready on http://127.0.0.1:8931" in printed and "Stopped." in printed
+
+
+def test_the_startup_line_names_the_rewriters_before_the_click(tmp_path, monkeypatch, capsys):
+    """The first rewrite in a mode fetches about 19 GB with the progress bar off, so
+    the page looks merely busy. The wait has to be visible before the button is pressed."""
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(entry, "ThreadingHTTPServer", Mock(return_value=server))
+    argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path, SETTINGS_WITH_REWRITERS)), "--port", "8932")
+
+    assert entry.main() is None
+
+    printed = capsys.readouterr().out
+    line = next(row for row in printed.splitlines() if row.startswith("Rewriters: "))
+    assert line.startswith("Rewriters: generate ")
+    assert ", edit " in line
+    # Above the loading line, so it is read before the wait it warns about starts.
+    assert printed.index("Rewriters: ") < printed.index("Loading Qwen-Image-2.1")
+
+
+def test_a_backend_with_no_rewriter_prints_no_line(tmp_path):
+    """A backend that offers no rewriter has no wait to warn about."""
+    path = settings_file(tmp_path, 'default_backend = "flux2"\nvisible_backends = ["qwen21"]\n')
+    assert entry.rewriter_cache_line(load_config(path)) == ""
+
+
+def test_a_settings_file_without_rewriter_keys_prints_no_line(tmp_path):
+    """A file written before the rewriters existed boots as it did, with no toggle."""
+    assert entry.rewriter_cache_line(load_config(settings_file(tmp_path))) == ""
 
 
 def test_bad_settings_exit_with_the_message_that_names_the_file(tmp_path, monkeypatch):
