@@ -37,6 +37,25 @@ def test_an_unknown_backend_is_named(tmp_path: Path):
         build_backends(config)
 
 
+def test_the_viggle_backend_is_built_from_its_own_settings(tmp_path: Path):
+    """The models are built here rather than in the backend package, because one
+    backend package may not import another and Viggle drives qwen21's two models.
+    Building one loads nothing."""
+    config = settings(
+        tmp_path,
+        'default_backend = "viggle_turbo"\n[viggle_turbo]\nquantize = 0\nlora_path = "turbo.safetensors"\n',
+    )
+    assert list(build_backends(config)) == ["viggle_turbo"]
+
+
+def test_the_viggle_backend_cannot_be_built_without_its_adapter_path(tmp_path: Path):
+    """The path is required the way every other backend's settings are, so a file
+    that names the backend and not its adapter says so."""
+    config = settings(tmp_path, 'default_backend = "viggle_turbo"\n[viggle_turbo]\nquantize = 0\n')
+    with pytest.raises(ConfigError, match=r"lora_path under \[viggle_turbo\]"):
+        build_backends(config)
+
+
 @pytest.fixture
 def served():
     """A real server on a free port, over a backend whose run lasts until it is cancelled."""

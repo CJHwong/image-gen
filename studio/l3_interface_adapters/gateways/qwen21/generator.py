@@ -9,12 +9,12 @@ from collections.abc import Callable
 
 from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l3_interface_adapters.gateways.image_sizes import match_reference_size
-from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook, release_mlx_buffers
+from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook, lora_kwargs, release_mlx_buffers
 from studio.l3_interface_adapters.gateways.png_images import to_pil, to_png
 from studio.l3_interface_adapters.gateways.qwen21.capabilities import MATCH
 
 
-def generate_kwargs(job: ImageJob) -> dict:
+def generate_kwargs(job: ImageJob, scheduler: str = "linear") -> dict:
     """The job as generate_image keyword arguments.
 
     mflux's generate_image takes a single image_path, so only the first
@@ -36,6 +36,7 @@ def generate_kwargs(job: ImageJob) -> dict:
         "height": height,
         "num_inference_steps": options["steps"],
         "guidance": options["guidance"],
+        "scheduler": scheduler,
     }
     if reference is not None:
         kwargs["image_path"] = to_pil(reference.png)
@@ -43,7 +44,7 @@ def generate_kwargs(job: ImageJob) -> dict:
     return kwargs
 
 
-def build_model(quantize, hook: StepHook):
+def build_model(quantize, hook: StepHook, lora_path: str | None = None):
     """Build the model and register mflux's MemorySaver and the step hook.
 
     MemorySaver drops the 17.5 GB Qwen3-VL text encoder before the denoising
@@ -58,16 +59,24 @@ def build_model(quantize, hook: StepHook):
     from mflux.callbacks.instances.memory_saver import MemorySaver
     from mflux.models.qwen21.variants.txt2img.qwen_image_21 import QwenImage21
 
-    model = QwenImage21(quantize=quantize)
+    model = QwenImage21(quantize=quantize, **lora_kwargs(lora_path))
     model.callbacks.register(MemorySaver(model=model, keep_transformer=True, cache_limit_bytes=None, num_seeds=1))
     model.callbacks.register(hook)
     return model
 
 
 class Qwen21Generator:
-    def __init__(self, quantize: int | None, build: Callable = build_model):
+    def __init__(
+        self,
+        quantize: int | None,
+        build: Callable = build_model,
+        lora_path: str | None = None,
+        scheduler: str = "linear",
+    ):
         self._quantize = quantize
         self._build = build
+        self._lora_path = lora_path
+        self._scheduler = scheduler
         self._hook = StepHook()
         self._model = None
 
@@ -76,7 +85,7 @@ class Qwen21Generator:
 
     def _loaded(self):
         if self._model is None:
-            self._model = self._build(self._quantize, self._hook)
+            self._model = self._build(self._quantize, self._hook, self._lora_path)
         return self._model
 
     def release(self) -> None:
@@ -84,7 +93,7 @@ class Qwen21Generator:
         release_mlx_buffers()
 
     def run(self, job: ImageJob, on_step, should_stop) -> ImageResult:
-        kwargs = generate_kwargs(job)
+        kwargs = generate_kwargs(job, self._scheduler)
         model = self._with_encoder(self._loaded(), kwargs)
         steps = kwargs["num_inference_steps"]
         on_step(0, steps)

@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 
 from studio.l1_entities.errors import Cancelled
-from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook, release_mlx_buffers
+from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook, lora_kwargs, release_mlx_buffers
 from tests.support.heavy import heavy_modules
 
 
@@ -86,3 +86,16 @@ def test_the_mlx_reuse_pool_is_handed_back():
     with heavy_modules({"mlx.core": {"clear_cache": clear_cache}}):
         release_mlx_buffers()
     clear_cache.assert_called_once_with()
+
+
+def test_a_lora_is_passed_unmerged_and_a_backend_without_one_passes_nothing():
+    """`bake_lora=False` is not a preference: mflux merges an adapter into the base
+    weights by default, and the card for the one this server loads says merging into
+    bf16 drops about 30 percent of the update."""
+    assert lora_kwargs(None) == {}
+    assert lora_kwargs("/adapters/turbo.safetensors") == {
+        "lora_paths": ["/adapters/turbo.safetensors"],
+        "lora_scales": [1.0],
+        "bake_lora": False,
+    }
+    assert lora_kwargs("/adapters/turbo.safetensors", 0.5)["lora_scales"] == [0.5]
