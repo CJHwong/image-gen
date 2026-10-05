@@ -235,6 +235,80 @@ A sample, not every option: the options most likely to behave differently on FLU
 
 The other 19 Look options were not tested on flux2, so flux2 does not offer them.
 
+### The Viggle Turbo test
+
+Viggle Turbo samples Qwen-Image-2.1 on a distilled six-step schedule, so the aids
+were sampled again on that schedule rather than inherited. Measured 2026-10-05 on
+the M5 Pro, six steps, seed 1234, 768 x 768, bf16, the adapter unmerged.
+
+The fixture was "a cat wearing a suit", the one the Look test used. Each option ran
+next to the bare prompt, one contact sheet per row. Two rows are about people and a
+cat cannot judge them, so Realism and Portrait ran again on "a woman in her thirties
+reading at a cafe window", the fixture of the avoid-part test. That is 35 images in
+the first run and 4 in the second.
+
+| Row | Option | Result |
+|---|---|---|
+| Medium | Documentary | Works: plausible daylight on a carpeted floor, real fur and cloth. |
+| Medium | Watercolor | Works: soft washes on textured paper, visible brush edges. |
+| Medium | Skeleton | Works: skull, spine, ribs and limb bones in the pose, the suit still on the body. |
+| Film | Portra 400 | Works: warm natural color. |
+| Film | Black and white | Works: high contrast and strong grain, the Tri-X look its sentence names. |
+| Color | Warm | Works: amber and cream, a warm brown suit. |
+| Color | Vivid | Works: saturated without going poster flat. |
+| Light | Soft window light | Works: a visible window, soft shadow on the left. The shot widens, as it does on the base model. |
+| Light | Golden hour | Works: low warm sun from the side, long shadows. Widens the shot. |
+| Light | Night with neon | Works: a neon sign, a wet street and its reflections. Widens the shot. |
+| Camera | Close-up 85mm | Works: tighter on the head, more blur behind. |
+| Camera | Wide 24mm | Works: the room comes back into the frame. |
+| Camera | Top-down | Works: a true overhead view. |
+| Room for text | Left | Works: the subject on the right third, the left side empty. |
+| Room for text | Top | Partly works: the empty band across the top is there, the subject stays near the centre. The same weakness the base model shows. |
+| Realism | Real person | Works on the person fixture, and without its avoid part: messy hair, a plain cardigan, unretouched skin. This backend declares no negative prompt, so the avoid part cannot be sent, and the sentence alone carried it. |
+| Portrait | Over the shoulder | Works: the person turns three-quarters away, one side of the face in shadow. |
+| Portrait | Candid glance | Works: the gaze off camera, a small smile, unposed. |
+
+| Mode | Template | Result |
+|---|---|---|
+| Generate | Portrait photo | Works: every slot followed, the window light and the blurred background included. |
+| Generate | Product shot | Works: the teapot, the props, the empty side. |
+| Generate | Landscape | Works: the path leads the eye, the light is dawn. |
+| Generate | Poster with text | Works: the title 山茶小館 came out exact and Traditional, with the second line and the small line below it. |
+| Generate | Illustration | Works: washes, the named palette, the fox asleep on the log. |
+| Generate | Deadpan absurdity | Works: a horse at the water cooler, and nobody reacts. |
+| Generate | Banner | Works: a clean 16:9 thumbnail, all three quoted lines exact, the layout as briefed. |
+| Edit | Change a color or material | Works: the chair turned deep matte blue, the floor and the light untouched. |
+| Edit | Replace the background | Works: a snowy night street, the woman and her umbrella unchanged. |
+| Edit | Add text | Works: "Studio 4" exact, on a sign at the top left. |
+| Edit | Alternate reality | Works: Earth and stars above the buildings, the pose and the light preserved. |
+| Edit | Add an object | Works: a dog beside the woman, with a shadow and floor contact. |
+| Edit | Turn into a skeleton | Works, and better on a person than on the base model: the head came back a bare skull. On qwen21 the person keeps her face and hair. |
+| Edit | Turn into a pose figure | Works on the body: a grey jointed figure with a ball joint at every joint. The head keeps the real face and hair, the limit the base model has too. |
+
+#### What this sample does not settle
+
+One seed and one fixture per row. The distilled schedule has no other step count, so
+there is nothing to compare a six-step result against.
+
+Thirteen Look options were not run on this model, so this backend does not offer
+them: Phone snapshot, Ink drawing, 3D render, Fuji 400H, Ektachrome, Cool, Muted,
+Studio, Overcast, Low angle, Telephoto, Deep focus and Right. They passed on the
+40-step base, and nothing here says they fail on the distilled schedule.
+
+An avoid part cannot be tested on this backend, because it declares no negative
+prompt and the page sends none. Real person keeps its avoid part in the shared
+wording, where a mode with a negative prompt would send it.
+
+#### The cost this run measured
+
+Each generate image took a median of 21.0s at 768 x 768, over 28 images, and each
+edit 20.6s over 7. The edit figure matches the 19.3s recorded in
+`gateways/viggle/capabilities.py`. The generate figure does not: the same file
+records 9.9s at this size, so the time the page predicts for a Viggle Turbo generate
+is about half of what the run took. The log shows mflux applying the 1.3 GB adapter
+again for most images, 29 times over 35 runs. That is a candidate cause, not a
+proven one, and the constant needs a controlled run before it is changed.
+
 ## Marking a region
 
 The page's **Mark a region** tool sends the marked area as the last image of the
