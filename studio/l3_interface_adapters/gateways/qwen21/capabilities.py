@@ -12,51 +12,47 @@ MATCH = "match"
 MAX_REFERENCES = 10
 MAX_BATCH = 4
 
-# Cost, before you spend it. Measured 2026-09-27 on an M5 Pro, 64 GB, three
-# repeats at each point, one step and twenty steps apart so the fixed cost and
-# the per-step cost separate:
+# Cost, before you spend it. Measured 2026-10-05 on an M5 Pro, 64 GB, bf16, two
+# points at each size 20 steps apart so the fixed cost and the per-step cost
+# separate. The low point is 2 steps, not 1: mflux refuses a single step.
 #
 #   seconds per step   0.26 MP   0.59 MP   1.05 MP
-#   mflux t2i             0.69      3.37      5.76
-#   edit, 1 reference     1.31      3.77      9.90
+#   generate            not re-measured; see below
+#   edit, 1 reference     0.82      2.07      5.41
 #
-# The generate numbers still describe the code that runs: the text-to-image half
-# did not change. The cost is superlinear in pixels because attention is
-# quadratic in token count, which is what the exponent carries.
+#   fixed cost            14.6s     15.9s     53.9s
 #
-# **The edit numbers describe the engine this repo removed.** They came from the
-# diffusers pipeline in the child process, which had a different fixed cost, and
-# the mask was a second image it had to encode. Editing now runs on mflux in this
-# process and these constants must be re-measured against it: the page's own
-# learned rate corrects them after the first run on a device, so a wrong constant
-# costs one misleading estimate rather than a wrong run, but it is still wrong.
+# The edit figures are the in-process mflux engine, which replaced the diffusers
+# child. That child's curve was 1.31, 3.77 and 9.90 s/step on the same tiers, so
+# the swap is about twice as fast per step, and it peaks at 36 to 46 GB against
+# the 38.7 GiB the child held.
 #
-# Run-to-run spread on this machine is large: three runs of one size and one
-# seed differ by up to 20% at 1.05 MP, and the 0.59 MP generate point spread
-# 44.7s to 76.5s. The generate fit lands inside 20%, and only one point
-# disagrees, so it is fitted across all three rather than around it.
+# A least-squares power law through the three points gives 4.72 and 1.336, and it
+# lands within 13% at the worst of them. The cost is superlinear in pixels because
+# attention is quadratic in token count, which is what the exponent carries.
+#
+# **The generate half is not re-measured.** The text-to-image model is the same
+# one, but the pin moved to mflux 0.21.0, which added a text-prefix KV cache and a
+# fused Metal kernel, so 6.1 and 1.55 describe the old pin and are probably now
+# high. They are left rather than guessed at: an estimate that runs long is the
+# side to be wrong on, and the page corrects it from its own steps.
 GENERATE_STEP_COST = 6.1
 GENERATE_STEP_EXPONENT = 1.55
-EDIT_STEP_COST = 8.8
-EDIT_STEP_EXPONENT = 1.44
-# Measured 2026-09-27 by timing the child's own steps, so the encode was separated from
-# the denoising. Between step 0, which says the engine started, and step 1 sits the prompt
-# and image encode, and it was 30 to 90 seconds whatever the reference's size, because the
-# processor resized to a token budget. One more reference adds a share of the step cost,
-# and the encode rides in the overhead, counted per image rather than per batch because
-# every image encodes its own. The engine is gone; the shape of this may not survive it.
+EDIT_STEP_COST = 4.72
+EDIT_STEP_EXPONENT = 1.336
+# The fixed cost before the first step, which is the prompt and image encode. It is
+# not flat: 14.6s and 15.9s at the two small tiers, 53.9s at 1.05 MP, and 70.8s for
+# ten references at 0.59 MP. One number cannot follow a size and a reference count,
+# so this sits between them and errs high. Measured 2026-10-05.
 #
-# The same matrix measured the two parts of that. At 0.59 MP a second reference took the
-# step cost from 3.77 to 4.43, a factor of 1.175, so the share is 0.175 rather than the
-# 0.6 an earlier single-reference measurement gave.
-REFERENCE_STEP_GROWTH = 0.175  # one more reference multiplies the step cost by 1 + this
+# Reference growth is the same problem. Going from one reference to two multiplies
+# the step cost by 1.30, and one to ten only by 2.09, so the growth is sublinear and
+# a single multiplier cannot hold both ends. 0.20 is fitted at two references, where
+# a marked edit lives, because a mark rides as one more reference. It reads 8% short
+# there and 34% long at ten. Measured 2026-10-05 at 0.59 MP.
+REFERENCE_STEP_GROWTH = 0.20  # one more reference multiplies the step cost by 1 + this
 GENERATE_OVERHEAD = 3  # per image; the model is already resident
-# The encode before step 1. The child's figure counted a pipeline build paid once
-# per child, and the matrix then measured it at 4.1s, 10.2s and 19.9s for 0.26,
-# 0.59 and 1.05 MP. 20 was the top of that range, chosen because a flat number
-# cannot follow a size and this is the side to be wrong on. The new engine has no
-# pipeline to build, so the number is too high.
-EDIT_OVERHEAD = 20
+EDIT_OVERHEAD = 30
 
 STEPS = ParamSpec(id="steps", kind="number", default=40, minimum=1, maximum=100, integer=True, step=1)
 NEGATIVE = ParamSpec(id="negative", kind="text", default="")
@@ -118,10 +114,12 @@ EDIT = ModeSpec(
         match_cap=EDIT_MATCH_CAP,
         per_reference=REFERENCE_STEP_GROWTH,
     ),
-    # Measured 2026-09-26 with the mask and the sentence the page sends, one seed
-    # and 20 steps, on a drawn scene: the recolour was exact, an unmarked object
-    # and the background were unchanged, and the change landed 24.2x more inside
-    # the marked area than outside it. PROMPTS.md holds the table and its limits.
+    # Measured 2026-10-05 on the in-process mflux engine, one seed and 20 steps, on a
+    # drawn shape whose edge the mark matched: the change landed 15.8x more inside the
+    # marked area than outside it, and the rest of the frame moved by 4.3 of 255. The
+    # same fixture on the diffusers child this replaced read 2.4x on a uniform surface
+    # against 3.1x here, so the swap did not cost anything. PROMPTS.md holds the tables
+    # and their limits.
     region_marking=True,
 )
 

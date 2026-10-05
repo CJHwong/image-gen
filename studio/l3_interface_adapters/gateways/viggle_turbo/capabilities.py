@@ -54,7 +54,7 @@ RESOLUTION = ParamSpec(
 # its own steps anyway. The table they came from is in
 # gateways/qwen21/capabilities.py beside the constants.
 GENERATE_ESTIMATE = Estimate(6.1, 1.55, 3, overhead_per_image=True)
-EDIT_ESTIMATE = Estimate(8.8, 1.44, 20, overhead_per_image=True, match_cap=EDIT_MATCH_CAP)
+EDIT_ESTIMATE = Estimate(4.72, 1.336, 30, overhead_per_image=True, match_cap=EDIT_MATCH_CAP)
 
 GENERATE = ModeSpec(
     id="generate",
