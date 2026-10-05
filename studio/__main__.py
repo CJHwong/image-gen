@@ -22,7 +22,7 @@ from pathlib import Path
 from studio.l3_interface_adapters.gateways.qwen21.rewriter import cache_line
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable
-from studio.l4_frameworks_and_drivers.main import REWRITE_MODELS, create_studio
+from studio.l4_frameworks_and_drivers.main import REWRITERS, create_studio, qwen21_rewrite_models
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
 
@@ -57,8 +57,8 @@ def rewriter_cache_line(config: Config) -> str:
     it: the first rewrite in a mode fetches about 19 GB with the terminal kept
     quiet, so the button looks merely busy for minutes.
     """
-    builder = REWRITE_MODELS.get(config.default_backend)
-    models = builder(config) if builder else None
+    backend_id = config.default_backend
+    models = qwen21_rewrite_models(config, backend_id) if backend_id in REWRITERS else None
     return cache_line(models) if models else ""
 
 

@@ -104,21 +104,23 @@ def viggle_turbo_backend(config: Config) -> Qwen21TurboBackendGateway:
 BACKENDS = {"qwen21": qwen21_backend, "flux2": flux2_backend, "viggle_turbo": viggle_turbo_backend}
 
 # Which backends offer a prompt rewriter, and where their weights come from. The
-# rewriter is per backend, so a backend left out here reports no modes and the
-# page hides its toggle rather than offering a button that always refuses.
-REWRITE_MODELS = {"qwen21": lambda config: qwen21_rewrite_models(config)}
-REWRITERS = {"qwen21": Qwen21Rewriter}
+# rewriter is a model of its own and does not read the image engine at all, so
+# every backend driving this model family offers the same two. A backend left out
+# here reports no modes and the page hides its toggle rather than offering a button
+# that always refuses.
+REWRITERS = {"qwen21": Qwen21Rewriter, "viggle_turbo": Qwen21Rewriter}
 
 
-def qwen21_rewrite_models(config: Config) -> dict | None:
+def qwen21_rewrite_models(config: Config, backend_id: str) -> dict | None:
     """One rewriter model per mode: the text one rewrites a request, the image one
     reads the picture an edit will be of.
 
-    None when studio.toml names neither. A settings file written before the
-    rewriters existed has no keys for them, and that studio starts as it did,
-    with no toggle, rather than refusing to boot.
+    Read from the section of the backend that will use it, since that is where a
+    reader would look for it. None when studio.toml names neither. A settings file
+    written before the rewriters existed has no keys for them, and that studio
+    starts as it did, with no toggle, rather than refusing to boot.
     """
-    settings = config.backend("qwen21")
+    settings = config.backend(backend_id)
     models = {
         "generate": settings.get("rewrite_generate_model"),
         "edit": settings.get("rewrite_edit_model"),
@@ -129,7 +131,7 @@ def qwen21_rewrite_models(config: Config) -> dict | None:
 def build_rewriters(config: Config) -> dict:
     built = {}
     for backend_id in config.visible_backends:
-        models = REWRITE_MODELS[backend_id](config) if backend_id in REWRITE_MODELS else None
+        models = qwen21_rewrite_models(config, backend_id) if backend_id in REWRITERS else None
         built[backend_id] = REWRITERS[backend_id](models) if models else NoPromptRewriter()
     return built
 

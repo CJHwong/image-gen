@@ -96,9 +96,9 @@ EDIT = ModeSpec(
 def viggle_turbo_capabilities(badge: str) -> Capabilities:
     return Capabilities(
         backend_id="viggle_turbo",
-        name="Viggle Turbo",
+        name="Qwen-Image-2.1-viggle-turbo",
         badge=badge,
         modes=(GENERATE, EDIT),
         max_batch=MAX_BATCH,
-        description="Viggle's distillation of Qwen-Image-2.1: six steps, no guidance.",
+        description="Viggle's distillation: six steps, no guidance.",
     )

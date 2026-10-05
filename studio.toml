@@ -21,3 +21,7 @@ quantize = 0                              # 0 is bf16; the LoRA is passed unmerg
 # Viggle's distilled 6-step adapter for Qwen-Image-2.1, 1.3 GB. The base weights
 # are the ones [qwen21] already downloads. The README has the download recipe.
 lora_path = "~/Library/Caches/models/viggle-turbo/Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors"
+# The same two prompt rewriters as [qwen21]: they are their own models and do not
+# depend on which weights draw the image.
+rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
+rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"

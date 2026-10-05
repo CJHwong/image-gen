@@ -10,7 +10,7 @@ import pytest
 
 from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
 from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
-from studio.l4_frameworks_and_drivers.main import assemble_studio, build_backends
+from studio.l4_frameworks_and_drivers.main import assemble_studio, build_backends, build_rewriters
 from tests.support.fakes import FakeBackendGateway
 
 
@@ -29,6 +29,26 @@ def test_a_missing_setting_is_named(tmp_path: Path):
     config = settings(tmp_path, 'default_backend = "qwen21"\n[qwen21]\nquantize = 0\n', backend="flux2")
     with pytest.raises(ConfigError, match=r"model_dir under \[flux2\]"):
         build_backends(config)
+
+
+def test_the_viggle_backend_offers_the_same_prompt_rewriters(tmp_path: Path):
+    """The rewriters are models of their own and do not read the image engine, so a
+    backend that draws the same model family offers them too. Leaving it out hid the
+    toggle on a page that had every other control."""
+    settings_text = (
+        'default_backend = "viggle_turbo"\n'
+        'visible_backends = ["qwen21", "viggle_turbo"]\n'
+        "[qwen21]\nquantize = 0\n"
+        '[viggle_turbo]\nquantize = 0\nlora_path = "turbo.safetensors"\n'
+        'rewrite_generate_model = "Qwen/PE-T2I"\nrewrite_edit_model = "Qwen/PE-I2I"\n'
+    )
+    built = build_rewriters(settings(tmp_path, settings_text))
+    assert built["viggle_turbo"].modes() == ("generate", "edit")
+
+
+def test_a_backend_with_no_rewriter_settings_gets_none(tmp_path: Path):
+    config = settings(tmp_path, 'default_backend = "qwen21"\n[qwen21]\nquantize = 0\n')
+    assert build_rewriters(config)["qwen21"].modes() == ()
 
 
 def test_an_unknown_backend_is_named(tmp_path: Path):
