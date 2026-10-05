@@ -45,17 +45,20 @@ SIZES = (
     ("1024 x 1536 (2:3)", 1024, 1536),
 )
 
-# The edit pipeline treats output_resolution as an area budget, not a side: it
-# calls calculate_dimensions(res * res, reference aspect ratio). So the shape
-# always follows the reference, and this number only sets how many pixels. A
-# 1280x720 reference comes back 1280x704, the multiple of 32 the pipeline needs.
-EDIT_RESOLUTIONS = (1024, 768, 512, 1328)
+# The edit engine treats output_resolution as an area budget, not a side: it
+# derives width and height from the area and the last reference's ratio. So the
+# shape always follows the reference, and this number only sets how many pixels.
+# Every value here is a multiple of 32, which mflux validates before the model
+# loads, and a 1280x720 reference then comes back 1280x704.
+EDIT_RESOLUTIONS = (1024, 768, 512, 1344)
 
 # An edit usually wants its input back at the size it came in at, so "match"
 # is the default. The cap is there because the output size drives the whole
 # denoising cost: a 2560x1440 screenshot would ask for about 1920, which is far
-# past anything this machine renders in reasonable time.
-EDIT_MATCH_CAP = 1328
+# past anything this machine renders in reasonable time. It is a multiple of 32
+# for the same reason the list above is: the adapter takes the smaller of the two,
+# so a cap off the grid would pass a number mflux rejects.
+EDIT_MATCH_CAP = 1344
 
 # Cost, before you spend it. Measured 2026-09-27 on an M5 Pro, 64 GB, three
 # repeats at each point, one step and twenty steps apart so the fixed cost and
@@ -65,39 +68,42 @@ EDIT_MATCH_CAP = 1328
 #   mflux t2i             0.69      3.37      5.76
 #   edit, 1 reference     1.31      3.77      9.90
 #
-# The two engines are not one curve. They were, until this measurement: a single
-# STEP_COST of 4.0 at exponent 1.25 fitted the small end and ran 39% short at
-# 0.59 MP and 57% short at 1.05 MP on the edit side. Each engine now has its own
-# pair. The cost is superlinear in pixels because attention is quadratic in
-# token count, which is what the exponent carries.
+# The generate numbers still describe the code that runs: the text-to-image half
+# did not change. The cost is superlinear in pixels because attention is
+# quadratic in token count, which is what the exponent carries.
+#
+# **The edit numbers describe the engine this repo removed.** They came from the
+# diffusers pipeline in the child process, which had a different fixed cost, and
+# the mask was a second image it had to encode. Editing now runs on mflux in this
+# process and these constants must be re-measured against it: the page's own
+# learned rate corrects them after the first run on a device, so a wrong constant
+# costs one misleading estimate rather than a wrong run, but it is still wrong.
 #
 # Run-to-run spread on this machine is large: three runs of one size and one
 # seed differ by up to 20% at 1.05 MP, and the 0.59 MP generate point spread
-# 44.7s to 76.5s. The edit fit lands inside 9% at all three sizes. The generate
-# fit lands inside 20%, and only that one point disagrees, so it is fitted
-# across all three rather than around it.
+# 44.7s to 76.5s. The generate fit lands inside 20%, and only one point
+# disagrees, so it is fitted across all three rather than around it.
 GENERATE_STEP_COST = 6.1
 GENERATE_STEP_EXPONENT = 1.55
 EDIT_STEP_COST = 8.8
 EDIT_STEP_EXPONENT = 1.44
-# Measured 2026-09-27 by timing the child's own steps, so the encode is separated from the
-# denoising. Between step 0, which says the engine started, and step 1 sits the prompt and
-# image encode, and it is 30 to 90 seconds whatever the reference's size, because the
-# processor resizes to a token budget. The mask is a second image and it costs about half
-# again: at 1024 output, per step 3.57 becomes 5.66 with it, and the encode 28.6 becomes
-# 70.5. So one more reference adds a share of the step cost, and the encode rides in the
-# overhead, counted per image rather than per batch because every image encodes its own.
+# Measured 2026-09-27 by timing the child's own steps, so the encode was separated from
+# the denoising. Between step 0, which says the engine started, and step 1 sits the prompt
+# and image encode, and it was 30 to 90 seconds whatever the reference's size, because the
+# processor resized to a token budget. One more reference adds a share of the step cost,
+# and the encode rides in the overhead, counted per image rather than per batch because
+# every image encodes its own. The engine is gone; the shape of this may not survive it.
 #
 # The same matrix measured the two parts of that. At 0.59 MP a second reference took the
 # step cost from 3.77 to 4.43, a factor of 1.175, so the share is 0.175 rather than the
 # 0.6 an earlier single-reference measurement gave.
 REFERENCE_STEP_GROWTH = 0.175  # one more reference multiplies the step cost by 1 + this
 GENERATE_OVERHEAD = 3  # per image; the model is already resident
-# The encode before step 1, with the pipeline already built. It was 100, which
-# counted a pipeline build that is paid once per child rather than once per
-# image, and the matrix measured it at 4.1s, 10.2s and 19.9s for 0.26, 0.59 and
-# 1.05 MP. 20 is the top of that range: a flat number cannot follow a size, and
-# this is the side to be wrong on.
+# The encode before step 1. The child's figure counted a pipeline build paid once
+# per child, and the matrix then measured it at 4.1s, 10.2s and 19.9s for 0.26,
+# 0.59 and 1.05 MP. 20 was the top of that range, chosen because a flat number
+# cannot follow a size and this is the side to be wrong on. The new engine has no
+# pipeline to build, so the number is too high.
 EDIT_OVERHEAD = 20
 
 STEPS = ParamSpec(id="steps", kind="number", default=40, minimum=1, maximum=100, integer=True, step=1)
@@ -153,9 +159,9 @@ EDIT = ModeSpec(
         EDIT_STEP_COST,
         EDIT_STEP_EXPONENT,
         EDIT_OVERHEAD,
-        # Every image of a batch is its own run through the child, so each one pays the
-        # encode before its first step. The pipeline build is paid once and counted here
-        # once per image, which runs long for a batch and is the side to be wrong on.
+        # Every image of a batch is its own run, so each one pays the encode before
+        # its first step. The model stays resident, so there is no pipeline build
+        # to count. See EDIT_OVERHEAD above.
         overhead_per_image=True,
         match_cap=EDIT_MATCH_CAP,
         per_reference=REFERENCE_STEP_GROWTH,

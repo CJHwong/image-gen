@@ -8,10 +8,7 @@ from studio.l4_frameworks_and_drivers.config import load_config
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable, mlx_available
 from studio.l4_frameworks_and_drivers.main import create_studio
 
-CONFIG = (
-    'default_backend = "qwen21"\nvisible_backends = ["qwen21"]\n'
-    '[qwen21]\nquantize = 0\nedit_script = "qwen21_edit.py"\n'
-)
+CONFIG = 'default_backend = "qwen21"\nvisible_backends = ["qwen21"]\n[qwen21]\nquantize = 0\n'
 
 
 @pytest.fixture

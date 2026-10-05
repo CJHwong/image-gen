@@ -1,8 +1,8 @@
 """Stub a heavy engine into sys.modules, so a unit test never loads one.
 
 Every engine this studio uses is imported inside the function that needs it:
-mflux in generator.py, mlx-vlm in rewriter.py, torch and diffusers in the two
-PEP 723 child scripts. That deferred import is what makes a unit test possible
+mflux in generator.py, edit.py and klein_models.py, mlx-vlm in rewriter.py. That
+deferred import is what makes a unit test possible
 with no GPU: the test puts a stub in sys.modules first, and the real import
 never runs. The weights are never read and nothing is downloaded.
 
@@ -12,7 +12,7 @@ name that is not declared resolves against nothing, which is deliberate: a stub
 that answers to everything would hide a real import the code still makes.
 
 Every name it touched goes back the way it was on exit, so one test cannot leak
-a fake torch into the next one.
+a fake engine into the next one.
 
     with heavy_modules({"mflux.models.flux2.variants": {"Flux2Klein": FakeKlein}}):
         models = KleinModels(job, on_step)  # imports the stub, not the weights

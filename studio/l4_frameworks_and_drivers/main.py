@@ -28,7 +28,6 @@ from studio.l3_interface_adapters.gateways.qwen21.edit import Qwen21Edit
 from studio.l3_interface_adapters.gateways.qwen21.generator import Qwen21Generator
 from studio.l3_interface_adapters.gateways.qwen21.qwen21_backend_gateway import Qwen21BackendGateway
 from studio.l3_interface_adapters.gateways.qwen21.rewriter import Qwen21Rewriter
-from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 from studio.l3_interface_adapters.gateways.stub_backend_gateway import StubBackendGateway
 from studio.l3_interface_adapters.gateways.thread_confined_backend_gateway import ThreadConfinedBackendGateway
 from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter import ThreadConfinedPromptRewriter
@@ -52,7 +51,7 @@ class Studio:
         return self.catalog.get(self.catalog.active_id()).capabilities()
 
     def shutdown(self) -> None:
-        """Free every backend. A child engine does not share our signal handling.
+        """Free every backend.
 
         The frees wait in line on the GPU thread, behind any run, so the run is
         cancelled first. Without that, Ctrl-C waited for the image to finish.
@@ -70,11 +69,7 @@ def badge(quantize: int | None) -> str:
 
 def qwen21_backend(config: Config) -> Qwen21BackendGateway:
     quantize = config.backend("qwen21").get("quantize")
-    return Qwen21BackendGateway(
-        Qwen21Generator(quantize),
-        Qwen21Edit(StdioChild([config.required("qwen21", "edit_script"), "--stdio"])),
-        badge=badge(quantize),
-    )
+    return Qwen21BackendGateway(Qwen21Generator(quantize), Qwen21Edit(quantize), badge=badge(quantize))
 
 
 def flux2_backend(config: Config) -> Flux2BackendGateway:

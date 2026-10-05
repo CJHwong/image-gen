@@ -69,7 +69,6 @@ Both images stay in the strip at the bottom, also after a reload.
 | `default_backend` | The model the page opens with. |
 | `visible_backends` | The models the page offers. With more than one, the title becomes a menu. |
 | `[qwen21] quantize` | 0 for bf16, or the bits for quantized weights. |
-| `[qwen21] edit_script` | The diffusers script that runs edits in a child process. |
 | `[flux2] quantize` | The bits for the FLUX.2 weights. |
 | `[flux2] model_dir` | The folder of the FLUX.2 weights. |
 
@@ -86,7 +85,7 @@ Both images stay in the strip at the bottom, also after a reload.
 
 | Model | Adapter | Modes | Weights |
 |---|---|---|---|
-| Qwen-Image-2.1 (default) | `gateways/qwen21` | generate and img2img through mflux (MLX); instruction edit with up to 10 images through diffusers (MPS) | downloads itself |
+| Qwen-Image-2.1 (default) | `gateways/qwen21` | generate and img2img, and instruction edit with up to 10 images, all through mflux (MLX) | downloads itself |
 | FLUX.2 klein-base-9B, uncensored | `gateways/flux2` | generate and img2img, edit with up to 4 images, all through mflux (MLX) | manual setup below |
 
 **Marking a region.** In edit mode, **Mark a region** turns the print into a drawing surface: a brush in three widths, four colours, a loupe that follows the brush at three times the size, undo and clear. It needs an image from the strip, because the brush draws on the print and an upload has no print. Each region travels as a last, separate image, in the palette colour that names it, on black, and the prompt names that image and each area's colour. Measured on Qwen-Image-2.1 with the mask and the sentence the page sends, one seed and 20 steps, on a drawn shape whose edge the mark matched: the recolour landed 24 times more inside the marked area than outside it, and nothing outside the mark moved. Where the mark's edge meets the object's, the mark's own colour does not appear; where a hand-drawn mark reaches past its object it can, which is the next paragraph's point. The wording is not what carries it: naming the colour scored the same as naming the image, within noise. FLUX.2 does not offer the tool, because it has not been tested with a region. The verdicts, and what the numbers do and do not settle, are in [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md).
@@ -126,11 +125,10 @@ Both adapters generate through MLX, so this server runs on Apple Silicon. It ref
 ## Why it looks like this
 
 - **One page, one adapter per model.** The page asks the model what it supports and hides the rest. A new model is one adapter in `studio/`, and the page does not change. [studio/ARCHITECTURE.md](studio/ARCHITECTURE.md) has the layers and how to add a model.
-- **Two engines for qwen21.** mflux is faster and quantizes, but it has no port of the Qwen3-VL vision tower that instruction editing needs. So editing runs on diffusers, in a child process.
-- **The edit VAE encoder runs on the CPU.** MPS computes it wrong, and every reference image comes out washed out. [MPS-VAE-ENCODE.md](studio/l3_interface_adapters/gateways/qwen21/MPS-VAE-ENCODE.md) holds the measurements.
+- **One engine for qwen21.** Generate and instruction edit both run through mflux on MLX. Editing needs the Qwen3-VL vision tower, which mflux ported in 0.21.0; before that it ran on a diffusers pipeline in a child process, which held 38.7 GiB on MPS and had to free the mflux model before every edit.
 - **A batch is images in a row, not a real batch.** On this machine a batched flux2 run was 2 to 8% slower per image than one at a time, and it used more memory. One at a time also shows each image as soon as it is done.
 - **One run at a time.** The GPU is full with one run, and two only slow each other. A run from a second tab gets a message to wait, not a place in a queue.
-- **The server writes nothing to disk.** It keeps neither the prompt nor the image, and it binds 127.0.0.1. The browser keeps the images in its own storage, which belongs to the address and port. So a server on another port shows an empty strip.
+- **The server keeps nothing, and it binds 127.0.0.1.** It holds neither the prompt nor the image. An edit does write its reference images into a temporary directory for the length of that one run and removes it afterward, because mflux's edit call takes paths rather than images. That is the only thing this server puts on disk. The browser keeps the images in its own storage, which belongs to the address and port, so a server on another port shows an empty strip.
 
 ## Licenses
 

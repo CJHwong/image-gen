@@ -18,13 +18,7 @@ import studio.__main__ as entry
 from studio.l4_frameworks_and_drivers import engines
 from studio.l4_frameworks_and_drivers.config import load_config
 
-SETTINGS = (
-    'default_backend = "qwen21"\n'
-    'visible_backends = ["qwen21"]\n'
-    "[qwen21]\n"
-    "quantize = 0\n"
-    'edit_script = "qwen21/qwen21_edit.py"\n'
-)
+SETTINGS = 'default_backend = "qwen21"\nvisible_backends = ["qwen21"]\n[qwen21]\nquantize = 0\n'
 
 # The same, with the two rewriters named. A settings file written before they
 # existed has no such keys and must still boot.

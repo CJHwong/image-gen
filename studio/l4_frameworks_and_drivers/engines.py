@@ -1,9 +1,9 @@
 """Which engine this machine can run. The one place the platform decides.
 
-The probe answers a capability, not a platform string, so a Mac that later
-wants the diffusers engine and a host that can only run diffusers come through
-one function instead of a branch on `sys.platform`. Today the answer has one
-value: both backends generate through mflux, which is MLX.
+The probe answers a capability, not a platform string, so a host that needs a
+different engine comes through one function instead of a branch on
+`sys.platform`. Today the answer has one value: every backend, generate and edit,
+runs through mflux, which is MLX.
 `gateways/qwen21/PORTABILITY.md` records what a second engine needs.
 """
 
@@ -35,6 +35,7 @@ def require_mlx() -> None:
     """
     if not mlx_available():
         raise EngineUnavailable(
-            "no MLX on this machine, so no backend can generate here: MLX runs on Apple Silicon only. "
-            "The diffusers generate path is not built; see studio/l3_interface_adapters/gateways/qwen21/PORTABILITY.md."
+            "no MLX on this machine, so no backend can run here: every model is an mflux model, and mflux "
+            "is MLX, which runs on Apple Silicon only. "
+            "See studio/l3_interface_adapters/gateways/qwen21/PORTABILITY.md."
         )

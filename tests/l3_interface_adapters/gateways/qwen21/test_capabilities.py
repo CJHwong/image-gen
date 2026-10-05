@@ -39,7 +39,7 @@ def test_the_edit_estimate_carries_the_cap_and_the_reference_growth():
     0.59 MP, a second reference took it from 3.77 to 4.43."""
     caps = capabilities()
     generate, edit = caps.mode("generate").estimate, caps.mode("edit").estimate
-    assert edit.match_cap == 1328 and generate.match_cap is None
+    assert edit.match_cap == 1344 and generate.match_cap is None
     assert edit.per_reference == 0.175 and generate.per_reference == 0.0
     assert edit.overhead_per_image and generate.overhead_per_image  # every image pays its own encode
     assert not edit.two_pass  # 2.1 is trained guidance-free, so a step is one pass

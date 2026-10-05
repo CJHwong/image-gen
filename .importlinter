@@ -47,6 +47,8 @@ source_modules =
 forbidden_modules =
     mlx
     mflux
+    torch
+    diffusers
     PIL
     http
     subprocess
