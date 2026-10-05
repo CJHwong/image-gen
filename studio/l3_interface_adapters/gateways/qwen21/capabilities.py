@@ -134,5 +134,10 @@ EDIT = ModeSpec(
 
 def qwen21_capabilities(badge: str) -> Capabilities:
     return Capabilities(
-        backend_id="qwen21", name="Qwen-Image-2.1", badge=badge, modes=(GENERATE, EDIT), max_batch=MAX_BATCH
+        backend_id="qwen21",
+        name="Qwen-Image-2.1",
+        badge=badge,
+        modes=(GENERATE, EDIT),
+        max_batch=MAX_BATCH,
+        description="Full quality: 40 steps. Edits with up to 10 references.",
     )

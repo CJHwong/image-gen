@@ -22,6 +22,12 @@ def test_the_backend_names_itself_in_full():
     assert capabilities().name == "Viggle Turbo" and capabilities().backend_id == "viggle_turbo"
 
 
+def test_the_picker_line_says_what_it_is():
+    """The picker draws this under the name, so a reader knows what the model is
+    before switching to it rather than after."""
+    assert capabilities().description == "Viggle's distillation of Qwen-Image-2.1: six steps, no guidance."
+
+
 def test_six_steps_is_the_only_step_count_offered():
     """mflux's ViggleTurboScheduler raises on any other count before the model
     loads, so a free field here would offer a control whose every other value is

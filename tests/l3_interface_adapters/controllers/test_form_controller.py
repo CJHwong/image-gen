@@ -41,7 +41,7 @@ def controller(uses):
 
 
 def test_the_page_is_the_view_the_use_case_returns(controller, uses):
-    view = StudioView(active=fake_capabilities(), backends=(("fake", "Fake"), ("other", "Other")))
+    view = StudioView(active=fake_capabilities(), backends=(("fake", "Fake", ""), ("other", "Other", "")))
     uses["describe"].execute.return_value = view
     assert controller.page() is view
 

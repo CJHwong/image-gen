@@ -163,6 +163,9 @@ class Capabilities:
     badge: str
     modes: tuple[ModeSpec, ...]
     max_batch: int
+    # One line for the model picker, so a reader knows what each one is before
+    # switching to it. Empty means the picker shows the name alone.
+    description: str = ""
 
     def mode(self, mode_id: str) -> ModeSpec:
         for mode in self.modes:

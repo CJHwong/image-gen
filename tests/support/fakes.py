@@ -9,12 +9,13 @@ STEPS = ParamSpec(id="steps", kind="number", default=3, minimum=1, maximum=50, i
 GUIDANCE = ParamSpec(id="guidance", kind="number", default=1.0, minimum=0)
 
 
-def fake_capabilities(backend_id="fake", name="Fake"):
+def fake_capabilities(backend_id="fake", name="Fake", description=""):
     return Capabilities(
         backend_id=backend_id,
         name=name,
         badge="bf16",
         max_batch=4,
+        description=description,
         modes=(
             ModeSpec(id="generate", label="Generate", params=(STEPS, GUIDANCE), max_references=1),
             ModeSpec(
@@ -30,8 +31,8 @@ def fake_capabilities(backend_id="fake", name="Fake"):
 
 
 class FakeBackendGateway(ImageBackendGateway):
-    def __init__(self, backend_id="fake", name="Fake", fail_with=None, stop_check=None):
-        self.caps = fake_capabilities(backend_id, name)
+    def __init__(self, backend_id="fake", name="Fake", fail_with=None, stop_check=None, description=""):
+        self.caps = fake_capabilities(backend_id, name, description)
         self.jobs = []
         self.events = []
         self.fail_with = fail_with
