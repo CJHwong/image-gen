@@ -13,6 +13,7 @@ here the way it does on the generate side. The directory lives for one run.
 
 import tempfile
 from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 
 from studio.l1_entities.errors import InvalidJob
@@ -73,6 +74,21 @@ def edit_kwargs(job: ImageJob, image_paths: list[str]) -> dict:
     }
 
 
+@contextmanager
+def written(references):
+    """The references as paths, for the length of one call.
+
+    mflux's edit call takes image_paths, not images, so this is the only place in
+    the server that puts a reference on disk. The directory goes on the way out,
+    whether the run answered or raised.
+    """
+    with tempfile.TemporaryDirectory(prefix="studio-edit-") as directory:
+        paths = [str(Path(directory) / f"{index}.png") for index in range(len(references))]
+        for reference, path in zip(references, paths, strict=True):
+            Path(path).write_bytes(reference.png)
+        yield paths
+
+
 def build_model(quantize, hook: StepHook):
     """Build the edit model and register the step hook.
 
@@ -108,18 +124,19 @@ class Qwen21Edit:
 
     def run(self, job: ImageJob, on_step, should_stop) -> ImageResult:
         steps = int(job.options["steps"])
-        with tempfile.TemporaryDirectory(prefix="studio-edit-") as directory:
-            paths = [str(Path(directory) / f"{index}.png") for index in range(len(job.references))]
+        with written(job.references) as paths:
             # The form is checked before the model loads, so a bad value does not
             # cost a 33 GB build first.
             kwargs = edit_kwargs(job, paths)
             model = self._loaded()
-            for reference, path in zip(job.references, paths, strict=True):
-                Path(path).write_bytes(reference.png)
             on_step(0, steps)
-            try:
-                with self._hook.watch(on_step, should_stop, steps):
-                    image = model.generate_image(**kwargs).image
-            finally:
-                release_mlx_buffers()
+            image = self._render(model, kwargs, on_step, should_stop, steps)
         return ImageResult(png=to_png(image), width=image.width, height=image.height, seed=job.seed, steps=steps)
+
+    def _render(self, model, kwargs: dict, on_step, should_stop, steps: int):
+        """One pass through the engine, with the buffers handed back either way."""
+        try:
+            with self._hook.watch(on_step, should_stop, steps):
+                return model.generate_image(**kwargs).image
+        finally:
+            release_mlx_buffers()
