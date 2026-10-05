@@ -121,10 +121,13 @@ EDIT = ModeSpec(
     ),
     # Measured 2026-10-05 on the in-process mflux engine, one seed and 20 steps, on a
     # drawn shape whose edge the mark matched: the change landed 15.8x more inside the
-    # marked area than outside it, and the rest of the frame moved by 4.3 of 255. The
-    # same fixture on the diffusers child this replaced read 2.4x on a uniform surface
-    # against 3.1x here, so the swap did not cost anything. PROMPTS.md holds the tables
-    # and their limits.
+    # marked area than outside it, and the rest of the frame moved by 4.3 of 255.
+    #
+    # The engine swap is a wash on this, not a win. On the fixture the old figure came
+    # from, the diffusers child this replaced read 37.5x against 28.8x here, and on a
+    # mark over a uniform surface, where only the mark can bound the change, 2.4x
+    # against 3.1x. One seed on one fixture settles neither direction, so neither claim
+    # is made. PROMPTS.md holds the tables and their limits.
     region_marking=True,
 )
 

@@ -48,6 +48,23 @@ def test_the_scheduler_the_backend_chose_reaches_mflux():
     assert generate_kwargs(job(), scheduler="viggle_turbo")["scheduler"] == "viggle_turbo"
 
 
+def test_a_mode_that_offers_no_guidance_still_maps():
+    """Viggle Turbo's generate declares no guidance and no negative prompt, because
+    the distillation was trained without classifier-free guidance, so the form never
+    carries them. The adapter has to take the engine's own defaults instead. This
+    raised KeyError until that backend was run for real."""
+    bare = ImageJob(
+        mode="generate",
+        prompt="a pear",
+        seed=5,
+        options={"size": "512x512", "steps": 6, "strength": 0.4},
+        references=(),
+    )
+    kwargs = generate_kwargs(bare)
+    assert kwargs["guidance"] == 1.0 and kwargs["negative_prompt"] is None
+    assert kwargs["num_inference_steps"] == 6
+
+
 def test_a_reference_brings_its_strength_and_is_passed_as_an_image():
     kwargs = generate_kwargs(job(references=(png(64, 48),), strength=0.6))
     assert kwargs["image_strength"] == 0.6

@@ -31,11 +31,14 @@ def generate_kwargs(job: ImageJob, scheduler: str = "linear") -> dict:
     kwargs = {
         "seed": job.seed,
         "prompt": job.prompt,
-        "negative_prompt": options["negative"] or None,
+        # A mode does not have to declare these. One distilled to run without
+        # guidance offers neither a scale nor a negative prompt, so `parse_options`
+        # leaves both out, and the engine's own default is what that means.
+        "negative_prompt": options.get("negative") or None,
         "width": width,
         "height": height,
         "num_inference_steps": options["steps"],
-        "guidance": options["guidance"],
+        "guidance": options.get("guidance", 1.0),
         "scheduler": scheduler,
     }
     if reference is not None:
