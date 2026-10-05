@@ -38,7 +38,14 @@ def test_generate_maps_the_form_to_mflux():
         "height": 432,
         "num_inference_steps": 8,
         "guidance": 2.5,
+        "scheduler": "linear",
     }
+
+
+def test_the_scheduler_the_backend_chose_reaches_mflux():
+    """A distilled adapter samples on its own sigma nodes, and the schedule is the
+    only thing that makes those six steps mean what its training meant."""
+    assert generate_kwargs(job(), scheduler="viggle_turbo")["scheduler"] == "viggle_turbo"
 
 
 def test_a_reference_brings_its_strength_and_is_passed_as_an_image():
@@ -80,9 +87,10 @@ class EngineBuilder:
         self.pending = list(engines)
         self.built = []
 
-    def __call__(self, quantize, hook):
+    def __call__(self, quantize, hook, lora_path=None):
         engine = self.pending.pop(0)
         engine.hook = hook
+        engine.lora_path = lora_path
         self.built.append(engine)
         return engine
 

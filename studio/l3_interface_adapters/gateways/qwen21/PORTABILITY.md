@@ -68,8 +68,8 @@ The pin is the `v.0.21.0` release. Two things about that release are worth knowi
 before a port is built on it:
 
 - The edit variant's `generate_image` takes no `scheduler` argument, so the viggle
-  schedule reaches it through `gateways/qwen21/viggle_schedule.py`. That module is
-  a patch with a test that fails the day upstream adds the argument.
+  schedule reaches it through `gateways/viggle_schedule.py`. That module is a patch
+  with a test that fails the day upstream adds the argument.
 - The edit call takes `image_paths`, not images, so the references go to disk for
   the length of a run. `edit.py` records why.
 

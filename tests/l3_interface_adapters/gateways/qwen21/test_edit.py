@@ -144,9 +144,10 @@ class EngineBuilder:
         self.pending = list(engines)
         self.built = []
 
-    def __call__(self, quantize, hook):
+    def __call__(self, quantize, hook, lora_path=None):
         engine = self.pending.pop(0)
         engine.hook = hook
+        engine.lora_path = lora_path
         self.built.append(engine)
         return engine
 

@@ -18,7 +18,7 @@ from pathlib import Path
 
 from studio.l1_entities.errors import InvalidJob
 from studio.l1_entities.image_job import ImageJob, ImageResult
-from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook, release_mlx_buffers
+from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook, lora_kwargs, release_mlx_buffers
 from studio.l3_interface_adapters.gateways.png_images import to_png
 from studio.l3_interface_adapters.gateways.qwen21.capabilities import EDIT_MATCH_CAP, MATCH
 
@@ -89,7 +89,7 @@ def written(references):
         yield paths
 
 
-def build_model(quantize, hook: StepHook):
+def build_model(quantize, hook: StepHook, lora_path: str | None = None):
     """Build the edit model and register the step hook.
 
     The edit variant loads the vision tower the text-to-image variant does not,
@@ -98,15 +98,16 @@ def build_model(quantize, hook: StepHook):
     """
     from mflux.models.qwen21.variants.edit.qwen_image_21_edit import QwenImage21Edit
 
-    model = QwenImage21Edit(quantize=quantize)
+    model = QwenImage21Edit(quantize=quantize, **lora_kwargs(lora_path))
     model.callbacks.register(hook)
     return model
 
 
 class Qwen21Edit:
-    def __init__(self, quantize: int | None, build: Callable = build_model):
+    def __init__(self, quantize: int | None, build: Callable = build_model, lora_path: str | None = None):
         self._quantize = quantize
         self._build = build
+        self._lora_path = lora_path
         self._hook = StepHook()
         self._model = None
 
@@ -115,7 +116,7 @@ class Qwen21Edit:
 
     def _loaded(self):
         if self._model is None:
-            self._model = self._build(self._quantize, self._hook)
+            self._model = self._build(self._quantize, self._hook, self._lora_path)
         return self._model
 
     def release(self) -> None:
