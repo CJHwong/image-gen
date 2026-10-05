@@ -17,15 +17,17 @@ def params(mode_id):
 
 
 def test_the_backend_names_itself_in_full():
-    """It is not "Turbo": the distilled Qwen-Image-2.1 is the model, and the name
-    the picker shows says whose it is."""
-    assert capabilities().name == "Viggle Turbo" and capabilities().backend_id == "viggle_turbo"
+    """Named after the model it is, not after the publisher alone: this is
+    Qwen-Image-2.1 with Viggle's adapter, and the row says so."""
+    assert capabilities().name == "Qwen-Image-2.1-viggle-turbo"
+    assert capabilities().backend_id == "viggle_turbo"
 
 
 def test_the_picker_line_says_what_it_is():
     """The picker draws this under the name, so a reader knows what the model is
-    before switching to it rather than after."""
-    assert capabilities().description == "Viggle's distillation of Qwen-Image-2.1: six steps, no guidance."
+    before switching to it. The name already carries the lineage, so the line does
+    not repeat it."""
+    assert capabilities().description == "Viggle's distillation: six steps, no guidance."
 
 
 def test_six_steps_is_the_only_step_count_offered():
