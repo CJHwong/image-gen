@@ -231,7 +231,7 @@ class RecordingRewriter(PromptRewriterGateway):
     def modes(self):
         return ("generate",)
 
-    def rewrite(self, prompt, mode, references):
+    def rewrite(self, prompt, mode, references, on_writing, should_stop):
         raise AssertionError("a run never rewrites")
 
     def release(self):

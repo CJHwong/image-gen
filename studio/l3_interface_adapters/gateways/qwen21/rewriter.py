@@ -16,11 +16,12 @@ resident and drops it when the other mode asks.
 import io
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import cast
 
 from PIL import Image
 
+from studio.l1_entities.errors import Cancelled
 from studio.l1_entities.image_job import ReferenceImage
 from studio.l1_entities.prompt_rewrite import PromptRewrite
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
@@ -147,8 +148,15 @@ class Qwen21Rewriter(PromptRewriterGateway):
     def modes(self) -> tuple[str, ...]:
         return tuple(self._models)
 
-    def rewrite(self, prompt: str, mode: str, references: tuple[ReferenceImage, ...]) -> PromptRewrite:
-        from mlx_vlm import generate
+    def rewrite(
+        self,
+        prompt: str,
+        mode: str,
+        references: tuple[ReferenceImage, ...],
+        on_writing: Callable[[], None],
+        should_stop: Callable[[], bool],
+    ) -> PromptRewrite:
+        from mlx_vlm import stream_generate
         from mlx_vlm.prompt_utils import apply_chat_template
 
         model, processor, config, system_prompt = self._resident_for(mode)
@@ -162,7 +170,12 @@ class Qwen21Rewriter(PromptRewriterGateway):
         # apply_chat_template returns a message list only when return_messages is
         # set, and its hint cannot say so, so the string form is taken here.
         formatted = cast(str, apply_chat_template(processor, config, messages, num_images=len(images)))
-        result = generate(
+        # The weights are resident by now, so the load is behind this call, and the
+        # caller cannot see that for itself. From here the model writes one segment
+        # at a time, and this loop is studio's own, so this is where a stop is seen.
+        on_writing()
+        written: list[str] = []
+        for segment in stream_generate(
             model,
             processor,
             formatted,
@@ -176,8 +189,17 @@ class Qwen21Rewriter(PromptRewriterGateway):
             top_k=20,
             enable_thinking=True,
             verbose=False,
-        )
-        return _as_rewrite(result.text)
+        ):
+            if should_stop():
+                raise Cancelled("stopped while rewriting the prompt")
+            # A segment, not the text so far: this field is what the tokenizer
+            # printed since the last read, and the last segment carries only the
+            # flushed tail. So the answer is assembled here and parsed once, at the
+            # end, which is how mlx-vlm's own `generate` reads the same stream. The
+            # draft filter that call applies belongs to the diffusion streamer,
+            # which this call never reaches: this model writes tokens.
+            written.append(segment.text)
+        return _as_rewrite("".join(written))
 
     def release(self) -> None:
         if self._resident is None:

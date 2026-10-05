@@ -10,6 +10,7 @@ from unittest.mock import Mock
 import pytest
 from PIL import Image
 
+from studio.l1_entities.errors import Cancelled
 from studio.l3_interface_adapters.gateways.qwen21 import rewriter as rewriter_module
 from studio.l3_interface_adapters.gateways.qwen21.rewriter import (
     CACHE_FILES,
@@ -32,10 +33,10 @@ def system_prompt(tmp_path):
     return path
 
 
-def rewriter_stubs(generate, system_prompt_path):
+def rewriter_stubs(stream, system_prompt_path):
     """The mlx-vlm and huggingface_hub names this adapter imports, as recording stubs."""
     return {
-        "mlx_vlm": {"generate": generate, "load": Mock(return_value=("the model", "the processor"))},
+        "mlx_vlm": {"stream_generate": stream, "load": Mock(return_value=("the model", "the processor"))},
         "mlx_vlm.prompt_utils": {"apply_chat_template": Mock(return_value="the formatted prompt")},
         "mlx_vlm.utils": {"load_config": Mock(return_value={"image_token": "<|image|>"})},
         "huggingface_hub": {"hf_hub_download": Mock(return_value=str(system_prompt_path))},
@@ -44,8 +45,28 @@ def rewriter_stubs(generate, system_prompt_path):
     }
 
 
+def writing(*segments):
+    """A stream_generate that yields one item per printed segment, the way mlx-vlm does.
+
+    Measured against the installed library, 2026-10-05: each item carries the text
+    printed since the last read, and the terminal one carries only the flushed
+    tail. So a caller that reads the last item alone loses most of the answer, and
+    the test that proves the assembly is the one that splits the JSON in two.
+    """
+    return Mock(return_value=iter([Mock(text=segment) for segment in segments]))
+
+
 def answering(text):
-    return Mock(return_value=Mock(text=text))
+    """A stream that writes the whole answer as one segment."""
+    return writing(text)
+
+
+def no_writing():
+    pass
+
+
+def never_stop():
+    return False
 
 
 class NotCached(Exception):
@@ -172,7 +193,7 @@ def test_the_rewriter_sends_the_request_and_the_sampling_it_was_measured_at(syst
     stubs = rewriter_stubs(generate, system_prompt)
     with heavy_modules(stubs):
         rewriter = Qwen21Rewriter({"generate": "Qwen/PE-T2I"})
-        answer = rewriter.rewrite("a cat", "generate", ())
+        answer = rewriter.rewrite("a cat", "generate", (), no_writing, never_stop)
 
     assert answer.prompt == "a longer one"
     assert stubs["mlx_vlm"]["load"].call_args.args == ("Qwen/PE-T2I",)
@@ -193,6 +214,59 @@ def test_the_rewriter_sends_the_request_and_the_sampling_it_was_measured_at(syst
     assert MAX_TOKENS == 16384  # 317 to 505 tokens out, so the budget is never reached
 
 
+def test_the_answer_is_assembled_from_the_segments_the_stream_yields(system_prompt):
+    """The stream hands over a word or two at a time and the last item holds only the
+    flushed tail, so the answer is assembled across the loop. This JSON is split in
+    two on purpose: reading the last item alone would parse nothing."""
+    stream = writing('{"rewritten_', 'prompt": "a longer one"}')
+    with heavy_modules(rewriter_stubs(stream, system_prompt)):
+        rewriter = Qwen21Rewriter({"generate": "Qwen/PE-T2I"})
+        answer = rewriter.rewrite("a cat", "generate", (), no_writing, never_stop)
+    assert answer.prompt == "a longer one"
+
+
+def test_the_writing_phase_is_reported_once_the_weights_are_resident(system_prompt):
+    """The caller cannot tell a weight load from a decode from the outside, so the
+    adapter is the one that says which side of the load it is on. The page offers a
+    cancel from that moment, and not before."""
+    phases = []
+    with heavy_modules(rewriter_stubs(answering('{"rewritten_prompt": "a longer one"}'), system_prompt)):
+        rewriter = Qwen21Rewriter({"generate": "Qwen/PE-T2I"})
+        rewriter.rewrite("a cat", "generate", (), lambda: phases.append("writing"), never_stop)
+    assert phases == ["writing"]
+
+
+def test_a_cancel_before_the_first_segment_stops_the_rewrite(monkeypatch, system_prompt):
+    """A stop asked for during the load is remembered rather than lost, which is the
+    whole point of the page locking its button until the writing starts."""
+    parsed = Mock()
+    monkeypatch.setattr(rewriter_module, "_as_rewrite", parsed)
+    with heavy_modules(rewriter_stubs(answering('{"rewritten_prompt": "a longer one"}'), system_prompt)):
+        rewriter = Qwen21Rewriter({"generate": "Qwen/PE-T2I"})
+        with pytest.raises(Cancelled):
+            rewriter.rewrite("a cat", "generate", (), no_writing, lambda: True)
+    assert not parsed.called  # the segment that was generated is dropped, not parsed
+
+
+def test_a_cancel_between_segments_stops_the_rewrite_mid_answer(monkeypatch, system_prompt):
+    """The check sits at the top of the loop, so a stop lands within one segment: one
+    more segment is generated and thrown away, and nothing is parsed."""
+    parsed = Mock()
+    monkeypatch.setattr(rewriter_module, "_as_rewrite", parsed)
+    asked = []
+
+    def stop_after_the_first():
+        asked.append(True)
+        return len(asked) > 1
+
+    stream = writing('{"rewritten_', 'prompt": "a longer one"}')
+    with heavy_modules(rewriter_stubs(stream, system_prompt)):
+        rewriter = Qwen21Rewriter({"generate": "Qwen/PE-T2I"})
+        with pytest.raises(Cancelled):
+            rewriter.rewrite("a cat", "generate", (), no_writing, stop_after_the_first)
+    assert len(asked) == 2 and not parsed.called
+
+
 def test_a_reference_reaches_the_card_as_an_image_and_never_as_a_file(system_prompt):
     """mlx-vlm's own process_image calls load_image only for a str, so a PIL image is
     passed straight through and no reference is written to disk."""
@@ -200,7 +274,7 @@ def test_a_reference_reaches_the_card_as_an_image_and_never_as_a_file(system_pro
     stubs = rewriter_stubs(generate, system_prompt)
     with heavy_modules(stubs):
         rewriter = Qwen21Rewriter({"edit": "Qwen/PE-I2I"})
-        rewriter.rewrite("a pear", "edit", (png(32, 24),))
+        rewriter.rewrite("a pear", "edit", (png(32, 24),), no_writing, never_stop)
 
     images = generate.call_args.kwargs["image"]
     assert [image.size for image in images] == [(32, 24)]
@@ -214,10 +288,10 @@ def test_one_model_stays_resident_until_the_other_mode_asks_for_its_own(system_p
     stubs = rewriter_stubs(generate, system_prompt)
     with heavy_modules(stubs):
         rewriter = Qwen21Rewriter({"generate": "Qwen/PE-T2I", "edit": "Qwen/PE-I2I"})
-        rewriter.rewrite("a cat", "generate", ())
-        rewriter.rewrite("a cat", "generate", ())
+        rewriter.rewrite("a cat", "generate", (), no_writing, never_stop)
+        rewriter.rewrite("a cat", "generate", (), no_writing, never_stop)
         assert stubs["mlx_vlm"]["load"].call_count == 1  # the second rewrite reused it
-        rewriter.rewrite("a pear", "edit", ())
+        rewriter.rewrite("a pear", "edit", (), no_writing, never_stop)
         assert stubs["mlx_vlm"]["load"].call_count == 2
         assert stubs["mlx_vlm"]["load"].call_args.args == ("Qwen/PE-I2I",)
 
@@ -239,8 +313,8 @@ def test_release_drops_the_model_and_holds_nothing_when_there_is_nothing_to_drop
         rewriter = Qwen21Rewriter({"generate": "Qwen/PE-T2I"})
         rewriter.release()
         assert freed.call_count == 0  # nothing was resident, so there is nothing to free
-        rewriter.rewrite("a cat", "generate", ())
+        rewriter.rewrite("a cat", "generate", (), no_writing, never_stop)
         rewriter.release()
         assert freed.call_count == 1
-        rewriter.rewrite("a cat", "generate", ())
+        rewriter.rewrite("a cat", "generate", (), no_writing, never_stop)
         assert stubs["mlx_vlm"]["load"].call_count == 2  # the model was rebuilt after the release

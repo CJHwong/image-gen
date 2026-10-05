@@ -13,6 +13,7 @@ import pytest
 
 from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, MissingPrompt, ReferenceExpired
 from studio.l1_entities.image_job import ImageResult
+from studio.l1_entities.rewrite_progress import RewriteProgress
 from studio.l1_entities.run_progress import RunProgress
 from studio.l2_use_cases.describe_studio_use_case import StudioView
 from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
@@ -134,6 +135,22 @@ def test_the_rewrite_answers_with_the_data_the_page_reads():
 
 def test_a_rewrite_with_no_size_says_so():
     assert json.loads(HtmlPresenter.rewrite(RewriteResponse(prompt="p", size=None, elapsed=1.04)))["size"] is None
+
+
+def test_a_cancelled_rewrite_answers_nothing_to_apply():
+    # The page stopped it, so there are no words and no shape to put anywhere. An
+    # error line would be wrong twice over: the page asked for this, and it would
+    # then toast something the user already knows.
+    stopped = HtmlPresenter.rewrite(RewriteResponse(prompt="a cat", size=None, elapsed=3.2, cancelled=True))
+    assert json.loads(stopped) == {"cancelled": True}
+
+
+def test_the_rewrite_state_is_the_data_the_button_follows():
+    # The page polls this while a rewrite is in flight, so it is JSON as well. The
+    # three fields are what the button draws: which phase it is in, and whether a
+    # stop is on its way.
+    body = HtmlPresenter.rewrite_state(RewriteProgress(running=True, stage="writing", stopping=True))
+    assert json.loads(body) == {"running": True, "stage": "writing", "stopping": True}
 
 
 @pytest.mark.parametrize(

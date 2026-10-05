@@ -5,6 +5,8 @@ visible stays off the list. The rewrite modes come from the rewriter in force: a
 empty list hides the page's toggle, rather than offering a button that always refuses.
 """
 
+from collections.abc import Callable
+
 from studio.l1_entities.image_job import ReferenceImage
 from studio.l1_entities.prompt_rewrite import PromptRewrite
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
@@ -22,7 +24,14 @@ class Rewriter(PromptRewriterGateway):
     def modes(self):
         return self._modes
 
-    def rewrite(self, prompt: str, mode: str, references: tuple[ReferenceImage, ...]) -> PromptRewrite:
+    def rewrite(
+        self,
+        prompt: str,
+        mode: str,
+        references: tuple[ReferenceImage, ...],
+        on_writing: Callable[[], None],
+        should_stop: Callable[[], bool],
+    ) -> PromptRewrite:
         raise AssertionError("describing the studio never rewrites a prompt")
 
     def release(self):

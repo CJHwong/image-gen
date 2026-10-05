@@ -9,7 +9,7 @@ Each layer imports only the layers inside it. `.importlinter` enforces this, and
 | Layer | Directory | What it holds |
 |---|---|---|
 | 1. Entities | `l1_entities/` | The job, the result, the progress, the errors, and the capabilities record: modes, params, Looks, templates, estimate |
-| 2. Use cases | `l2_use_cases/` | Run an image, describe the studio, switch the backend, prepare, cancel, read progress. `boundaries/` holds the ports they call. |
+| 2. Use cases | `l2_use_cases/` | Run an image, describe the studio, switch the backend, prepare, rewrite a prompt, and cancel or read the progress of either job. `boundaries/` holds the ports they call. |
 | 3. Interface adapters | `l3_interface_adapters/` | The form controller, the HTML presenter, and the gateways: one per backend, the in-memory stores, and the GPU thread that every MLX call must run on |
 | 4. Frameworks and drivers | `l4_frameworks_and_drivers/` | The HTTP server, the config file, the page, and `main.py`, which wires everything |
 
@@ -27,7 +27,7 @@ Names follow the role. A gateway ends in `_gateway.py` and its class in `Gateway
 4. The gateway runs the engine on the GPU thread and returns PNG bytes.
 5. The use case returns a response record. The HTTP server hands it to `HtmlPresenter`, which writes the HTML fragment.
 
-A batch is a chain of requests, one per image. Progress is a poll of `/progress`.
+A batch is a chain of requests, one per image. Progress is a poll of `/progress`. A rewrite is one request of its own, and its phase is a poll of `/rewrite/state`: the page offers a cancel only while the model is writing, because a stop cannot land during the load.
 
 ## Add a backend
 

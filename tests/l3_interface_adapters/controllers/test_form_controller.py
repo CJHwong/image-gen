@@ -32,7 +32,19 @@ def reference_of(payload):
 
 @pytest.fixture
 def uses():
-    return {name: Mock() for name in ("describe", "run", "read_progress", "cancel", "switch", "rewrite")}
+    return {
+        name: Mock()
+        for name in (
+            "describe",
+            "run",
+            "read_progress",
+            "cancel",
+            "switch",
+            "rewrite",
+            "read_rewrite_progress",
+            "cancel_rewrite",
+        )
+    }
 
 
 @pytest.fixture
@@ -90,6 +102,19 @@ def test_the_progress_is_the_one_the_use_case_reports(controller, uses):
 def test_a_cancel_stops_the_run_in_flight(controller, uses):
     controller.cancel()
     assert uses["cancel"].execute.call_count == 1
+
+
+def test_the_rewrite_state_is_the_one_the_use_case_reports(controller, uses):
+    # The page polls this to learn which side of the load the rewrite is on, so
+    # the controller must hand back the state itself and not a copy.
+    state = Mock()
+    uses["read_rewrite_progress"].execute.return_value = state
+    assert controller.rewrite_state() is state
+
+
+def test_a_rewrite_cancel_stops_the_rewrite_in_flight(controller, uses):
+    controller.cancel_rewrite()
+    assert uses["cancel_rewrite"].execute.call_count == 1
 
 
 @pytest.mark.parametrize("form, backend", [({"backend": "flux2"}, "flux2"), ({}, "")])

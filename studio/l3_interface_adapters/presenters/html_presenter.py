@@ -10,6 +10,7 @@ import json
 from dataclasses import asdict
 
 from studio.l1_entities.errors import Cancelled, InvalidJob, StudioError
+from studio.l1_entities.rewrite_progress import RewriteProgress
 from studio.l1_entities.run_progress import RunProgress
 from studio.l2_use_cases.describe_studio_use_case import StudioView
 from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
@@ -78,11 +79,26 @@ class HtmlPresenter:
     @staticmethod
     def rewrite(response: RewriteResponse) -> str:
         """JSON, not HTML. Every other fragment is appended to the page; this one
-        is data the page reads into the prompt box and the size menu."""
+        is data the page reads into the prompt box and the size menu.
+
+        A rewrite the page stopped carries no words: the page keeps what the box
+        already holds, and there is nothing to say about it.
+        """
+        if response.cancelled:
+            return json.dumps({"cancelled": True})
         return json.dumps(
             {"prompt": response.prompt, "size": response.size, "elapsed": round(response.elapsed, 1)},
             ensure_ascii=False,
         )
+
+    @staticmethod
+    def rewrite_state(state: RewriteProgress) -> str:
+        """JSON, like the rewrite's own answer, because the page reads it into a control.
+
+        `stage` is what the button follows, and `stopping` is what it says while a
+        stop is on its way.
+        """
+        return json.dumps({"running": state.running, "stage": state.stage, "stopping": state.stopping})
 
     @staticmethod
     def _chain(next_run: NextRun) -> str:
