@@ -12,9 +12,9 @@ import pytest
 
 from studio.l1_entities.errors import StudioError
 from studio.l1_entities.image_job import ImageJob
-from studio.l3_interface_adapters.gateways.viggle_turbo import viggle_turbo_backend_gateway as module
-from studio.l3_interface_adapters.gateways.viggle_turbo.viggle_turbo_backend_gateway import (
-    ViggleTurboBackendGateway,
+from studio.l3_interface_adapters.gateways.viggle import qwen21_turbo_backend_gateway as module
+from studio.l3_interface_adapters.gateways.viggle.qwen21_turbo_backend_gateway import (
+    Qwen21TurboBackendGateway,
 )
 
 
@@ -58,7 +58,7 @@ def wired(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "viggle_schedule", recording_schedule)
     adapter = tmp_path / "turbo.safetensors"
     adapter.write_bytes(b"weights")
-    gateway = ViggleTurboBackendGateway(
+    gateway = Qwen21TurboBackendGateway(
         Engine("generate", events, patched), Engine("edit", events, patched), badge="bf16", lora_path=str(adapter)
     )
     return gateway, events, patched
@@ -68,7 +68,7 @@ def test_a_backend_without_its_adapter_says_where_to_get_it(tmp_path):
     """A backend is built whether or not it is used, so this cannot refuse at build
     time: the stub builds every backend. It refuses when the model is asked for, and
     the message carries the whole command rather than a path."""
-    gateway = ViggleTurboBackendGateway(
+    gateway = Qwen21TurboBackendGateway(
         Engine("generate", [], [False]),
         Engine("edit", [], [False]),
         badge="bf16",
@@ -76,8 +76,16 @@ def test_a_backend_without_its_adapter_says_where_to_get_it(tmp_path):
     )
     with pytest.raises(StudioError, match="Viggle Turbo needs its adapter"):
         gateway.load()
-    with pytest.raises(StudioError, match="huggingface-cli download"):
+    with pytest.raises(StudioError, match="hf download"):
         gateway.load()
+
+
+def test_the_recipe_names_the_command_that_works():
+    """huggingface_hub 2.x deprecated `huggingface-cli`, and it now exits without
+    downloading anything. Measured 2026-10-05: the first real fetch of this adapter
+    failed on exactly that, so the message a user gets has to name `hf`."""
+    assert "hf download" in module.RECIPE
+    assert "huggingface-cli" not in module.RECIPE
 
 
 def test_a_backend_with_its_adapter_loads_the_generate_model(wired):

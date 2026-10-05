@@ -59,4 +59,4 @@ type = independence
 modules =
     studio.l3_interface_adapters.gateways.qwen21
     studio.l3_interface_adapters.gateways.flux2
-    studio.l3_interface_adapters.gateways.viggle_turbo
+    studio.l3_interface_adapters.gateways.viggle

@@ -53,7 +53,7 @@ RESOLUTION = ParamSpec(
 # first real six-step run on this machine, and the page corrects the rate from
 # its own steps anyway. The table they came from is in
 # gateways/qwen21/capabilities.py beside the constants.
-GENERATE_ESTIMATE = Estimate(6.1, 1.55, 3, overhead_per_image=True)
+GENERATE_ESTIMATE = Estimate(3.15, 1.53, 3, overhead_per_image=True)
 EDIT_ESTIMATE = Estimate(4.72, 1.336, 30, overhead_per_image=True, match_cap=EDIT_MATCH_CAP)
 
 GENERATE = ModeSpec(

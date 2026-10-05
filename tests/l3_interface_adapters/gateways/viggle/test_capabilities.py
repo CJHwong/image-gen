@@ -5,7 +5,7 @@ the schedule has six sigma nodes and no others. Both are asserted here, because
 both are invisible at runtime until a run comes back wrong.
 """
 
-from studio.l3_interface_adapters.gateways.viggle_turbo.capabilities import viggle_turbo_capabilities
+from studio.l3_interface_adapters.gateways.viggle.capabilities import viggle_turbo_capabilities
 
 
 def capabilities(badge="bf16"):
