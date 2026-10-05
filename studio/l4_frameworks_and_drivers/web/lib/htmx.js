@@ -319,6 +319,12 @@ function harvest() {
       id: page.takeFrameId(), src: blobUrl(source), b64: source.split(',')[1], seed: data.seed,
       width: data.width, height: data.height, steps: data.steps, elapsed: data.elapsed,
       position: data.position, mode: data.mode, prompt: data.prompt, look: null, negative: '',
+      // Which model made this one, taken now because the page knows it now. A
+      // switch reloads the page but keeps the strip, so without this every frame
+      // would wear whichever model was selected last. `edgeName` is the active
+      // model's, in the form the edge draws, and it is on the handle this module
+      // already reads.
+      backend: page.edgeName,
       sources: runSources,
       before: data.mode === 'edit' ? batchSource : null,
     };

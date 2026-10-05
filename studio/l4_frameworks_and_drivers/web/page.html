@@ -860,7 +860,9 @@
 
   // The title is the switch, and only when there is a choice. A switch frees
   // the old backend and loads the new one, then the page reloads with its
-  // capabilities.
+  // capabilities. Nothing is lost by it: the strip is the browser's own store and
+  // each frame carries the model that made it, so the rows can sit together. This
+  // used to ask first, because it said it would clear the strip. It did not.
   function setupBackends() {
     const toggle = document.getElementById('backend-toggle');
     const menu = document.getElementById('backend-menu');
@@ -896,13 +898,12 @@
     const toggle = document.getElementById('backend-toggle');
     if (id === STUDIO.backend.id) return;
     if (busy()) return showToast('info', 'Wait for the run to finish, then switch.');
-    if (gallery.length && !confirm('Switching the model reloads the page and clears the gallery.')) return;
     toggle.disabled = true;
     showToast('info', 'Loading ' + name + '. This can take a minute.');
     fetch('/backend', { method: 'POST', body: new URLSearchParams({ backend: id }) })
       .then(function (answer) { return answer.text(); })
       .then(function (text) {
-        if (!text) { gallery.length = 0; location.reload(); return; }
+        if (!text) { location.reload(); return; }
         toggle.disabled = false;
         showToast('error', new DOMParser().parseFromString(text, 'text/html').body.textContent);
       })

@@ -1717,6 +1717,11 @@ with sync_playwright() as playwright:
         tab.get_by_role("button", name="Qwen-Image-2.1").is_visible(),
         tab.locator("#backend-toggle").inner_text(),
     )
+    # NOT YET CHECKED HERE: that a frame names the model that made it rather than
+    # the one selected now. It needs two frames from two different models in one
+    # strip, so the run has to happen on qwen21, then on flux2 after a switch, and
+    # both edges compared. With one model active the old global and the per-frame
+    # field read identically, so a check here would pass either way.
 
     # A browser store the page cannot write to has to be reported, not passed over:
     # an image that is silently not kept is lost at the next reload. The stub never
