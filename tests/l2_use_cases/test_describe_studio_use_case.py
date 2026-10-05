@@ -41,13 +41,23 @@ def catalog():
 def test_the_view_carries_the_active_backend_and_the_visible_ones():
     view = DescribeStudioUseCase(catalog(), Rewriter(("generate", "edit"))).execute()
     assert view.active.backend_id == "first" and view.active.name == "First"
-    assert view.backends == (("first", "First"), ("second", "Second"))
+    assert view.backends == (("first", "First", ""), ("second", "Second", ""))
     assert view.rewrite_modes == ("generate", "edit")
+
+
+def test_a_models_description_travels_with_its_name():
+    """The picker says what each model is, so the line has to reach the page with
+    the name rather than be looked up again there."""
+    described = FakeBackendGateway("one", "One", description="Six steps, no guidance.")
+    catalog = InMemoryBackendCatalogGateway({"one": described}, default_id="one", visible_ids=("one",))
+    assert DescribeStudioUseCase(catalog, Rewriter(())).execute().backends == (
+        ("one", "One", "Six steps, no guidance."),
+    )
 
 
 def test_a_backend_the_page_cannot_offer_is_left_off_the_list():
     view = DescribeStudioUseCase(catalog(), Rewriter(("generate",))).execute()
-    assert [backend_id for backend_id, _ in view.backends] == ["first", "second"]
+    assert [backend_id for backend_id, _, _ in view.backends] == ["first", "second"]
 
 
 def test_a_backend_with_no_rewriter_offers_no_rewrite_modes():

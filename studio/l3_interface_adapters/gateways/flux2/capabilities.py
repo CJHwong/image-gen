@@ -102,5 +102,10 @@ EDIT = ModeSpec(
 
 def flux2_capabilities(badge: str) -> Capabilities:
     return Capabilities(
-        backend_id="flux2", name="FLUX.2 klein 9B", badge=badge, modes=(GENERATE, EDIT), max_batch=MAX_BATCH
+        backend_id="flux2",
+        name="FLUX.2 klein 9B",
+        badge=badge,
+        modes=(GENERATE, EDIT),
+        max_batch=MAX_BATCH,
+        description="Uncensored and quantized. Edits with up to 4 references.",
     )

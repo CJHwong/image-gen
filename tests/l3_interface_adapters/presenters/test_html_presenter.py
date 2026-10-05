@@ -50,11 +50,11 @@ def response(next_run=None):
 
 def test_the_page_carries_the_capabilities():
     caps = fake_capabilities(name="Fake </script> engine")
-    body = presenter().page(StudioView(active=caps, backends=(("fake", "Fake"),)))
+    body = presenter().page(StudioView(active=caps, backends=(("fake", "Fake", "What it is."),)))
     assert "<title>Fake &lt;/script&gt; engine</title>" in body and "<b>bf16</b>" in body
     assert "<input value=fake>" in body  # the form names the backend it was built for
     studio = studio_data(body)
-    assert studio["backend"]["max_batch"] == 4 and studio["backends"] == [["fake", "Fake"]]
+    assert studio["backend"]["max_batch"] == 4 and studio["backends"] == [["fake", "Fake", "What it is."]]
     edit = studio["modes"][1]
     assert edit["id"] == "edit" and edit["min_references"] == 1 and edit["params"][0]["id"] == "steps"
     assert studio["rewrite_modes"] == []

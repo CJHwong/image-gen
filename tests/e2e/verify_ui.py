@@ -1693,6 +1693,14 @@ with sync_playwright() as playwright:
         tab.get_by_role("menuitemradio", name="FLUX.2 klein 9B").is_visible()
         and tab.get_by_role("menuitemradio", name="Qwen-Image-2.1").get_attribute("aria-checked") == "true",
     )
+    # LEFT: the second line of a row has no role of its own and is hidden from
+    # assistive technology on purpose, so it is read as text of the row it is in.
+    check(
+        "each model says what it is before you switch to it",
+        "Full quality" in tab.get_by_role("menuitemradio", name="Qwen-Image-2.1").inner_text()
+        and "Uncensored" in tab.get_by_role("menuitemradio", name="FLUX.2 klein 9B").inner_text(),
+        tab.get_by_role("menuitemradio", name="Qwen-Image-2.1").inner_text(),
+    )
     tab.get_by_role("menuitemradio", name="FLUX.2 klein 9B").click()
     tab.get_by_role("button", name="FLUX.2 klein 9B").wait_for(state="visible", timeout=180000)
     check(

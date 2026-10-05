@@ -872,10 +872,22 @@
     head.className = 'menu-head';
     head.textContent = 'Model';
     menu.append(head);
-    STUDIO.backends.forEach(function ([id, name]) {
+    STUDIO.backends.forEach(function ([id, name, description]) {
       const item = menus.menuItem('check', name, function () { switchBackend(id, name); });
       item.setAttribute('role', 'menuitemradio');
       item.setAttribute('aria-checked', String(id === STUDIO.backend.id));
+      // The accessible name is the model's name alone, pinned here. A row carrying
+      // its description in the name would still read correctly to a screen reader,
+      // but it would stop matching by name, which is how the checks find these.
+      item.setAttribute('aria-label', name);
+      if (description) {
+        // The same second line the template menu draws, from the same class.
+        const note = document.createElement('span');
+        note.className = 'item-note';
+        note.setAttribute('aria-hidden', 'true');
+        note.textContent = description;
+        item.querySelector('.item-text').append(note);
+      }
       menu.append(item);
     });
   }

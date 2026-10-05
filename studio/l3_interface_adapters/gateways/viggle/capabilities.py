@@ -83,4 +83,5 @@ def viggle_turbo_capabilities(badge: str) -> Capabilities:
         badge=badge,
         modes=(GENERATE, EDIT),
         max_batch=MAX_BATCH,
+        description="Viggle's distillation of Qwen-Image-2.1: six steps, no guidance.",
     )
