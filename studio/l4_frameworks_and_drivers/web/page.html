@@ -824,6 +824,10 @@
       // name for the frame it draws; this one is what the run records, and it was
       // missing, which is why every frame wore the selected model.
       edgeName: EDGE_NAME,
+      // The id as well, because a download names a file after the model and the
+      // edge's name cannot stand in for one: a file name carries no capitals and
+      // no spaces. The stage's handle carries this one too, for the frame it draws.
+      backendId: STUDIO.backend.id,
       rewrittenFrom: function () { return formApi.rewrittenFrom(); },
     });
   });

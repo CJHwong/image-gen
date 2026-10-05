@@ -325,6 +325,9 @@ function harvest() {
       // model's, in the form the edge draws, and the page hands it to this module
       // on the run handle, beside `takeFrameId`.
       backend: page.edgeName,
+      // The model's id beside its name, because a download names a file with it and
+      // a file name cannot carry the capitals and the spaces the edge draws.
+      backendId: page.backendId,
       sources: runSources,
       before: data.mode === 'edit' ? batchSource : null,
     };

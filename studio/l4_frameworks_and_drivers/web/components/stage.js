@@ -463,7 +463,12 @@ export function toggleFullscreen() {
 }
 
 function fileName(entry) {
-  return page.backendId + '-' + entry.mode + '-' + entry.seed + '.png';
+  // The model that made this frame, not the one selected now: downloading an older
+  // frame used to name the file after whatever model the page was on. The id, not
+  // the edge's name, because a file name cannot carry capitals and spaces. A record
+  // written before a frame carried its model falls back to the selected one, which
+  // is what every file name was before.
+  return (entry.backendId || page.backendId) + '-' + entry.mode + '-' + entry.seed + '.png';
 }
 
 const handle = {
