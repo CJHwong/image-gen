@@ -1737,6 +1737,16 @@ with sync_playwright() as playwright:
         tab.get_by_role("button", name=SECOND).is_visible(),
         tab.locator("#backend-toggle").inner_text(),
     )
+    # The aids this model kept are the ones its own sample passed, and they are
+    # offered on the page rather than only in the capabilities. The counts are the
+    # sample's: 8 Look rows and 7 generate templates.
+    check(
+        "the second model offers the prompt aids its own sample kept",
+        tab.locator("#look").is_visible()
+        and tab.locator("#templates-toggle").is_visible()
+        and tab.locator("#look-rows").get_by_role("button").count() == 8,
+        f"{tab.locator('#look-rows').get_by_role('button').count()} Look rows",
+    )
     tab.click("#backend-toggle")
     tab.wait_for_timeout(250)
     tab.get_by_role("menuitemradio", name=FIRST, exact=True).click()
