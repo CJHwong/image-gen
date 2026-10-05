@@ -305,15 +305,16 @@ sentence says and one did not.
 | Camera | Low angle | Works: the subject looms and the view looks up at it. |
 | Camera | Telephoto | Works: shot from a distance, the background compressed. |
 | Room for text | Right | Works: the subject on the left third, the right side empty. |
-| Camera | Deep focus | Cut. The image is the bare prompt's close-up with the background still blurred: on this fixture the sentence changed nothing visible. The base model kept it at "a little crisper" at best, so it is weak on both. |
+| Camera | Deep focus | Cut, on three seeds. At seed 1234 it changed nothing visible. At 5678 and 9012 it changed the picture, but not in the direction the sentence names: the framing pulled tighter and the background became a readable textured surface rather than a sharp version of the same shot. No seed read as an even f/11 focus. The base model kept it at "a little crisper" at best, so it is weak on both. |
 
 So one option is out and this backend offers the other 30.
 
 #### What this sample does not settle
 
-One seed and one fixture per row, and the verdict on deep focus rests on that single
-image. The distilled schedule has no other step count, so there is nothing to compare a
-six-step result against, and no option was run twice.
+One seed and one fixture per row, except deep focus, which was run at three seeds because
+one image is thin ground for dropping an option. The distilled schedule has no other step
+count, so there is nothing to compare a six-step result against, and no option was run
+twice otherwise.
 
 An avoid part cannot be tested on this backend, because it declares no negative prompt
 and the page sends none. Real person keeps its avoid part in the shared wording, where a

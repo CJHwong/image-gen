@@ -14,19 +14,19 @@ schedule, and what survived is declared below. An option chosen on the 40-step
 base is not evidence on a distilled schedule, and every option here was run next
 to the bare prompt and did what its sentence says.
 
-Region marking is out, and what kept it out turned out to be two scenes rather than a
-contradiction. A six-step mark scored 21 to 26x on one and 2.2 to 2.5x on another, both
-reproducing bit-identically, and the scenes were believed to match. Measured again on
-2026-10-06 through one metric, one seed and one code path: the high figure is a mark
-matching a circle's own edge and the low one is a mark over a uniform surface. Six steps
-holds a mark as well as forty does where there is an edge to hold it, 21.0x against 28.8x,
-and neither engine bounds a mark on a surface with no edge, 2.2x against 3.1x. PROMPTS.md
+Region marking is offered, and the tool's own measurement is what decided it. A six-step
+mark scored 21 to 26x on one scene and 2.2 to 2.5x on another, both reproducing
+bit-identically, and the two scenes were believed to match. Measured again on 2026-10-06
+through one metric, one seed and one code path: the high figure is a mark matching a
+circle's own edge and the low one is a mark over a uniform surface. Six steps holds a
+mark as well as forty does where there is an edge to hold it, 21.0x against 28.8x, and
+neither engine bounds a mark on a surface with no edge, 2.2x against 3.1x. PROMPTS.md
 holds both tables and the three scenes.
 
-So the engine is not the reason. The tool's wording, its brush and its palette were tested
-on the 40-step base and never on this schedule, and the rule for every prompt aid here is
-the same: it is offered once something has run it on this model. Offering a mark is
-therefore a decision to test it, not a port to finish.
+That is the bar this repo uses for a prompt aid, and the mark clears it on this schedule
+rather than by inheritance: those runs used the sentence the page itself writes, including
+the mark's palette colour. What is not measured here is the palette leaking on a loose
+hand-drawn region, which PROMPTS.md records for the base model.
 """
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
@@ -38,12 +38,13 @@ MAX_BATCH = 4
 MAX_REFERENCES = 10
 
 # Everything the six-step sample kept: the options it ran and that did what their
-# sentence says, which is now every option in the shared rows but Deep focus. Each one
-# ran on this model's own schedule, at 768 x 768 and seed 1234, next to the bare
-# prompt. Deep focus was the one that did not visibly work: its image is the bare
-# prompt's close-up with the background still blurred, so it is not offered here.
-# PROMPTS.md holds the tables, the fixture of each row, and the limits: one seed, and
-# no negative prompt on this backend to carry an avoid part.
+# sentence says, which is every option in the shared rows but Deep focus. Each one ran
+# on this model's own schedule, at 768 x 768 and seed 1234, next to the bare prompt.
+# Deep focus was the one that did not: run at three seeds, it changed nothing at one and
+# changed the framing and the background content at the other two, never the depth of
+# field its sentence names. PROMPTS.md holds the tables, the fixture of each row, and the
+# limits: one seed unless noted, and no negative prompt on this backend to carry an avoid
+# part.
 LOOKS = pick_looks(
     {
         "Medium": ("Documentary", "Phone snapshot", "Watercolor", "Ink drawing", "3D render", "Skeleton"),
@@ -56,8 +57,8 @@ LOOKS = pick_looks(
         "Portrait": ("Over the shoulder", "Candid glance"),
     }
 )
-# The whole of each mode's templates, less Mark a region, which needs the draw
-# tool this backend does not offer.
+# The whole of each mode's templates: seven for generate, and eight for edit, which
+# includes Mark a region because the mark cleared this schedule's own measurement.
 GENERATE_TEMPLATES = pick_templates(
     (
         "Portrait photo",
@@ -78,6 +79,7 @@ EDIT_TEMPLATES = pick_templates(
         "Add an object",
         "Turn into a skeleton",
         "Turn into a pose figure",
+        "Mark a region",
     )
 )
 
@@ -166,6 +168,7 @@ EDIT = ModeSpec(
     prompt_required="An edit instruction is required.",
     templates=EDIT_TEMPLATES,
     estimate=EDIT_ESTIMATE,
+    region_marking=True,
 )
 
 
