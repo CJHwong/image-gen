@@ -31,6 +31,52 @@ from studio.l3_interface_adapters.gateways.mflux_runtime import release_mlx_buff
 # 317 to 505 tokens out in 22 to 32s, so the budget is never reached.
 MAX_TOKENS = 16384
 
+# One rewriter in bf16. The module docstring carries the same number.
+REWRITER_SIZE = "18.84 GB"
+
+# The files mlx_vlm.utils.get_model_path asks the hub for. The copy is deliberate.
+# huggingface_hub's plain local-only lookup is not usable: it also wants README,
+# LICENSE and .gitattributes, which mlx_vlm never fetches, so it reports a model
+# that is fully on disk as "not fetched". The library's own filter is not read at
+# runtime either: importing mlx_vlm costs 1.6s, and this adapter defers that import
+# to the first rewrite for exactly that reason. If mlx_vlm widens its filter, this
+# line turns optimistic and never pessimistic: it says cached, and the load fetches
+# what it would have fetched anyway.
+CACHE_FILES = ("*.json", "*.jsonl", "*.safetensors", "*.py", "*.model", "*.tiktoken", "*.txt", "*.jinja")
+
+
+def in_the_cache(repo: str) -> bool:
+    """Whether mlx_vlm can load `repo` without downloading it.
+
+    huggingface_hub's own resolver answers, not a path built here, because the
+    cache layout belongs to the library. A cached repo answers in under a
+    millisecond and no network is used, so this is cheap enough for startup.
+    """
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    try:
+        snapshot_download(repo, local_files_only=True, allow_patterns=list(CACHE_FILES))
+    except LocalEntryNotFoundError:
+        return False
+    return True
+
+
+def cache_line(models: Mapping[str, str]) -> str:
+    """One line naming each rewriter mode whose weights are not on disk yet.
+
+    The first rewrite in a mode loads about 19 GB with the progress bar off, so
+    the page looks merely busy and the user cannot tell 22 seconds from 19 GB.
+    Saying it before the click puts that wait where it can be seen coming.
+    """
+    fetched = {mode: in_the_cache(repo) for mode, repo in models.items()}
+    modes = ", ".join(f"{mode} {'cached' if ok else 'not fetched'}" for mode, ok in fetched.items())
+    missing = sum(1 for ok in fetched.values() if not ok)
+    if not missing:
+        return f"Rewriters: {modes}"
+    each = "each " if missing > 1 else ""
+    return f"Rewriters: {modes} ({REWRITER_SIZE} {each}on first use)"
+
 
 def _system_prompt(repo: str) -> str:
     """The instructions shipped beside the weights. The model depends on them."""

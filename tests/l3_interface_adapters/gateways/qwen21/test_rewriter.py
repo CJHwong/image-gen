@@ -12,11 +12,14 @@ from PIL import Image
 
 from studio.l3_interface_adapters.gateways.qwen21 import rewriter as rewriter_module
 from studio.l3_interface_adapters.gateways.qwen21.rewriter import (
+    CACHE_FILES,
     MAX_TOKENS,
     Qwen21Rewriter,
     _as_rewrite,
     _in_the_request_language,
     _system_prompt,
+    cache_line,
+    in_the_cache,
 )
 from tests.support.heavy import heavy_modules
 from tests.support.images import png
@@ -43,6 +46,60 @@ def rewriter_stubs(generate, system_prompt_path):
 
 def answering(text):
     return Mock(return_value=Mock(text=text))
+
+
+class NotCached(Exception):
+    """The hub's own LocalEntryNotFoundError, which the adapter catches by name."""
+
+
+def cache_stubs(cached: set[str]) -> dict:
+    """A snapshot_download that answers for `cached` and refuses for the rest.
+
+    Nothing is read and nothing is downloaded: the lookup the adapter makes is
+    the library's, so the test replaces the library.
+    """
+
+    def snapshot_download(repo, **kwargs):
+        if repo in cached:
+            return f"/hub/{repo}"
+        raise NotCached(repo)
+
+    return {
+        "huggingface_hub": {"snapshot_download": Mock(side_effect=snapshot_download)},
+        "huggingface_hub.errors": {"LocalEntryNotFoundError": NotCached},
+    }
+
+
+def test_a_repo_the_hub_already_holds_is_in_the_cache():
+    """The lookup is the library's own, and it asks for the files mlx_vlm will ask
+    for, so a cached repo is one whose load downloads nothing."""
+    stubs = cache_stubs({"Qwen/PE-T2I"})
+    with heavy_modules(stubs):
+        assert in_the_cache("Qwen/PE-T2I") is True
+
+    kwargs = stubs["huggingface_hub"]["snapshot_download"].call_args.kwargs
+    assert kwargs == {"local_files_only": True, "allow_patterns": list(CACHE_FILES)}
+
+
+def test_a_repo_the_hub_lacks_is_not_in_the_cache():
+    stubs = cache_stubs(set())
+    with heavy_modules(stubs):
+        assert in_the_cache("Qwen/PE-I2I") is False
+    assert stubs["huggingface_hub"]["snapshot_download"].called
+
+
+def test_the_line_names_every_mode_and_the_size_of_whatever_is_missing():
+    """Measured 2026-09-27: the two cards are 18.84 GB each. The line tells the user
+    that wait is coming before the Rewrite click, because the progress bar stays off."""
+    models = {"generate": "Qwen/PE-T2I", "edit": "Qwen/PE-I2I"}
+    with heavy_modules(cache_stubs({"Qwen/PE-T2I", "Qwen/PE-I2I"})):
+        assert cache_line(models) == "Rewriters: generate cached, edit cached"
+    with heavy_modules(cache_stubs({"Qwen/PE-T2I"})):
+        assert cache_line(models) == "Rewriters: generate cached, edit not fetched (18.84 GB on first use)"
+    with heavy_modules(cache_stubs({"Qwen/PE-I2I"})):
+        assert cache_line(models) == "Rewriters: generate not fetched, edit cached (18.84 GB on first use)"
+    with heavy_modules(cache_stubs(set())):
+        assert cache_line(models) == "Rewriters: generate not fetched, edit not fetched (18.84 GB each on first use)"
 
 
 def test_the_system_prompt_is_read_from_the_weights_repo(system_prompt):

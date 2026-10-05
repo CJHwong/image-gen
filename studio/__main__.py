@@ -19,9 +19,10 @@ import sys
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
+from studio.l3_interface_adapters.gateways.qwen21.rewriter import cache_line
+from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable
-from studio.l4_frameworks_and_drivers.main import create_studio
+from studio.l4_frameworks_and_drivers.main import REWRITE_MODELS, create_studio
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
 
@@ -49,10 +50,23 @@ def parse_args():
     return parser.parse_args()
 
 
+def rewriter_cache_line(config: Config) -> str:
+    """What the page's rewriters will have to fetch, or "" when it has none.
+
+    The line belongs beside the loading one, before the click rather than during
+    it: the first rewrite in a mode fetches about 19 GB with the terminal kept
+    quiet, so the button looks merely busy for minutes.
+    """
+    builder = REWRITE_MODELS.get(config.default_backend)
+    models = builder(config) if builder else None
+    return cache_line(models) if models else ""
+
+
 def main():
     args = parse_args()
     try:
-        studio = create_studio(load_config(args.config, backend=args.backend, quantize=args.quantize), stub=args.stub)
+        config = load_config(args.config, backend=args.backend, quantize=args.quantize)
+        studio = create_studio(config, stub=args.stub)
     except ConfigError as error:
         sys.exit(f"Bad settings in {args.config}: {error}")
     except EngineUnavailable as error:
@@ -64,6 +78,9 @@ def main():
         server = ThreadingHTTPServer((args.host, args.port), studio.handler)
     except OSError as error:
         sys.exit(f"Cannot bind {args.host}:{args.port} ({error}). Pass --port for a free one.")
+    rewriters = rewriter_cache_line(config)
+    if rewriters:
+        print(rewriters, flush=True)
     capabilities = studio.active_capabilities()
     print(f"Loading {capabilities.name} ({capabilities.badge}). The first run may download the weights.", flush=True)
     try:
