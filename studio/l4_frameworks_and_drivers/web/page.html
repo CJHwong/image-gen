@@ -813,6 +813,12 @@
       setRunRatio: function (ratio) { runRatio = ratio; },
       setArrived: function (id) { arrivedId = id; },
       takeFrameId: function () { return nextId++; },
+      // The model's name in the form the edge prints it. A frame records this at
+      // the moment it arrives, so a frame made before a switch keeps the name of
+      // the model that made it. The stage's handle carries a field of the same
+      // name for the frame it draws; this one is what the run records, and it was
+      // missing, which is why every frame wore the selected model.
+      edgeName: EDGE_NAME,
       rewrittenFrom: function () { return formApi.rewrittenFrom(); },
     });
   });
