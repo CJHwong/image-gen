@@ -285,29 +285,71 @@ the first run and 4 in the second.
 | Edit | Turn into a skeleton | Works, and better on a person than on the base model: the head came back a bare skull. On qwen21 the person keeps her face and hair. |
 | Edit | Turn into a pose figure | Works on the body: a grey jointed figure with a ball joint at every joint. The head keeps the real face and hair, the limit the base model has too. |
 
+#### The options the first pass left out, measured 2026-10-06
+
+Thirteen options were missing from the sample above, so they ran on the same fixture,
+the same seed and the same schedule, each beside the bare prompt. Twelve did what their
+sentence says and one did not.
+
+| Row | Option | Result |
+|---|---|---|
+| Medium | Phone snapshot | Works: a candid phone photo, plainer light and framing. |
+| Medium | Ink drawing | Works: black linework and cross-hatching on white paper. |
+| Medium | 3D render | Works: a smooth rounded character under soft studio light. |
+| Film | Fuji 400H | Works: cool soft pastels and fine grain. |
+| Film | Ektachrome | Works: high contrast, vivid color, deep clean shadows. |
+| Color | Cool | Works: a blue and grey palette. |
+| Color | Muted | Works: desaturated greys. |
+| Light | Studio | Works: even light on a plain backdrop, with no light stand in the picture. The base model needed its wording rewritten for exactly that. |
+| Light | Overcast | Works: soft diffuse light, gentle shadows. |
+| Camera | Low angle | Works: the subject looms and the view looks up at it. |
+| Camera | Telephoto | Works: shot from a distance, the background compressed. |
+| Room for text | Right | Works: the subject on the left third, the right side empty. |
+| Camera | Deep focus | Cut. The image is the bare prompt's close-up with the background still blurred: on this fixture the sentence changed nothing visible. The base model kept it at "a little crisper" at best, so it is weak on both. |
+
+So one option is out and this backend offers the other 30.
+
 #### What this sample does not settle
 
-One seed and one fixture per row. The distilled schedule has no other step count, so
-there is nothing to compare a six-step result against.
+One seed and one fixture per row, and the verdict on deep focus rests on that single
+image. The distilled schedule has no other step count, so there is nothing to compare a
+six-step result against, and no option was run twice.
 
-Thirteen Look options were not run on this model, so this backend does not offer
-them: Phone snapshot, Ink drawing, 3D render, Fuji 400H, Ektachrome, Cool, Muted,
-Studio, Overcast, Low angle, Telephoto, Deep focus and Right. They passed on the
-40-step base, and nothing here says they fail on the distilled schedule.
+An avoid part cannot be tested on this backend, because it declares no negative prompt
+and the page sends none. Real person keeps its avoid part in the shared wording, where a
+mode with a negative prompt would send it.
 
-An avoid part cannot be tested on this backend, because it declares no negative
-prompt and the page sends none. Real person keeps its avoid part in the shared
-wording, where a mode with a negative prompt would send it.
+#### The cost, re-measured 2026-10-06
 
-#### The cost this run measured
+The first pass in this section quoted 21.0s per generate image at 768 x 768 and read the
+constant in `gateways/viggle/capabilities.py` as about half the real time. Two more
+passes, six runs at each tier, say the constant was wrong and that first figure was low
+too. The per-image time drifts inside a pass with nothing changed between runs, so a
+median is the only honest number and its spread has to travel with it.
 
-Each generate image took a median of 21.0s at 768 x 768, over 28 images, and each
-edit 20.6s over 7. The edit figure matches the 19.3s recorded in
-`gateways/viggle/capabilities.py`. The generate figure does not: the same file
-records 9.9s at this size, so the time the page predicts for a Viggle Turbo generate
-is about half of what the run took. The log shows mflux applying the 1.3 GB adapter
-again for most images, 29 times over 35 runs. That is a candidate cause, not a
-proven one, and the constant needs a controlled run before it is changed.
+| Tier | The six runs | Median | The old pair predicted | The new pair predicts |
+|---|---|---|---|---|
+| 0.26 MP | 8.0, 8.1 | 8.0 | 5.4s | 8.1s |
+| 0.59 MP | 21.8, 24.8, 24.8, 30.7, 31.3, 41.1 | 27.8 | 11.4s | 28.0s |
+| 1.05 MP | 56.4, 65.7, 67.6, 69.7, 73.7, 79.3 | 68.7 | 23.4s | 67.2s |
+
+The edit half needed no change: its 19.3s at 0.59 MP was reproduced at 20.6s over seven
+real edits.
+
+#### What a cancelled rewrite gives back, measured 2026-10-06
+
+The cancel frees the rewriter, and MLX reports its own memory, so the free is read
+rather than inferred. Active memory is the live tensors.
+
+| Moment | Active | Cache | Peak |
+|---|---|---|---|
+| The rewriter resident and writing | 31.58 GB | 0.00 GB | 31.58 GB |
+| Stopped, model still in hand | 31.58 GB | 0.17 GB | 33.27 GB |
+| After the free | 14.05 GB | 0.00 GB | 33.27 GB |
+
+So the free gives back **17.53 GB**. The 14.05 GB the last row starts from is that
+script's own earlier image-engine phase, so the delta belongs to the rewriter. The peak
+never falls, which is what a peak is.
 
 ## Marking a region
 
@@ -542,3 +584,48 @@ a loupe on the print, and copy that says the whole marked area is repainted are 
 improvements left, and not the wording, the colour, or the edge.
 
 Three levers were measured against that and none of them moves it. The mask's colour does not (palette and white are the same on a textured frame). Naming the object's shape does not, 38.4% stray against 38.3% and 38.2%. Calling the colour a label does not, 38.3% against 38.4%. So the wobble in a hand-drawn region lands in the result, and the thing to attack is the quality of the boundary rather than the wording or the colour.
+
+### The same metric on three scenes, measured 2026-10-06
+
+Two of this file's figures read as a contradiction for a while. One harness scored a
+six-step edit at 21 to 26x and another at 2.2 to 2.5x, on scenes believed to match, and
+both reproduced bit-identically. One run settles it: every scene the two harnesses used
+went through **one** metric, one seed, one prompt shape and one code path, on the M5 Pro,
+and the two means are printed beside their ratio, because the ratio on its own hides which
+of them moved.
+
+| Engine | Scene | Steps | The mark covers | Inside | Outside | Ratio |
+|---|---|---|---|---|---|---|
+| Qwen-Image-2.1 | wall | 20 | 12.6% | 89.55 | 29.18 | 3.1x |
+| Qwen-Image-2.1 | sign | 20 | 12.8% | 67.81 | 4.29 | 15.8x |
+| Qwen-Image-2.1 | circle | 20 | 7.9% | 123.68 | 4.29 | 28.8x |
+| Viggle Turbo | wall | 6 | 12.6% | 78.89 | 35.78 | 2.2x |
+| Viggle Turbo | sign | 6 | 12.8% | 67.72 | 5.69 | 11.9x |
+| Viggle Turbo | circle | 6 | 7.9% | 117.04 | 5.58 | 21.0x |
+| Qwen-Image-2.1, engine built directly | wall | 20 | 12.6% | 89.55 | 29.18 | 3.1x |
+
+`wall` marks a patch of a uniform surface. `sign` marks a filled rectangle that has an
+edge of its own. `circle` is the 2026-09-26 fixture, rebuilt from what this file records,
+so it is a reconstruction and not the same run.
+
+Three readings, and none of them is a defect in a harness:
+
+1. **The construction path is not a variable.** The wall scene through the composition
+   root and through the engine built directly are bit-identical, inside 89.55 and outside
+   29.18 both times. The two harnesses differed in that path, and it changes nothing.
+2. **The scene is the variable, and the inside mean is not what moves.** Inside reads
+   89.55, 67.81 and 123.68 across the three scenes, which is one kind of recolour each
+   time. Outside reads 29.18, 4.29 and 4.29. The ratio divides by that, so the figure is
+   a property of the scene: a mark on a uniform surface cannot bound anything, because the
+   prompt names the wall and the model repaints the wall, marked or not. This file already
+   said the concentration is fixture-dependent; these numbers are what that costs.
+3. **Every figure this file and the README carry reproduces.** 15.8x, 28.8x, the 3.1x
+   against the diffusers child's 2.4x, and the 2.2x and 21.0x that read as a
+   contradiction. They were the wall scene and the circle scene, measured once each and
+   set side by side.
+
+What that means for the backend that was blocked on it: **six steps holds a mark as well
+as forty does** where there is an edge to hold it, 21.0x against 28.8x, with the same kind
+of recolour inside (117.04 against 123.68). Where there is no edge, neither engine bounds
+it, 2.2x against 3.1x. A region figure is only ever a statement about the picture it was
+taken on, and two figures from two scenes say nothing about either engine.

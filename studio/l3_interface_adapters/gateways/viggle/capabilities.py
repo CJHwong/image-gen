@@ -14,15 +14,19 @@ schedule, and what survived is declared below. An option chosen on the 40-step
 base is not evidence on a distilled schedule, and every option here was run next
 to the bare prompt and did what its sentence says.
 
-Region marking is out because six steps has not been established to hold a mark, and
-the measurements contradict each other. On the base model's own circle fixture, three
-seeds at six steps scored 21.3x, 26.5x and 21.3x, against 25.3x, 35.1x and 22.6x for
-the 40-step base: comparable. A repeat of the same edit reproduced bit-identically. An
-earlier harness, on a scene built to match, scored the same edits at 2.2x and 2.5x, and
-also reproduced bit-identically. Every input that can be named was checked, including
-the scene, seed, prompt, references, options and step count, and the difference was
-not found. Until it is, the tool stays out: the safe side of an unresolved measurement
-is not offering it.
+Region marking is out, and what kept it out turned out to be two scenes rather than a
+contradiction. A six-step mark scored 21 to 26x on one and 2.2 to 2.5x on another, both
+reproducing bit-identically, and the scenes were believed to match. Measured again on
+2026-10-06 through one metric, one seed and one code path: the high figure is a mark
+matching a circle's own edge and the low one is a mark over a uniform surface. Six steps
+holds a mark as well as forty does where there is an edge to hold it, 21.0x against 28.8x,
+and neither engine bounds a mark on a surface with no edge, 2.2x against 3.1x. PROMPTS.md
+holds both tables and the three scenes.
+
+So the engine is not the reason. The tool's wording, its brush and its palette were tested
+on the 40-step base and never on this schedule, and the rule for every prompt aid here is
+the same: it is offered once something has run it on this model. Offering a mark is
+therefore a decision to test it, not a port to finish.
 """
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
@@ -33,20 +37,21 @@ MATCH = "match"
 MAX_BATCH = 4
 MAX_REFERENCES = 10
 
-# What the six-step sample kept, and nothing else. Every option here ran on this
-# model's own schedule, at 768 x 768 and seed 1234, next to the bare prompt, and
-# changed the image the way its sentence says. The options left out were not
-# sampled on this model at all, so they stay out until someone runs them.
-# PROMPTS.md holds the tables, the fixture of each row, and the limits: one seed,
-# and no negative prompt on this backend to carry an avoid part.
+# Everything the six-step sample kept: the options it ran and that did what their
+# sentence says, which is now every option in the shared rows but Deep focus. Each one
+# ran on this model's own schedule, at 768 x 768 and seed 1234, next to the bare
+# prompt. Deep focus was the one that did not visibly work: its image is the bare
+# prompt's close-up with the background still blurred, so it is not offered here.
+# PROMPTS.md holds the tables, the fixture of each row, and the limits: one seed, and
+# no negative prompt on this backend to carry an avoid part.
 LOOKS = pick_looks(
     {
-        "Medium": ("Documentary", "Watercolor", "Skeleton"),
-        "Film": ("Portra 400", "Black and white"),
-        "Color": ("Warm", "Vivid"),
-        "Light": ("Soft window light", "Golden hour", "Night with neon"),
-        "Camera": ("Close-up 85mm", "Wide 24mm", "Top-down"),
-        "Room for text": ("Left", "Top"),
+        "Medium": ("Documentary", "Phone snapshot", "Watercolor", "Ink drawing", "3D render", "Skeleton"),
+        "Film": ("Portra 400", "Fuji 400H", "Ektachrome", "Black and white"),
+        "Color": ("Warm", "Cool", "Muted", "Vivid"),
+        "Light": ("Soft window light", "Golden hour", "Studio", "Overcast", "Night with neon"),
+        "Camera": ("Close-up 85mm", "Wide 24mm", "Top-down", "Low angle", "Telephoto"),
+        "Room for text": ("Left", "Right", "Top"),
         "Realism": ("Real person",),
         "Portrait": ("Over the shoulder", "Candid glance"),
     }
@@ -107,11 +112,33 @@ RESOLUTION = ParamSpec(
 # separated from the per-step cost the way the base model's was; what these say is
 # whether that pair still predicts a six-step run.
 #
-#   measured total   0.26 MP   0.59 MP   1.05 MP
-#   generate            5.9s      9.9s     23.6s
-#   edit               18.8s     19.3s     37.3s
+#   edit, measured 2026-10-05   0.26 MP   0.59 MP   1.05 MP
+#                               18.8s     19.3s     37.3s
 #
-# Generate is the base model's pair within 15% at all three sizes, so it keeps them.
+# Generate was re-measured on 2026-10-06, because the figures above did not hold when
+# the estimate the page shows was checked against real runs. Two passes, six runs at
+# each tier, all six steps at seed 1234 on the cat fixture:
+#
+#   measured total        0.26 MP           0.59 MP                     1.05 MP
+#   generate           8.0s, 8.1s   21.8 24.8 24.8 30.7 31.3 41.1   56.4 65.7 67.6 69.7 73.7 79.3
+#
+# The per-image time drifts inside a pass, with nothing changed between the runs: 768
+# took 21.8s and later 41.1s, and the second pass, which interleaved the sizes, held
+# 24.8s twice and then 30.7s. So the medians are what is fitted and the spread is
+# quoted rather than smoothed away: 8.0s, 27.8s, 68.7s.
+#
+# Six steps is the only count this model takes, so a fixed cost cannot be separated from
+# a per-step cost here. With the base model's exponent, which the measured 768-to-1024
+# ratio of 2.5 supports, one constant fits all three tiers and needs no separate fixed
+# cost:
+#
+#   predicted   8.1s     28.0s     67.2s
+#   measured    8.0s     27.8s     68.7s
+#
+# The pair that was here predicted 5.4s, 11.4s and 23.4s at those tiers, so it read the
+# middle and large tiers about two and a half times fast. The edit pair stays as it
+# was: its 19.3s at 0.59 MP was reproduced at 20.6s over seven real edits.
+GENERATE_ESTIMATE = Estimate(10.4, 1.53, 0, overhead_per_image=True)
 # Edit does not: the base model's overhead of 30 is fitted from two-step and
 # twenty-two-step runs and dominates a six-step one, predicting 35, 44 and 60
 # seconds against those. The same per-step curve with this backend's own overhead of

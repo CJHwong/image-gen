@@ -1786,23 +1786,33 @@ with sync_playwright() as playwright:
         tab.get_by_role("button", name=SECOND).is_visible(),
         tab.locator("#backend-toggle").inner_text(),
     )
-    # The aids this model kept are the ones its own sample passed, and the page
-    # offers them rather than only the capabilities knowing: the Medium row shows
-    # its three kept options, and the option the sample did not run is not beside
-    # them. The rows sit behind a summary, and a closed details is out of the
-    # accessibility tree, so the sheet is opened the way a reader opens it.
+    # The aids this model offers are the ones its own six-step sample kept. One row is
+    # open at a time, so each is read on its own. The Medium row carries all six the
+    # sample ran, and the Camera row carries five of its six: Deep focus is the one
+    # that did not visibly work. That name is in the regex, so its absence is a check
+    # that fails rather than one that silently passes. The rows sit behind a summary,
+    # and a closed details is out of the accessibility tree, so the sheet is opened
+    # the way a reader opens it.
     tab.click("#look summary")
     tab.wait_for_timeout(300)
     tab.locator("#look-rows").get_by_role("button", name=re.compile("^Medium")).click()
-    tab.wait_for_timeout(200)
-    offered = tab.locator("#look-rows").get_by_role(
-        "button", name=re.compile("^(Documentary|Watercolor|Skeleton|Phone snapshot)$")
+    tab.wait_for_timeout(250)
+    medium = tab.locator("#look-rows").get_by_role(
+        "button", name=re.compile("^(Documentary|Phone snapshot|Watercolor|Ink drawing|3D render|Skeleton)$")
     )
+    medium_names = sorted(medium.all_inner_texts())
+    tab.locator("#look-rows").get_by_role("button", name=re.compile("^Camera")).click()
+    tab.wait_for_timeout(250)
+    camera = tab.locator("#look-rows").get_by_role(
+        "button", name=re.compile("^(Close-up 85mm|Wide 24mm|Top-down|Low angle|Telephoto|Deep focus)$")
+    )
+    camera_names = sorted(camera.all_inner_texts())
     check(
-        "the second model offers the aids its own sample kept, and only those",
-        sorted(offered.all_inner_texts()) == ["Documentary", "Skeleton", "Watercolor"]
+        "the second model offers the aids its own sample kept, and not the one it dropped",
+        medium_names == ["3D render", "Documentary", "Ink drawing", "Phone snapshot", "Skeleton", "Watercolor"]
+        and camera_names == ["Close-up 85mm", "Low angle", "Telephoto", "Top-down", "Wide 24mm"]
         and tab.locator("#templates-toggle").is_visible(),
-        f"{sorted(offered.all_inner_texts())} in the Medium row",
+        f"Medium {medium_names}, Camera {camera_names}",
     )
     tab.click("#backend-toggle")
     tab.wait_for_timeout(250)
@@ -1841,6 +1851,7 @@ with sync_playwright() as playwright:
         frames(tab) == held and edge_model(tab) == edge_of(FIRST),
         f"{frames(tab)} images, edge {edge_model(tab)!r}",
     )
+
     # Six steps and only six: the distilled schedule is the set of nodes the
     # adapter was trained on, so this model has no other step count to ask for.
     run_once(tab, "a pear on a wooden table", steps=6)
@@ -1849,6 +1860,20 @@ with sync_playwright() as playwright:
         "a frame made after the switch names the model that made it",
         frames(tab) == held + 1 and edge_model(tab) == edge_of(SECOND),
         f"{frames(tab)} images, edge {edge_model(tab)!r}",
+    )
+    # And its file: a name carries the model that made the frame, so one batch of
+    # downloads names both models, where the older frame keeps its own while the page
+    # is on the newer one. Download all is a real button; the print's own Download is
+    # an anchor, which has no button role, and its name carries no frame number.
+    downloads = []
+    tab.on("download", lambda download: downloads.append(download.suggested_filename))
+    tab.get_by_role("button", name="Download all").click()
+    tab.wait_for_timeout(5000)
+    check(
+        "each frame downloads under the name of the model that made it",
+        any("-qwen21-generate-" in name for name in downloads)
+        and any("-viggle_turbo-generate-" in name for name in downloads),
+        str(downloads),
     )
 
     # A record written before a frame carried its model has none. It must read
