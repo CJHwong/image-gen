@@ -324,7 +324,10 @@ export function renderStage() {
   if (region.onPrint()) region.mount(pic);
   const edge = document.createElement('div');
   edge.className = 'edge';
-  edge.innerHTML = '<span>' + page.edgeName + '</span><span>' + frameNumber(entry.id) + '</span>';
+  // The model that made this frame, not the one selected now. A record written
+  // before this field existed has none, and falls back to the active name, which
+  // is what every frame showed before.
+  edge.innerHTML = '<span>' + (entry.backend || page.edgeName) + '</span><span>' + frameNumber(entry.id) + '</span>';
   shot.append(pic, edge);
   if (region.onPrint()) shot.classList.add('marking');
   // A brush on the print takes the drag that the divided view's divider would
