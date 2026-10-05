@@ -22,7 +22,7 @@
 // The fields a stored record carries besides its two pictures. A record is read
 // back into a gallery entry, so the list is the shape both ends agree on.
 const KEPT_FIELDS = ['id', 'seed', 'width', 'height', 'steps', 'elapsed', 'position', 'mode', 'prompt',
-  'typed', 'look', 'negative', 'sources', 'backend'];
+  'typed', 'look', 'negative', 'sources', 'backend', 'backendId'];
 
 const channel = new BroadcastChannel('studio-gallery');
 
