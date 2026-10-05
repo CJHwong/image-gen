@@ -88,7 +88,7 @@ Both images stay in the strip at the bottom, also after a reload.
 | Model | Adapter | Modes | Weights |
 |---|---|---|---|
 | Qwen-Image-2.1 (default) | `gateways/qwen21` | generate and img2img, and instruction edit with up to 10 images, all through mflux (MLX) | downloads itself |
-| Viggle Turbo | `gateways/viggle_turbo` | the same, in six steps | 33 GB above, plus a 1.3 GB adapter |
+| Viggle Turbo | `gateways/viggle` | the same, in six steps | 33 GB above, plus a 1.3 GB adapter |
 | FLUX.2 klein-base-9B, uncensored | `gateways/flux2` | generate and img2img, edit with up to 4 images, all through mflux (MLX) | manual setup below |
 
 **Marking a region.** In edit mode, **Mark a region** turns the print into a drawing surface: a brush in three widths, four colours, a loupe that follows the brush at three times the size, undo and clear. It needs an image from the strip, because the brush draws on the print and an upload has no print. Each region travels as a last, separate image, in the palette colour that names it, on black, and the prompt names that image and each area's colour. Measured on Qwen-Image-2.1 with the mask and the sentence the page sends, one seed and 20 steps, on a drawn shape whose edge the mark matched: the change landed 15.8 times more inside the marked area than outside it, and the rest of the frame moved by 4.3 of 255. On a mark that covers a patch of a uniform surface, where only the mark can bound the change, the same edit scored 3.1 against 2.4 on the diffusers engine this repo has since removed, so the swap did not cost anything here. Where the mark's edge meets the object's, the mark's own colour does not appear; where a hand-drawn mark reaches past its object it can, which is the next paragraph's point. The wording is not what carries it: naming the colour scored the same as naming the image, within noise. FLUX.2 does not offer the tool, because it has not been tested with a region. The verdicts, and what the numbers do and do not settle, are in [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md).
@@ -102,8 +102,10 @@ Both adapters generate through MLX, so this server runs on Apple Silicon. It ref
 **Viggle Turbo.** The base weights are the 33 GB above, so nothing else downloads them. What has to be fetched by hand is Viggle's distilled adapter, 1.3 GB, into the folder `lora_path` in `studio.toml` names:
 
        D=~/Library/Caches/models/viggle-turbo
-       huggingface-cli download Viggle/Qwen-Image-2.1-viggle-turbo \
+       hf download Viggle/Qwen-Image-2.1-viggle-turbo \
          Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors --local-dir "$D"
+
+Use `hf`, not `huggingface-cli`: huggingface_hub 2.x deprecated the old name, and it now exits without downloading anything.
 
 The adapter is passed to the model unmerged, which is what its card asks for: mflux merges by default, and merging into bf16 loses about 30 percent of what the adapter changes. Six steps is the only step count it was trained for, so the page offers no other, and it runs without guidance, so there is no negative prompt to set. It offers no Looks, no templates and no region marking yet: those were tested on the 40-step base and not on this schedule.
 

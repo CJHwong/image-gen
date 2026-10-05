@@ -31,13 +31,18 @@ MAX_BATCH = 4
 # lands within 13% at the worst of them. The cost is superlinear in pixels because
 # attention is quadratic in token count, which is what the exponent carries.
 #
-# **The generate half is not re-measured.** The text-to-image model is the same
-# one, but the pin moved to mflux 0.21.0, which added a text-prefix KV cache and a
-# fused Metal kernel, so 6.1 and 1.55 describe the old pin and are probably now
-# high. They are left rather than guessed at: an estimate that runs long is the
-# side to be wrong on, and the page corrects it from its own steps.
-GENERATE_STEP_COST = 6.1
-GENERATE_STEP_EXPONENT = 1.55
+# **The generate half is measured too**, 2026-10-05, same method and machine. The
+# first row is left out of the fit: it carries the model build, which the first run
+# of a process pays and the rest do not.
+#
+#   seconds per step   0.26 MP   0.59 MP   1.05 MP
+#   generate            (10.0s)     1.41      3.40     fixed cost 1.3s and 7.9s
+#
+# The pin moved to mflux 0.21.0 while this was measured, which added a text-prefix
+# KV cache and a fused Metal kernel, so the pair is roughly half what it was: the
+# old 6.1 and 1.55 predicted 2.73 s/step at 0.59 MP against 1.41 now.
+GENERATE_STEP_COST = 3.15
+GENERATE_STEP_EXPONENT = 1.53
 EDIT_STEP_COST = 4.72
 EDIT_STEP_EXPONENT = 1.336
 # The fixed cost before the first step, which is the prompt and image encode. It is
@@ -51,7 +56,7 @@ EDIT_STEP_EXPONENT = 1.336
 # a marked edit lives, because a mark rides as one more reference. It reads 8% short
 # there and 34% long at ten. Measured 2026-10-05 at 0.59 MP.
 REFERENCE_STEP_GROWTH = 0.20  # one more reference multiplies the step cost by 1 + this
-GENERATE_OVERHEAD = 3  # per image; the model is already resident
+GENERATE_OVERHEAD = 3  # per image; the model is already resident. Measured 1.3s at 0.59 MP and 7.9s at 1.05 MP
 EDIT_OVERHEAD = 30
 
 STEPS = ParamSpec(id="steps", kind="number", default=40, minimum=1, maximum=100, integer=True, step=1)

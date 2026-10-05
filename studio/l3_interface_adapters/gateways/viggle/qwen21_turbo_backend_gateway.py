@@ -3,25 +3,28 @@ from pathlib import Path
 from studio.l1_entities.errors import StudioError
 from studio.l1_entities.image_job import ImageJob
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
+from studio.l3_interface_adapters.gateways.viggle.capabilities import viggle_turbo_capabilities
 from studio.l3_interface_adapters.gateways.viggle_schedule import viggle_schedule
-from studio.l3_interface_adapters.gateways.viggle_turbo.capabilities import viggle_turbo_capabilities
 
 # Where the adapter comes from, in the README's words. The message names the whole
 # command, because a user who enabled this backend without it has nothing else to
 # go on: the base weights are already cached, so nothing else downloads.
+#
+# `hf`, not `huggingface-cli`: huggingface_hub 2.x deprecated the old name and the
+# old name now exits without downloading anything. Measured 2026-10-05.
 ADAPTER = "Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors"
-RECIPE = (
-    f"huggingface-cli download Viggle/Qwen-Image-2.1-viggle-turbo {ADAPTER} --local-dir <the folder in studio.toml>"
-)
+RECIPE = f"hf download Viggle/Qwen-Image-2.1-viggle-turbo {ADAPTER} --local-dir <the folder in studio.toml>"
 
 
-class ViggleTurboBackendGateway(ImageBackendGateway):
-    """Viggle Turbo: the distilled Qwen-Image-2.1, six steps, no guidance.
+class Qwen21TurboBackendGateway(ImageBackendGateway):
+    """Viggle Turbo: Viggle's distilled Qwen-Image-2.1, six steps, no guidance.
 
-    The two models are the ones the qwen21 backend drives, built with Viggle's
-    adapter, so this package holds no model code of its own: the composition root
-    builds them and hands them in. They do not both fit on a 64 GB machine, so
-    each run frees the other.
+    One of Viggle's models, so it lives in the package named for the publisher:
+    a second Viggle model adds a module here rather than another package.
+
+    The two models it drives are qwen21's, built with Viggle's adapter, so this
+    package holds no model code: the composition root builds them and hands them
+    in. They do not both fit on a 64 GB machine, so each run frees the other.
 
     The generate half samples the turbo schedule through an argument its command
     takes. The edit half cannot: mflux's edit call is given no way to choose a

@@ -31,8 +31,8 @@ from studio.l3_interface_adapters.gateways.qwen21.rewriter import Qwen21Rewriter
 from studio.l3_interface_adapters.gateways.stub_backend_gateway import StubBackendGateway
 from studio.l3_interface_adapters.gateways.thread_confined_backend_gateway import ThreadConfinedBackendGateway
 from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter import ThreadConfinedPromptRewriter
-from studio.l3_interface_adapters.gateways.viggle_turbo.viggle_turbo_backend_gateway import (
-    ViggleTurboBackendGateway,
+from studio.l3_interface_adapters.gateways.viggle.qwen21_turbo_backend_gateway import (
+    Qwen21TurboBackendGateway,
 )
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
@@ -80,7 +80,7 @@ def flux2_backend(config: Config) -> Flux2BackendGateway:
     return Flux2BackendGateway(KleinModels(config.required("flux2", "model_dir"), quantize), badge=badge(quantize))
 
 
-def viggle_turbo_backend(config: Config) -> ViggleTurboBackendGateway:
+def viggle_turbo_backend(config: Config) -> Qwen21TurboBackendGateway:
     """The two models qwen21 drives, built with Viggle's adapter and its schedule.
 
     The generator is told to sample the turbo schedule, which its command accepts.
@@ -93,7 +93,7 @@ def viggle_turbo_backend(config: Config) -> ViggleTurboBackendGateway:
     settings = config.backend("viggle_turbo")
     lora_path = config.required("viggle_turbo", "lora_path")
     quantize = settings.get("quantize")
-    return ViggleTurboBackendGateway(
+    return Qwen21TurboBackendGateway(
         Qwen21Generator(quantize, lora_path=lora_path, scheduler="viggle_turbo"),
         Qwen21Edit(quantize, lora_path=lora_path),
         badge=badge(quantize),
