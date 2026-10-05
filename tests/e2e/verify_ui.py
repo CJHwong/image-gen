@@ -1737,18 +1737,23 @@ with sync_playwright() as playwright:
         tab.get_by_role("button", name=SECOND).is_visible(),
         tab.locator("#backend-toggle").inner_text(),
     )
-    # The aids this model kept are the ones its own sample passed, and they are
-    # offered on the page rather than only in the capabilities. The counts are the
-    # sample's: 8 Look rows and 7 generate templates. The header is drawn by the
-    # page's own script and the rows by a deferred module, so the wait is on a row.
-    medium = tab.locator("#look-rows").get_by_role("button", name=re.compile("^Medium"))
-    medium.wait_for(state="visible", timeout=30000)
+    # The aids this model kept are the ones its own sample passed, and the page
+    # offers them rather than only the capabilities knowing: the Medium row shows
+    # its three kept options, and the option the sample did not run is not beside
+    # them. The rows sit behind a summary, and a closed details is out of the
+    # accessibility tree, so the sheet is opened the way a reader opens it.
+    tab.click("#look summary")
+    tab.wait_for_timeout(300)
+    tab.locator("#look-rows").get_by_role("button", name=re.compile("^Medium")).click()
+    tab.wait_for_timeout(200)
+    offered = tab.locator("#look-rows").get_by_role(
+        "button", name=re.compile("^(Documentary|Watercolor|Skeleton|Phone snapshot)$")
+    )
     check(
-        "the second model offers the prompt aids its own sample kept",
-        tab.locator("#look").is_visible()
-        and tab.locator("#templates-toggle").is_visible()
-        and tab.locator("#look-rows").get_by_role("button").count() == 8,
-        f"{tab.locator('#look-rows').get_by_role('button').count()} Look rows",
+        "the second model offers the aids its own sample kept, and only those",
+        sorted(offered.all_inner_texts()) == ["Documentary", "Skeleton", "Watercolor"]
+        and tab.locator("#templates-toggle").is_visible(),
+        f"{sorted(offered.all_inner_texts())} in the Medium row",
     )
     tab.click("#backend-toggle")
     tab.wait_for_timeout(250)
