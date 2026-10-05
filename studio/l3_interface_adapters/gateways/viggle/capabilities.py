@@ -12,10 +12,14 @@ so that field is not a default the user may move.
 No Looks and no templates yet. ARCHITECTURE.md says to leave them out until they
 are tested on this model, and nobody has tested them on the distilled schedule.
 
-Region marking is out, and that one is measured rather than pending. On the two
-fixtures the 40-step base was measured on, six steps scored 2.2x and 2.5x where the
-base keeps 15.8x and 28.8x: the change spilled over the whole frame instead of
-staying in the mark. A six-step run cannot hold a mark, so the tool is not offered.
+Region marking is out, and the reason is that six steps has not been shown to hold a
+mark rather than that it has been shown to fail. Two harnesses on scenes that were
+meant to match disagreed eightfold, 2.5x against 21.2x, and looking at both results
+explains why: one lost the marked object instead of recolouring it and the other
+invented an object that was never in the scene. Neither is an edit that holds a
+mark, so neither settles the question. The 40-step base keeps 15.8x and 28.8x on
+the same fixtures, which is the bar. One controlled run, same scene and same seed
+through both, is what would settle it.
 """
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
