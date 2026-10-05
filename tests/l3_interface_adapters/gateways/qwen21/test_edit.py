@@ -96,6 +96,23 @@ def test_a_blank_negative_reaches_mflux_as_none():
     assert edit_kwargs(job(references=(png(32, 32),)), [])["negative_prompt"] is None
 
 
+def test_a_mode_that_offers_no_guidance_still_maps():
+    """Viggle Turbo's edit declares no cfg and no negative prompt, because the
+    distillation was trained without classifier-free guidance, so the form never
+    carries them. The adapter has to take the engine's own defaults instead. This
+    raised KeyError until that backend was run for real."""
+    bare = ImageJob(
+        mode="edit",
+        prompt="a pear",
+        seed=5,
+        options={"resolution": "match", "steps": 6},
+        references=(png(32, 32),),
+    )
+    kwargs = edit_kwargs(bare, [])
+    assert kwargs["guidance"] == 1.0 and kwargs["negative_prompt"] is None
+    assert kwargs["num_inference_steps"] == 6
+
+
 def test_the_model_is_built_with_the_step_hook():
     """The hook is registered once, when the model is built, because
     CallbackRegistry.register appends and never dedups."""

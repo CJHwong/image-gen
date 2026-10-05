@@ -56,8 +56,11 @@ def edit_kwargs(job: ImageJob, image_paths: list[str]) -> dict:
     it is not what the page asks for.
     """
     options = job.options
-    guidance = float(options["cfg"])
-    negative = str(options["negative"])
+    # A mode does not have to declare these. One distilled to run without guidance
+    # offers neither a scale nor a negative prompt, so `parse_options` leaves both
+    # out, and the engine's own defaults are what that means.
+    guidance = float(options.get("cfg", 1.0))
+    negative = str(options.get("negative", ""))
     if guidance > 1 and not negative:
         # mflux refuses this pair, and the page can reach it: the scale is a field
         # the user may raise by hand. Refuse here, so the message names the control
