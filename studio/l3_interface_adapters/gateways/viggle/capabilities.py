@@ -140,11 +140,13 @@ RESOLUTION = ParamSpec(
 # load average recorded beside each run explains only part of that spread, with a
 # correlation of 0.56: the two highest loads gave the two slowest runs, and one run took
 # 45.2s at load 1.71. So most of the spread is inside the machine, and I did not
-# instrument which part of it. The 8.0s, 27.8s and 68.7s check read the slow end as the
-# machine's speed, which would have promised about three times the time an idle machine
-# gives. The idle figure is the one this pair is for: the page shows the estimate before
-# a run and learns this device's own rate from the run itself, so a machine at the slow
-# end corrects the page within one run.
+# instrument which part of it. The slow state arrives within a few images: the aid
+# sample rebuilt at 12:06 the same day, 768 x 768 on an idle machine at load 0.98, ran
+# 10.9s, then 20.2s, then 25.6s back to back. The 8.0s, 27.8s and 68.7s check read the
+# slow end as the machine's speed, which would have promised about three times the time
+# an idle machine gives. The idle figure is the one this pair is for: the page shows the
+# estimate before a run and learns this device's own rate from the run itself, so a
+# machine at the slow end corrects the page within one run.
 GENERATE_ESTIMATE = Estimate(3.15, 1.53, 3, overhead_per_image=True)
 # Edit does not: the base model's overhead of 30 is fitted from two-step and
 # twenty-two-step runs and dominates a six-step one, predicting 35, 44 and 60
