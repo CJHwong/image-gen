@@ -253,14 +253,17 @@ schedule and option names, at 19 to 24 seconds an image, and every verdict below
 Deep focus included, which still reads as no change in focus at any of its three seeds,
 so the cut stands.
 
-The two template sheets came back from the run's own log, which survived the glob and
-holds all 35 prompts: the seven fill-ins, the two sources and the seven instructions,
-word for word. Every template verdict held as well. Two things that log does not carry,
-and what I did with each: the size, taken as 768 x 768 except the banner at 16:9, which
-its own sentence and its verdict ask for; and which source each edit used, which the
-verdicts name for six of the seven and leave open for Add text, so it ran on the woman.
-The 18 prompts of the rebuilt row sheets were checked against that log and every one
-matches the words the sample itself used.
+The two template sheets came back from the run's own log, which had survived the glob:
+it held all 35 prompts, the seven fill-ins, the two sources and the seven instructions,
+word for word. Every template verdict held as well. That log was scratch and is gone, so
+the fill-ins it carried are not in this repo. A later re-run picks its own, since the
+verdict below is about the template working with a sensible fill-in and not about the
+words this one used. Two things the log did not carry, and what I did with each: the
+size, taken as 768 x 768 except the banner at 16:9, which its own sentence and its
+verdict ask for; and which source each edit used, which the verdicts name for six of the
+seven and leave open for Add text, so it ran on the woman. The 18 prompts of the rebuilt
+row sheets were checked against that log and every one matches the words the sample
+itself used.
 
 | Row | Option | Result |
 |---|---|---|
