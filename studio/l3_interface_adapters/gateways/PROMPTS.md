@@ -376,14 +376,22 @@ at 0.59 MP was reproduced at 20.2s and 26.3s against a pair that predicts 24.0s.
 
 One process drawing many prompts also grows, and the sample above is where that showed.
 Across fourteen of its images the MLX active memory read 16.9 GB, then 30.6 GB, then
-33.7 GB, while its peak reached 64.4 GB on a 64 GB machine. The steps fall at row
-boundaries rather than per image, which is what a cache keyed on the prompt would look
-like. That is a guess: no run has separated a cache from plain fragmentation, and the
-seconds stayed flat at 19 to 24 across the growth, so nothing here shows it slowing a
-run. What it does show is a long session holding more and more. The first attempt at
-this sample died at image 21 with no traceback, and a peak at the machine's own memory
-is the best candidate for that, but a later death was a plain Python error, so the two
-were not the same event.
+33.7 GB, while its peak reached 64.4 GB on a 64 GB machine.
+
+The cause is not a cache. mflux's MemorySaver drops the text encoder before every
+denoising loop, and a prompt that is not already in the model's cache needs it back.
+Studio's only way back is to drop the whole model and rebuild it, which re-applies the
+LoRA, and the frame that asked for the rebuild still named the old model. So the rebuild
+built a second copy of the weights while the first was live. Measured 2026-10-06 on three
+prompts at 768 x 768 in one process, the peak read 16.9 + 30.7 = 47.6 GB, and the active
+memory climbed for the same reason, because each rebuild leaves a set behind.
+
+Dropping that name before the release lets the old set go first. Measured the same way
+with one line changed: the peak reads 30.7 GB, the weights alone, and the active memory
+holds at 16.9 GB across the three instead of climbing to 32.2 GB. That is the difference
+between fitting on a 64 GB machine and reaching its ceiling, which is why the first
+attempt at this sample died at image 21 with no traceback. A later death was a plain
+Python error, so the two were not the same event.
 
 #### What a cancelled rewrite gives back, measured 2026-10-06
 

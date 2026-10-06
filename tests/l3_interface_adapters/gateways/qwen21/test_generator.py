@@ -1,5 +1,6 @@
 """The mflux half of qwen21: the form mapped to generate_image, and the model's life."""
 
+import weakref
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -220,3 +221,29 @@ def test_a_true_cfg_run_rebuilds_for_the_negative_prompt_it_will_encode():
     assert len(builder.built) == 1
     generator.run(job(negative="blur", guidance=2.5), no_steps, never_stop)
     assert len(builder.built) == 2 and builder.built[1].kwargs["negative_prompt"] == "blur"
+
+
+def test_the_model_the_rebuild_replaces_is_collected_first():
+    """The rebuild allocates a second copy of the weights, so the one it replaces has to
+    be gone before it. The frame names the old model, and that name is the only thing
+    holding it: measured 2026-10-06 on three prompts at 768 x 768 in one process, the
+    peak read 16.9 + 30.7 = 47.6 GB with the name held and 30.7 GB without it.
+
+    A rebuild that overlaps two copies is what a long session climbs into: the same
+    growth reached 64.4 GB over a 35 image sample on a 64 GB machine.
+    """
+    alive_when_built = []
+    built = []
+
+    def build(quantize, hook, lora_path=None):
+        alive_when_built.append(sum(1 for reference in built if reference() is not None))
+        engine = FakeEngine(text_encoder=None)
+        built.append(weakref.ref(engine))
+        return engine
+
+    generator = Qwen21Generator(quantize=None, build=build)
+    generator.run(job(), no_steps, never_stop)
+    generator.run(job(), no_steps, never_stop)
+    # Two runs build three times: the second run rebuilds for its own prompt, and no
+    # build ever found the model it replaces still alive.
+    assert alive_when_built == [0, 0, 0]
