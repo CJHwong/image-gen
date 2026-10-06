@@ -131,6 +131,11 @@ class Qwen21Generator:
         # the name held, and 30.7 GB, the weights alone, without it. The active memory
         # also held at 16.9 GB across the three instead of climbing to 32.2 GB, and the
         # same growth reached 64.4 GB over a 35 image sample on a 64 GB machine.
+        #
+        # It is also the faster arm, and by more than the copy costs. Alternating the
+        # two in one process over twelve images, with the order reversed in half the
+        # pairs so the machine's own drift lands on both, this side averaged 14.8s an
+        # image against 21.5s, and all six pairs read the same way.
         model = None
         self.release()
         return self._loaded()

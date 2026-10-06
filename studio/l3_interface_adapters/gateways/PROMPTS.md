@@ -393,6 +393,15 @@ between fitting on a 64 GB machine and reaching its ceiling, which is why the fi
 attempt at this sample died at image 21 with no traceback. A later death was a plain
 Python error, so the two were not the same event.
 
+The time follows the same line. Four separate processes alternating the two arms put the
+changed one ahead in both pairs, 16.1 seconds an image against 18.5 and 19.6 against
+21.5, but their means rose in run order, so the machine's drift over those six minutes
+was as large as the effect. Alternating the two inside one process controls it, and with
+the order reversed in half the pairs so the drift lands on both arms in turn: twelve
+images, 14.8 seconds an image against 21.5, and all six pairs reading the same way, by
+6.6, 5.5, 10.6, 6.9, 5.3 and 5.3 seconds. So the rebuild over a live copy was costing a
+third of the time of every image with a new prompt, not only the memory it doubled.
+
 #### What a cancelled rewrite gives back, measured 2026-10-06
 
 The cancel frees the rewriter, and MLX reports its own memory, so the free is read
