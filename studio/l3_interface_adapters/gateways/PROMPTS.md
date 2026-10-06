@@ -247,6 +247,14 @@ cat cannot judge them, so Realism and Portrait ran again on "a woman in her thir
 reading at a cafe window", the fixture of the avoid-part test. That is 35 images in
 the first run and 4 in the second.
 
+The sheets were lost on 2026-10-06 to a delete glob wider than its folder, and eight of
+the ten were rebuilt the same day from this set: the same fixtures, seed, schedule and
+option names, at 19 to 24 seconds an image. Every verdict below held, Deep focus
+included, which still reads as no change in focus at any of its three seeds, so the cut
+stands. The two template sheets did not come back and cannot: a template was sampled
+with its first fill-in, and those fill-ins were choices made in the script that took the
+sample, which no file kept.
+
 | Row | Option | Result |
 |---|---|---|
 | Medium | Documentary | Works: plausible daylight on a carpeted floor, real fur and cloth. |
@@ -355,6 +363,17 @@ about three times the time an idle machine gives.
 
 The edit half needed no change, and it is now measured rather than inherited: its 19.3s
 at 0.59 MP was reproduced at 20.2s and 26.3s against a pair that predicts 24.0s.
+
+One process drawing many prompts also grows, and the sample above is where that showed.
+Across fourteen of its images the MLX active memory read 16.9 GB, then 30.6 GB, then
+33.7 GB, while its peak reached 64.4 GB on a 64 GB machine. The steps fall at row
+boundaries rather than per image, which is what a cache keyed on the prompt would look
+like. That is a guess: no run has separated a cache from plain fragmentation, and the
+seconds stayed flat at 19 to 24 across the growth, so nothing here shows it slowing a
+run. What it does show is a long session holding more and more. The first attempt at
+this sample died at image 21 with no traceback, and a peak at the machine's own memory
+is the best candidate for that, but a later death was a plain Python error, so the two
+were not the same event.
 
 #### What a cancelled rewrite gives back, measured 2026-10-06
 
