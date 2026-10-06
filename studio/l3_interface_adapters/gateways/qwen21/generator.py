@@ -124,5 +124,13 @@ class Qwen21Generator:
             needed.append(kwargs["negative_prompt"])
         if all(text in model.prompt_cache for text in needed):
             return model
+        # The frame names the old model, so the rebuild below would allocate a second
+        # copy of the weights while the first is still live. Dropping the name lets the
+        # release collect it before the new one is built. Measured 2026-10-06 on three
+        # prompts at 768 x 768 in one process: the peak read 16.9 + 30.7 = 47.6 GB with
+        # the name held, and 30.7 GB, the weights alone, without it. The active memory
+        # also held at 16.9 GB across the three instead of climbing to 32.2 GB, and the
+        # same growth reached 64.4 GB over a 35 image sample on a 64 GB machine.
+        model = None
         self.release()
         return self._loaded()
