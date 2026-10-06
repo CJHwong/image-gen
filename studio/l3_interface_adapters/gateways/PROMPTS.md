@@ -649,3 +649,35 @@ as forty does** where there is an edge to hold it, 21.0x against 28.8x, with the
 of recolour inside (117.04 against 123.68). Where there is no edge, neither engine bounds
 it, 2.2x against 3.1x. A region figure is only ever a statement about the picture it was
 taken on, and two figures from two scenes say nothing about either engine.
+
+### The page path on Viggle Turbo, measured 2026-10-06
+
+Every figure above comes from the engine, driven with the sentence and the palette the
+page writes. The page's own path was never run on this backend: its tool and its brush
+were checked against the stub. Three runs close that, on the office M5 Pro against a
+server on this backend, and nothing in them is a fixture. The page drew the scene, the
+mark is a mouse stroke on the print, the sentence is the page's own, and the mask scored
+is the one the page posted.
+
+The scene is the prompt "a single flat orange circle centred on a plain light grey studio
+background", 1024 x 1024 and six steps. The mark is drawn on the circle and the
+instruction is "change the circle to blue". The run is one second under two minutes,
+which is the load of the edit model and a six-step edit.
+
+| Run | The mark covers | Inside | Outside | Ratio | What the mark covered |
+|---|---|---|---|---|---|
+| 1 | 15.7% | 127.9 | 29.4 | 4.4x | About half the circle |
+| 2 | 16.2% | 155.1 | 18.9 | 8.2x | The circle, drawn one stroke per chord |
+| 3 | 7.2% | 151.4 | 5.9 | 25.8x | As run 2, with a narrower brush |
+
+The spread across the three is the mark and the scene, and not the path. Run 1 marked
+half the object, so the rest of it counted as outside and the ratio fell to 4.4x. Run 3
+is the shape the engine table records: 25.8x against the engine's 21.0x on the circle
+scene, with the outside mean 5.9 against 5.58. Run 2 sits between them on the same
+sentence and the same object shape, which is the same warning this file gives everywhere
+else: one figure from one mark is not a property of the tool.
+
+All three runs did the same thing to the picture. The whole circle came back blue,
+including the part outside the mark, the grey background held, and the model's own
+shading on the circle's rim stayed. So the mark reached the engine through the page, the
+sentence named it, and the change landed on the object the mark was drawn over.

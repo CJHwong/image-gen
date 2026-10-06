@@ -25,8 +25,11 @@ holds both tables and the three scenes.
 
 That is the bar this repo uses for a prompt aid, and the mark clears it on this schedule
 rather than by inheritance: those runs used the sentence the page itself writes, including
-the mark's palette colour. What is not measured here is the palette leaking on a loose
-hand-drawn region, which PROMPTS.md records for the base model.
+the mark's palette colour. The page's own path was run on this backend on 2026-10-06,
+three marks drawn on a circle it had drawn: the run whose mark followed the object's edge
+scored 25.8x against the engine's 21.0x on the same scene. What is not measured here is
+the palette leaking on a loose hand-drawn region, which PROMPTS.md records for the base
+model.
 """
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
