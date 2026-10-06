@@ -117,35 +117,38 @@ RESOLUTION = ParamSpec(
 #   edit, measured 2026-10-05   0.26 MP   0.59 MP   1.05 MP
 #                               18.8s     19.3s     37.3s
 #
-# Generate was re-measured on 2026-10-06, because the figures above did not hold when
-# the estimate the page shows was checked against real runs. Two passes, six runs at
-# each tier, all six steps at seed 1234 on the cat fixture:
+# Generate had no measurement of its own until 2026-10-06, when the estimate the page
+# shows was checked against real runs. The first check that day, at about 01:00, read
+# 8.0s, 27.8s and 68.7s and was taken as proof that the pair here was about two and a
+# half times fast. It was not. Measured again the same day at 11:25, GPU free, one job
+# at a time, two passes of the same six steps at seed 1234 on the cat fixture:
 #
-#   measured total        0.26 MP           0.59 MP                     1.05 MP
-#   generate           8.0s, 8.1s   21.8 24.8 24.8 30.7 31.3 41.1   56.4 65.7 67.6 69.7 73.7 79.3
+#   measured total   0.26 MP      0.59 MP      1.05 MP
+#   generate        4.9s, 6.1s   10.3s, 9.9s   23.9s, 23.5s
 #
-# The per-image time drifts inside a pass, with nothing changed between the runs: 768
-# took 21.8s and later 41.1s, and the second pass, which interleaved the sizes, held
-# 24.8s twice and then 30.7s. So the medians are what is fitted and the spread is
-# quoted rather than smoothed away: 8.0s, 27.8s, 68.7s.
+# The pair predicts 5.4s, 11.4s and 23.4s, which against the means of 5.5s, 10.1s and
+# 23.7s is 13% high at the middle tier and within 2% at the other two. Six runs with
+# that spread do not justify constants of this model's own, so the base model's pair
+# stands and the pair that replaced it is gone.
 #
-# Six steps is the only count this model takes, so a fixed cost cannot be separated from
-# a per-step cost here. With the base model's exponent, which the measured 768-to-1024
-# ratio of 2.5 supports, one constant fits all three tiers and needs no separate fixed
-# cost:
-#
-#   predicted   8.1s     28.0s     67.2s
-#   measured    8.0s     27.8s     68.7s
-#
-# The pair that was here predicted 5.4s, 11.4s and 23.4s at those tiers, so it read the
-# middle and large tiers about two and a half times fast. The edit pair stays as it
-# was: its 19.3s at 0.59 MP was reproduced at 20.6s over seven real edits.
-GENERATE_ESTIMATE = Estimate(10.4, 1.53, 0, overhead_per_image=True)
+# The same run does not have one time on this machine. Thirty-six of them at 1024 x 1024
+# back to back, measured at 11:33, took between 20.0s and 51.6s, median 30.7s: the first
+# 27 averaged 33.7s and the last 9 averaged 21.4s, which is the figure above again. The
+# load average recorded beside each run explains only part of that spread, with a
+# correlation of 0.56: the two highest loads gave the two slowest runs, and one run took
+# 45.2s at load 1.71. So most of the spread is inside the machine, and I did not
+# instrument which part of it. The 8.0s, 27.8s and 68.7s check read the slow end as the
+# machine's speed, which would have promised about three times the time an idle machine
+# gives. The idle figure is the one this pair is for: the page shows the estimate before
+# a run and learns this device's own rate from the run itself, so a machine at the slow
+# end corrects the page within one run.
+GENERATE_ESTIMATE = Estimate(3.15, 1.53, 3, overhead_per_image=True)
 # Edit does not: the base model's overhead of 30 is fitted from two-step and
 # twenty-two-step runs and dominates a six-step one, predicting 35, 44 and 60
 # seconds against those. The same per-step curve with this backend's own overhead of
-# 10 predicts 15, 24 and 40, inside 24% at all three.
-GENERATE_ESTIMATE = Estimate(3.15, 1.53, 3, overhead_per_image=True)
+# 10 predicts 15, 24 and 40, inside 24% at all three. Measured again 2026-10-06 at
+# 0.59 MP: two edits took 20.2s and 26.3s against that predicted 24.0s, so the pair
+# holds and the 19.3s above is confirmed rather than inherited.
 EDIT_ESTIMATE = Estimate(4.72, 1.336, 10, overhead_per_image=True, match_cap=EDIT_MATCH_CAP)
 
 GENERATE = ModeSpec(

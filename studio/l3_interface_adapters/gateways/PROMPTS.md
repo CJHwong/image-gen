@@ -322,20 +322,39 @@ mode with a negative prompt would send it.
 
 #### The cost, re-measured 2026-10-06
 
-The first pass in this section quoted 21.0s per generate image at 768 x 768 and read the
-constant in `gateways/viggle/capabilities.py` as about half the real time. Two more
-passes, six runs at each tier, say the constant was wrong and that first figure was low
-too. The per-image time drifts inside a pass with nothing changed between runs, so a
-median is the only honest number and its spread has to travel with it.
+The generate cost was checked twice on 2026-10-06, and both checks were wrong. The first,
+at about 01:00, read 8.0s, 27.8s and 68.7s, and the constant in
+`gateways/viggle/capabilities.py` was replaced on that evidence. The Look sample above
+ran at about 21s an image at 768 x 768 on 2026-10-05, which agreed with it.
 
-| Tier | The six runs | Median | The old pair predicted | The new pair predicts |
-|---|---|---|---|---|
-| 0.26 MP | 8.0, 8.1 | 8.0 | 5.4s | 8.1s |
-| 0.59 MP | 21.8, 24.8, 24.8, 30.7, 31.3, 41.1 | 27.8 | 11.4s | 28.0s |
-| 1.05 MP | 56.4, 65.7, 67.6, 69.7, 73.7, 79.3 | 68.7 | 23.4s | 67.2s |
+Measured again on 2026-10-06 at 11:25, GPU free, one job at a time, two passes of six
+steps each at seed 1234 on the cat fixture:
 
-The edit half needed no change: its 19.3s at 0.59 MP was reproduced at 20.6s over seven
-real edits.
+| Tier | The two runs | Mean | The pair in the file predicts |
+|---|---|---|---|
+| 0.26 MP | 4.9, 6.1 | 5.5 | 5.4s |
+| 0.59 MP | 10.3, 9.9 | 10.1 | 11.4s |
+| 1.05 MP | 23.9, 23.5 | 23.7 | 23.4s |
+
+The pair in the file is the base model's, and it stands: 13% high at the middle tier and
+within 2% at the other two. Six runs with this spread do not improve on it.
+
+A busy machine was the explanation for the 8.0, 27.8 and 68.7 check, and the machine is
+not that simple. Thirty-six of the same runs at 1024 x 1024, back to back at 11:33, took
+between 20.0s and 51.6s, median 30.7s. The first 27 averaged 33.7s and the last 9
+averaged 21.4s, which is the figure above again. The load average recorded beside each
+run correlates with the time at 0.56: the two highest loads gave the two slowest runs,
+and one run took 45.2s at load 1.71. So most of the spread is inside the machine, and I
+did not instrument which part of it.
+
+What that means for the constant: the idle figure is the one to ship, because the page
+shows the estimate before a run and learns this device's own rate from the run itself,
+so a machine at the slow end corrects the page within one run. The check that recorded
+8.0, 27.8 and 68.7 read that slow end as the machine's speed, which would have promised
+about three times the time an idle machine gives.
+
+The edit half needed no change, and it is now measured rather than inherited: its 19.3s
+at 0.59 MP was reproduced at 20.2s and 26.3s against a pair that predicts 24.0s.
 
 #### What a cancelled rewrite gives back, measured 2026-10-06
 

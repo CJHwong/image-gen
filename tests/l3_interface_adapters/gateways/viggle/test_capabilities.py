@@ -109,3 +109,18 @@ def test_an_edit_carries_the_area_budget_and_its_cap():
     values = [choice.value for choice in resolution.choices]
     assert resolution.default == "match" and "1024" in values
     assert capabilities().mode("edit").estimate.match_cap is not None
+
+
+def test_the_generate_estimate_predicts_the_tiers_it_was_measured_at():
+    """Bind the constant to the runs the comment above it records.
+
+    Nothing did, and the cost is on the record: the estimate is a module-level name,
+    so a second assignment to it wins without a word, and for one day the page showed
+    the pair that reads the middle tier about three times slow. The runs and the
+    spread are in the comment and in PROMPTS.md.
+    """
+    estimate = capabilities().mode("generate").estimate
+    measured = ((0.26, 5.5), (0.59, 10.1), (1.05, 23.7))
+    for megapixels, seconds in measured:
+        predicted = estimate.overhead + 6 * estimate.step_cost * megapixels**estimate.exponent
+        assert 0.75 * seconds <= predicted <= 1.25 * seconds, (megapixels, predicted, seconds)
