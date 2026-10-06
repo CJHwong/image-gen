@@ -247,13 +247,20 @@ cat cannot judge them, so Realism and Portrait ran again on "a woman in her thir
 reading at a cafe window", the fixture of the avoid-part test. That is 35 images in
 the first run and 4 in the second.
 
-The sheets were lost on 2026-10-06 to a delete glob wider than its folder, and eight of
-the ten were rebuilt the same day from this set: the same fixtures, seed, schedule and
-option names, at 19 to 24 seconds an image. Every verdict below held, Deep focus
-included, which still reads as no change in focus at any of its three seeds, so the cut
-stands. The two template sheets did not come back and cannot: a template was sampled
-with its first fill-in, and those fill-ins were choices made in the script that took the
-sample, which no file kept.
+The sheets were lost on 2026-10-06 to a delete glob wider than its folder, and all ten
+were rebuilt the same day. Eight came back from this file's own set: the fixtures, seed,
+schedule and option names, at 19 to 24 seconds an image, and every verdict below held,
+Deep focus included, which still reads as no change in focus at any of its three seeds,
+so the cut stands.
+
+The two template sheets came back from the run's own log, which survived the glob and
+holds all 35 prompts: the seven fill-ins, the two sources and the seven instructions,
+word for word. Every template verdict held as well. Two things that log does not carry,
+and what I did with each: the size, taken as 768 x 768 except the banner at 16:9, which
+its own sentence and its verdict ask for; and which source each edit used, which the
+verdicts name for six of the seven and leave open for Add text, so it ran on the woman.
+The 18 prompts of the rebuilt row sheets were checked against that log and every one
+matches the words the sample itself used.
 
 | Row | Option | Result |
 |---|---|---|
