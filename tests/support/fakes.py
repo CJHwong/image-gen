@@ -25,6 +25,7 @@ def fake_capabilities(backend_id="fake", name="Fake", description=""):
                 min_references=1,
                 max_references=10,
                 prompt_required="An edit instruction is required.",
+                each_reference=True,
             ),
         ),
     )

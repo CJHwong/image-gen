@@ -560,6 +560,17 @@
     transition: background-color .12s, color .12s; }
   .seg button:hover { color: var(--text); }
   .seg button[aria-pressed=true] { background: var(--chrome-3); color: var(--text); }
+  /* The each-choice is a segmented control whose two parts are a radio group the form posts,
+     so its labels take the shape the size buttons have. Only this control: the labels carry
+     the radios' state through the sibling they sit beside. */
+  #each-choice { margin-top: 8px; }
+  #each-choice input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  #each-choice label { flex: 1; display: flex; align-items: center; justify-content: center;
+    height: 28px; border-radius: 5px; color: var(--text-3); cursor: pointer; font-size: 12px;
+    transition: background-color .12s, color .12s; }
+  #each-choice label:hover { color: var(--text); }
+  #each-choice input:checked + label { background: var(--chrome-3); color: var(--text); }
+  #each-choice input:focus-visible + label { outline: 2px solid var(--accent-fill); outline-offset: 1px; }
 
   .stepper { display: inline-grid; grid-template-columns: 34px 44px 34px; height: 34px; width: max-content;
     border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }

@@ -104,6 +104,7 @@ function renderReferences() {
   const count = page.references().length;
   const form = page.el.form;
   form.classList.toggle('has-ref', count > 0);
+  renderEachChoice();
   page.el.referenceInput.multiple = editing();
   document.getElementById('clear-reference').hidden = count < 2;
   pushReferences();
@@ -208,6 +209,53 @@ function targetRatio() {
 }
 
 // ---- Count, steps, seed ------------------------------------------------------
+// Whether several images are edited one at a time. The mode declares the choice at all, and
+// the control says which way it is set, so a mode without the declaration is composed, always.
+function chosenEach() {
+  const choice = document.querySelector('#each-choice input[name=each_reference]:checked');
+  // A drawn region is one more image of one run, so there is no batch to make: the mark goes
+  // with the single-image edit, and the choice is out of force while it exists.
+  if (page.region().count()) return false;
+  return Boolean(currentMode().each_reference) && Boolean(choice) && choice.value === '1';
+}
+
+// Whether the page offers the choice at all, which it does not while a region is drawn.
+function offersEach() {
+  return Boolean(currentMode().each_reference) && !page.region().count();
+}
+
+// The choice goes, and the note with it, wherever the mode or the mark changes what is offered.
+function renderEachChoice() {
+  const offers = offersEach();
+  document.getElementById('each-choice').hidden = !offers;
+  document.getElementById('each-note').hidden = !offers;
+  renderEachNote();
+}
+
+// The images a run makes. The count is what each reference gets, so with one result per
+// reference the run makes that many for every reference: three images and a count of two is
+// six, which is what the button promises and what the server will spend.
+function imageCount() {
+  return clampCount() * (chosenEach() ? Math.max(1, page.references().length) : 1);
+}
+
+function renderEachNote() {
+  const note = document.getElementById('each-note');
+  if (!chosenEach()) {
+    note.textContent = 'All of them make a single picture.';
+    return;
+  }
+  // The same number the run button promises: the count is what each reference gets, so the
+  // results are the count times the references, and the caption has to say the product.
+  const results = imageCount();
+  // The rewriter reads the pictures, so its answer names the one it read, and the others would
+  // be pulled toward it. With one instruction for every image, the instruction is the user's.
+  const batched = page.references().length > 1;
+  note.textContent = 'Each image is edited on its own, so one press gives you ' + results
+    + (results === 1 ? ' result.' : ' results.')
+    + (batched ? ' Write the instruction for all of them: the Rewrite button needs one picture.' : '');
+}
+
 function clampCount() {
   const countInput = page.el.countInput;
   const value = Math.min(page.maxBatch, Math.max(1, parseInt(countInput.value, 10) || 1));
@@ -283,7 +331,7 @@ function twoPass() {
 }
 
 function costKey() {
-  return page.studio.backend.id + ' ' + currentMode().id + ' ' + sentReferences() + ' images'
+  return page.studio.backend.id + ' ' + currentMode().id + ' ' + engineReferences() + ' images'
     + (twoPass() ? ' two-pass' : '');
 }
 
@@ -296,9 +344,16 @@ function sentReferences() {
 // One more image costs more per step, by the factor the backend measured. It
 // scales the constants only: a rate this device has shown already has the shape
 // it was shown for, because the key carries the count.
+// How many pictures one run of this form hands to the engine. A batch of one result each gives
+// every run exactly one, so the mode's own growth for several references does not apply to it,
+// and neither does the learned rate, which is learned per reference count.
+function engineReferences() {
+  return chosenEach() ? 1 : sentReferences();
+}
+
 function referenceFactor(model) {
   if (!model.per_reference) return 1;
-  return 1 + model.per_reference * Math.max(0, sentReferences() - 1);
+  return 1 + model.per_reference * Math.max(0, engineReferences() - 1);
 }
 
 function targetPixels() {
@@ -322,10 +377,12 @@ function stepSeconds() {
 }
 
 function estimate() {
-  const count = clampCount();
+  const count = imageCount();
   const images = count > 1 ? count + ' images' : '';
   const model = currentMode().estimate;
   if (!model || !paramSpec('steps')) return images;
+  // Every run of a one-each batch carries one reference, so the mode's own growth for several
+  // references does not apply to any of them.
   const steps = Number(document.getElementById('steps').value) || 0;
   const perStep = stepSeconds();
   const overhead = model.overhead_per_image ? count * model.overhead : model.overhead;
@@ -464,6 +521,7 @@ function refreshForm() {
   pushForm();
   renderRunButton();
   renderRewriteButton();
+  renderEachChoice();
 }
 
 // Every field the drawn components read is mirrored into the store here, in
@@ -646,6 +704,9 @@ function applyMode() {
   page.el.promptInput.placeholder = currentMode().prompt_hint;
   page.el.templatesToggle.hidden = !currentMode().templates.length;
   document.getElementById('look').hidden = !currentMode().looks.length;
+  // The choice is drawn only where the mode declares it, and the caption says which way it is
+  // set, so a mode that composes and nothing else never shows the control or its note.
+  renderEachChoice();
   applyParams();
   // The verb on the run button follows the mode. The store carries the mode to
   // the button's labels; `refreshForm`, a few lines below in every switch,
@@ -755,10 +816,13 @@ function renderRewriteButton() {
   button.hidden = !rewriteOffered();
   const items = rewriteItems();
   showRewriteVerb(button, rewriteStage);
+  const batched = chosenEach() && page.references().length > 1;
   button.disabled = rewriteStage === 'preparing' || rewriteStage === 'stopping'
-    || (rewriteStage === 'idle' && (page.busy() || !items.length));
+    || (rewriteStage === 'idle' && (page.busy() || !items.length || batched));
   const stage = rewriteStages[rewriteStage];
-  button.title = stage ? stage.title : rewriteTitle(items.length);
+  button.title = stage ? stage.title : (batched
+    ? 'One instruction is applied to every image, so write it for all of them'
+    : rewriteTitle(items.length));
   // The readout belongs to a run while one is going, so a rewrite only borrows
   // it when nothing else is. Without this a press looks like nothing happened
   // for half a minute, and the button stays live for a second press.
@@ -1004,6 +1068,7 @@ const handle = {
   pickLook: pickLook,
   picksHere: picksHere,
   withLook: withLook,
+  imageCount: imageCount,
   typedNegative: typedNegative,
   negativeText: negativeText,
   rewrittenFrom: function () { return rewrittenFrom; },
@@ -1134,6 +1199,8 @@ function wire() {
       page.setReferences([]);
       el.promptInput.value = '';
       look = {};
+      // The choice is part of the form the mode owns, so it goes back with the words.
+      document.getElementById('each-all').checked = true;
       pushLook();
       growPrompt();
       renderReferences();
@@ -1141,6 +1208,8 @@ function wire() {
       if (page.view() !== 'progress') page.renderStage();
     });
   });
+
+  document.getElementById('each-choice').addEventListener('change', renderEachChoice);
 
   document.getElementById('rewrite-toggle').addEventListener('click', function () {
     // The press is Cancel once the rewriter writes, and dead while it loads its

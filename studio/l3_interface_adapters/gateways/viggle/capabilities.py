@@ -188,6 +188,9 @@ EDIT = ModeSpec(
     looks=EDIT_LOOKS,
     estimate=EDIT_ESTIMATE,
     region_marking=True,
+    # Each reference is edited on its own through the same single-image call the mode
+    # was measured with, so a batch adds runs and not a new engine path.
+    each_reference=True,
 )
 
 

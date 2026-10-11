@@ -221,3 +221,18 @@ def test_every_color_mode_becomes_rgb(mode, expected):
     Image.new(mode, (8, 8)).save(buffer, format="TIFF")
     png = reference_of(base64.b64encode(buffer.getvalue()).decode()).png
     assert Image.open(io.BytesIO(png)).mode == expected
+
+
+def test_the_flag_for_one_result_per_reference_comes_off_the_form():
+    """The page sends it only when the user asked for the batch, and only where the mode
+    declares it. Absent, and every other value the page might post, means composed."""
+    assert run_request({"prompt": "p"}).each_reference is False
+    assert run_request({"prompt": "p", "each_reference": "1"}).each_reference is True
+    assert run_request({"prompt": "p", "each_reference": ""}).each_reference is False
+
+
+def test_the_marker_for_a_mask_comes_off_the_form():
+    """The page sets it only when it appended the region mask as the last reference, so a form
+    without it is a form whose last reference is a picture."""
+    assert run_request({"prompt": "p"}).mask is False
+    assert run_request({"prompt": "p", "mask": "1"}).mask is True

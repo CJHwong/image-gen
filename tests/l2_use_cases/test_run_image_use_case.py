@@ -21,6 +21,7 @@ from studio.l3_interface_adapters.gateways.in_memory_reference_store_gateway imp
 from tests.support.fakes import FakeBackendGateway
 
 PHOTO = ReferenceImage(png=b"ref", width=4, height=3)
+SECOND = ReferenceImage(png=b"ref2", width=4, height=3)
 
 
 BASE = RunImageRequest(
@@ -254,3 +255,100 @@ def test_the_rewriter_is_freed_before_the_engine_runs():
     )
     use_case.execute(request(options={"steps": "1"}))
     assert log == ["rewriter release", "engine step 1"]
+
+
+def next_of(use_case, previous, **overrides):
+    """The next request of a batch, built the way the page builds it from the chain."""
+    nxt = previous.next_run
+    return use_case.execute(
+        request(
+            mode=nxt.mode,
+            prompt=nxt.prompt,
+            seed=str(nxt.seed),
+            options=nxt.options,
+            references=(),
+            reference_token=nxt.reference_token,
+            total=nxt.total,
+            index=nxt.index,
+            each_reference=nxt.each_reference,
+            **overrides,
+        )
+    )
+
+
+def test_several_references_make_one_picture_by_default(studio):
+    """Two images and no flag is the composed edit: one run, both images, one result, and no
+    single reference for the page to line that result up with."""
+    use_case, backend, _, _ = studio
+    response = use_case.execute(request(mode="edit", prompt="a pear", references=(PHOTO, SECOND)))
+    assert [job.references for job in backend.jobs] == [(PHOTO, SECOND)]
+    assert response.reference == -1
+
+
+def test_a_batch_may_edit_one_reference_at_a_time(studio):
+    """The other meaning of several images: the chain walks them in turn, so the same prompt
+    gives every image its own result and each run holds exactly one of them."""
+    use_case, backend, _, _ = studio
+    first = use_case.execute(
+        request(mode="edit", prompt="make it night", references=(PHOTO, SECOND), total=4, each_reference=True)
+    )
+    assert [job.references for job in backend.jobs] == [(PHOTO,)]
+    second = next_of(use_case, first)
+    third = next_of(use_case, second)
+    fourth = next_of(use_case, third)
+    assert [job.references for job in backend.jobs] == [(PHOTO,), (SECOND,), (PHOTO,), (SECOND,)]
+    assert [first.reference, second.reference, third.reference, fourth.reference] == [0, 1, 0, 1]
+    assert [first.position, fourth.position] == ["1 of 4", "4 of 4"] and fourth.next_run is None
+
+
+def test_the_count_is_per_reference_when_each_image_is_edited(studio):
+    """A reference keeps its place however many images it was asked for, so the mode's own
+    bound multiplies with the references: four images each over two is eight, and nine is not.
+    Composed, the bound stays what it was, which is four."""
+    use_case, backend, _, _ = studio
+    use_case.execute(request(mode="edit", prompt="x", references=(PHOTO, SECOND), total=8, each_reference=True))
+    assert len(backend.jobs) == 1
+    with pytest.raises(InvalidJob, match="count must be between 1 and 8"):
+        use_case.execute(request(mode="edit", prompt="x", references=(PHOTO, SECOND), total=9, each_reference=True))
+    with pytest.raises(InvalidJob, match="count must be between 1 and 4"):
+        use_case.execute(request(mode="edit", prompt="x", references=(PHOTO, SECOND), total=5))
+
+
+def test_the_mode_decides_whether_each_reference_is_its_own_image():
+    """The page asks and the mode declares. Where the declaration is absent, every reference
+    goes to one run, which is the behaviour the mode was built for."""
+    declared = RunImageUseCase._one_reference(request(mode="edit", each_reference=True), (PHOTO, SECOND), True)
+    composed = RunImageUseCase._one_reference(request(mode="edit", each_reference=True), (PHOTO, SECOND), False)
+    assert declared == ((PHOTO,), 0)
+    assert composed == ((PHOTO, SECOND), -1)
+
+
+def test_a_mask_is_not_a_member_of_the_batch(studio):
+    """The page appends the region mask last, and a mask is one more image of the run that
+    carries it. Walking it as a reference would drop it from the first run and edit the mask
+    itself in the second, so a request that says one rides keeps the single-image meaning."""
+    use_case, backend, _, _ = studio
+    mask = ReferenceImage(png=b"mask", width=4, height=3)
+    response = use_case.execute(
+        request(
+            mode="edit",
+            prompt="a stone wall in the area marked in <image2>",
+            references=(PHOTO, mask),
+            total=2,
+            each_reference=True,
+            mask=True,
+        )
+    )
+    assert [job.references for job in backend.jobs] == [(PHOTO, mask)]
+    assert response.reference == -1
+
+
+def test_the_marker_for_a_mask_travels_the_chain(studio):
+    """The second request of a masked batch re-posts what it needs, and which of the images is
+    the mask is one of those things. Without it the chain would walk the mask after all."""
+    use_case, _, _, _ = studio
+    mask = ReferenceImage(png=b"mask", width=4, height=3)
+    first = use_case.execute(
+        request(mode="edit", prompt="x", references=(PHOTO, mask), total=2, each_reference=True, mask=True)
+    )
+    assert first.next_run.mask is True and first.next_run.each_reference is True

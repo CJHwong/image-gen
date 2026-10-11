@@ -141,6 +141,9 @@ EDIT = ModeSpec(
     # against 3.1x. One seed on one fixture settles neither direction, so neither claim
     # is made. PROMPTS.md holds the tables and their limits.
     region_marking=True,
+    # Each reference is edited on its own through the same single-image call the mode
+    # was measured with, so a batch adds runs and not a new engine path.
+    each_reference=True,
 )
 
 

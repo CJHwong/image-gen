@@ -136,3 +136,11 @@ def test_the_generate_estimate_predicts_the_tiers_it_was_measured_at():
     for megapixels, seconds in measured:
         predicted = estimate.overhead + 6 * estimate.step_cost * megapixels**estimate.exponent
         assert 0.75 * seconds <= predicted <= 1.25 * seconds, (megapixels, predicted, seconds)
+
+
+def test_only_the_edit_mode_edits_each_reference_on_its_own():
+    """Several references mean one picture in generate, where they are the scene, and they can
+    mean one result each in edit, which is the batch the page offers. The page draws that choice
+    only where a mode declares it, so the declaration is what this pins."""
+    assert capabilities().mode("generate").each_reference is False
+    assert capabilities().mode("edit").each_reference is True

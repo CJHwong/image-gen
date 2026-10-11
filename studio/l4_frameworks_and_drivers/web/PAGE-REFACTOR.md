@@ -829,6 +829,24 @@ the Overcast Look, and the check at 619 asserts the caption ends in that Look, m
 The suite is 174 checks: five for the readings, four for the copy and the notes, and nine
 for the rewrite press, three of them the run and the card's menu waiting for it.
 
+## One prompt over several pictures
+
+Several references mean one thing in generate, where they are the scene, and two things in
+edit, so the edit mode declares `each_reference` and the page draws the choice only there.
+Composed is what the page has always done; one result each is the batch.
+
+| Piece | How |
+|---|---|
+| the choice | a two-way control under the reference list, drawn only where the mode declares it, with a caption that says which way it is set and how many results that is |
+| what it costs | the count is what each reference gets, so the images are the count times the references, and the run button promises that product. The server's bound is on the images, so it multiplies with the references too |
+| the chain | the references are loaded once under a token; each request of the chain edits one of them, and the index says which |
+| the wipe | each result carries the reference it came from, so its before and after shows that pair. Composed, no single source lines up, and there is no wipe |
+| what is left out | a mark belongs to one picture, so the region rows and the mark stay with the single-image edit, and a batch takes no rewritten instruction: the rewriter reads the pictures, so its answer names the one it read and the others would be pulled toward it |
+
+Six checks read it on the stub, including that one press leaves one result per reference and
+that each of them offers its own wipe. The name of the control was changed once already: "One
+edit each" matched the suite's own `get_by_role("radio", name="Edit")` and stopped the run.
+
 ## Non-goals
 
 1. No bundler, no npm, no build step.
