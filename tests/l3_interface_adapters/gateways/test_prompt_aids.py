@@ -1,12 +1,27 @@
 import pytest
 
 from studio.l3_interface_adapters.gateways.prompt_aids import (
+    EDIT_LOOKS,
     EDIT_TEMPLATES,
     GENERATE_LOOKS,
     GENERATE_TEMPLATES,
     pick_looks,
     pick_templates,
 )
+
+
+def test_the_edit_rows_are_their_own_catalog():
+    # The edit model keeps the rest of the frame, so a style tuned for a run that draws is not
+    # a look for a run that changes. An option that wants a marked area says so in its own
+    # sentence, with the page's token: that is what keeps the page from having to know which
+    # options want one, and it is why only the Retouch row carries it. Every sentence is one
+    # whole sentence, because the page reads it as the lead of what it sends.
+    rows = {row.name: row for row in EDIT_LOOKS}
+    assert set(rows) == {"Exposure", "White balance", "Grade", "Lens", "Finish", "Retouch"}
+    for row in rows.values():
+        for name, sentence in row.options:
+            assert sentence.endswith(".") and sentence.count(".") == 1, name
+            assert ("[the region you marked]" in sentence) == (row.name == "Retouch"), name
 
 
 def test_a_pick_keeps_the_shared_order_and_drops_the_rest():

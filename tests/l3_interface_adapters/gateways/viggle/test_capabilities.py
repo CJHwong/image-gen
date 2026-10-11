@@ -96,6 +96,18 @@ def test_the_looks_and_templates_the_sample_passed_are_offered():
     assert generate.region_marking is False and edit.region_marking is True
 
 
+def test_the_edit_rows_are_offered_in_full_because_this_sample_kept_them():
+    """A distilled six-step schedule reads these sentences the way the forty-step base does:
+    15 options were sampled on 2026-10-10 and all 15 landed, so the edit form offers the
+    shared catalog itself and nothing is cut. The count is therefore the whole catalog, and
+    the rows are in its order. PROMPTS.md holds the table and the mark's own limit."""
+    edit = capabilities().mode("edit")
+    assert [row.name for row in edit.looks] == [
+        "Exposure", "White balance", "Grade", "Lens", "Finish", "Retouch",
+    ]  # fmt: skip
+    assert sum(len(row.options) for row in edit.looks) == 15
+
+
 def test_every_mode_carries_an_estimate_and_a_badge():
     for mode_id in ("generate", "edit"):
         assert capabilities().mode(mode_id).estimate is not None

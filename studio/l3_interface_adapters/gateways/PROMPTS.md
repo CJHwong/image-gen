@@ -39,7 +39,22 @@ In the page, **Look** adds one sentence after your prompt when you press Generat
 
 The rows go from the style (Medium, Film, Color) to the shot (Light, Camera, Room for text) to the subject (Realism, Portrait). Every film stock sits in the Film row, so one pick per row keeps two stocks from fighting. Portra 400 was "Film photo" in Medium, and Black and white was in Color; their sentences did not change.
 
-Each option names what to show, never what to leave out. The exception is Real person: its avoid part goes to the negative prompt, which raises guidance to 2.5 and doubles the time of each image. Realism fights Watercolor, Ink drawing, 3D render and Skeleton, because its avoid part names CGI and 3D render. Real person is for people. For an animal, Documentary is enough: see "The avoid-part test". Edit mode has no Look, because the edit model already keeps the rest of the image.
+Each option names what to show, never what to leave out. The exception is Real person: its avoid part goes to the negative prompt, which raises guidance to 2.5 and doubles the time of each image. Realism fights Watercolor, Ink drawing, 3D render and Skeleton, because its avoid part names CGI and 3D render. Real person is for people. For an animal, Documentary is enough: see "The avoid-part test". These are the rows for a run that draws. The edit form has its own rows, below, and the reason the earlier note said it had none was the style rows, which the edit model does not draw: it keeps the rest of the picture.
+
+## Edit Look
+
+The edit form offers its own **Look**, and a pick adds one sentence after your instruction. These rows are separate from the generate ones because the edit model keeps the rest of the picture by itself: an option here is either a change to the whole frame or a change to the area you marked. Every option passed a test on Qwen-Image-2.1 on 2026-10-10, one seed, 20 steps, 768 on the short side, each one beside the bare fixture: see "The edit Look test". Viggle Turbo offers the same 15, because its own six steps kept them all: see "The edit rows, measured 2026-10-10". FLUX.2 offers no edit rows yet, because it has not been sampled on its own.
+
+| Row | Options | What it adds |
+|---|---|---|
+| Exposure | Brighter, Darker | The exposure of the whole frame |
+| White balance | Cooler, Warmer | The color of the light, not the palette |
+| Grade | Teal and orange, Muted filmic | A color grade |
+| Lens | Shallow depth, Wider view, Telephoto | A lens, and with it the framing |
+| Finish | Film grain, Vignette, Halation | A film finish over the frame |
+| Retouch | Smooth the skin, Brighten the eyes, Clear a blemish | Skin and eyes, and the area you mark is what they change |
+
+**Retouch** is the one row that wants a mark. Its sentences carry the page's own token for the region, `[the region you marked]`, and the page puts the number of the image holding the mask where that token stands: "Smooth the skin on the face, keeping the pores and the natural texture visible in the area marked in <image2>. Keep the background and everything else unchanged." That is the sentence the Retouch row was measured with, character for character. A pick that wants a mark and has none blocks the run and asks for one, the same way the "Mark a region" template does. The other five rows carry no token, so a mark does not scope them: a grade, an exposure or a film finish applies to the whole frame whether a region is drawn or not, and the sentence says what it does.
 
 ## Generate templates
 
@@ -165,6 +180,60 @@ Every Look option was added to "a cat wearing a suit" at 768 x 768, 20 steps, gu
 | "Top" is weak | Seed 1234 kept the head near the top with both wordings. Seed 5678 left the top empty. |
 | Light options widen the shot | Most Light options pulled the camera back from a close-up to a full body. Add a Camera option to hold the framing. |
 | Kodak film stocks land | "Kodak Portra 400" gave warm color and fine grain. "Kodak Tri-X 400" gave a grainy, high-contrast black and white. |
+
+### The edit Look test, measured 2026-10-10
+
+Eighteen options ran on Qwen-Image-2.1, bf16, on the office machine (M5 Pro, 64 GB), one seed, 20 steps, 768 on the short side, true CFG 1.0, no negative prompt. The seed was 20261010 and it was the same for every sample, so a difference in a pair is the sentence and nothing else. Two fixtures were generated at the same settings, one portrait for the Retouch row and one street for the other five, and each option ran beside its own fixture, which is the control: for an edit the question is what the sentence changed, and the bare fixture is the picture it started from.
+
+| Fixture | Size | What it is |
+|---|---|---|
+| portrait.png | 768 x 768 | The face the Retouch row was marked on |
+| scene.png | 768 x 512 | The street the whole frame rows were run on |
+
+```
+Portrait: Close-up portrait photograph of a woman in her thirties with dark shoulder-length hair and a few freckles, in a plain studio, at midday. Wearing a grey sweater, looking at the camera, neutral expression, no makeup. Soft light from the left, plain grey background, softly blurred. 85mm lens at f/1.8, shallow depth of field, natural skin texture, neutral colour mood.
+
+Scene: Street photograph of a young man in a yellow oilskin jacket walking through a narrow European street in the afternoon. Old shopfronts, a bicycle against a wall, wet cobblestones, a striped awning. Soft light from the left, cool shadows. Shot at eye level, 35mm lens, deep focus.
+```
+
+A whole-frame row was sent as its sentence alone, which is the instruction a user would type, since the form refuses an empty prompt. A Retouch row was sent as the page composes it: the sentence with its token replaced by the number of the image holding the mask, then "Keep the background and everything else unchanged." A script cannot draw with a hand, so the mark was an ellipse in the palette colour on black, at the picture's own size: over the face for the skin and eye options, 0.33 to 0.67 across and 0.17 to 0.62 down, and a small one on the cheek for the blemish option, 0.56 to 0.64 across and 0.38 to 0.46 down. Both figures are of the picture's own width and height.
+
+Fifteen samples took 32 to 41 s each at 768 x 512, and the three at 768 x 768 took 52 to 60 s. The Retouch three ran in a second pass with the same seed, settings and fixtures, because the scratch harness that composed the marked sentence failed on the first pass. Nothing else about them changed.
+
+| Row | Option | Verdict | What the panel showed |
+|---|---|---|---|
+| Exposure | Brighter | Kept | Clearly brighter, the pale walls and the shopfronts keep their texture |
+| Exposure | Darker | Kept | Clear darkening, the shadow side goes moody, the highlights stay |
+| Exposure | Recover the highlights | Cut | Read as darker and more contrasty, not as recovered highlights |
+| White balance | Cooler | Kept | Cooler, blue in the shopfronts and on the paving. Subtle, and present |
+| White balance | Warmer | Kept | Strong and clean, the left wall goes golden, the composition untouched |
+| White balance | Correct for tungsten | Cut | The fixture carries no tungsten cast, so there was nothing to correct |
+| Grade | Teal and orange | Kept | Strong, teal in the street, warm on the wall, the jacket stays yellow |
+| Grade | Bleach bypass | Cut | Changed the picture, but it read flat and cool, not bleached |
+| Grade | Muted filmic | Kept | Soft contrast, lifted blacks, a warm fade |
+| Lens | Shallow depth | Kept | Convincing, the subject sharp against a heavy bright bokeh |
+| Lens | Wide angle 24mm | Kept, reworded | It works, but it moves the camera: the subject shrinks and the framing changes |
+| Lens | Telephoto | Kept | The subject comes closer, the frame tightens, the background softens |
+| Finish | Film grain | Kept, reworded | Grain lands. At 1:1 it is coarse and colored, not fine |
+| Finish | Vignette | Kept | The corners fall off gradually, with no visible circle |
+| Finish | Halation | Kept | A warm bloom on the bright edges, and a mild warm lift with it |
+| Retouch | Smooth the skin | Kept | The face reads retouched, the pores kept, the hair and sweater untouched |
+| Retouch | Brighten the eyes | Kept, reworded | The eyes opened up and the iris went richer amber, against its own clause |
+| Retouch | Clear a blemish | Kept | The skin cleared, and well past the mark: see below |
+
+**The style rows do nothing and a look does.** This is the distinction the earlier note missed. The edit Look that was cut in "The Look test" held a Keep row, "Match the new scene" and "Blend into the photo", and every one of them did nothing, because the edit model keeps the rest of the picture whether it is asked to or not. Nine of these options are changes rather than promises to keep something, and they all landed. The composition, the person, the clothing and the light held in all eighteen, so a whole-frame change does not cost the picture its identity.
+
+**The mark does not bound a retouch.** The blemish sample marked a patch of cheek 62 px wide at 768. The freckles cleared across the whole cheek, including the area well outside the mark, and the two larger marks went with them. So the sentence works and the mark only tells the model where to look. This is the same finding the region table records as spill, measured there on a recolour, and it is why a Retouch option is not a substitute for a local edit tool.
+
+**Three sentences shipped with different words.** Each promised something its panel contradicted, so the meaning was corrected rather than the option dropped.
+
+| Sampled | Ships as | Why |
+|---|---|---|
+| Wide angle 24mm look, more of the street visible, mild perspective stretch at the edges | Wider view, 24mm: more of the scene in frame and the subject further off, mild perspective stretch at the edges | The camera moves, so the option names the framing rather than a focal length alone |
+| Add fine film grain across the frame, like 400 ISO film | Add visible film grain across the frame, like a high ISO color film | The grain is coarse and carries color mottle. Grain size is fixed in pixels, so it reads finer on a larger output than the 768 it was judged at |
+| Brighten the eyes slightly, keeping the iris colour and the catchlights | Brighten the whites of the eyes and deepen the iris, keeping the catchlights | The iris did change, and richer amber is what the option does |
+
+**What this sample does not settle.** One seed per option, which is the bar the generate rows were held to and no more; a look that failed here can still be re-run on a second seed. The two fixtures are one portrait and one street, so the exposure, white balance and grade verdicts are statements about those scenes and not about the words in general. The Retouch sentences were measured at one mark shape each, drawn by a script. Nothing here measures Viggle Turbo or FLUX.2, which offer no edit rows until they are sampled on their own schedules.
 
 ### The avoid-part test
 
@@ -302,6 +371,34 @@ itself used.
 | Edit | Add an object | Works: a dog beside the woman, with a shadow and floor contact. |
 | Edit | Turn into a skeleton | Works, and better on a person than on the base model: the head came back a bare skull. On qwen21 the person keeps her face and hair. |
 | Edit | Turn into a pose figure | Works on the body: a grey jointed figure with a ball joint at every joint. The head keeps the real face and hair, the limit the base model has too. |
+
+#### The edit rows, measured 2026-10-10
+
+The 15 edit options ran on this schedule: six steps, which is the only one its distillation samples, no guidance and no negative prompt because it was trained without CFG, one seed, 768 on the short side, each option beside the bare fixture. The fixtures are the base model's own, regenerated at the same seed, prompts and settings, so the pictures are the same and only the editing model differs from the table above. Each sample went through the page's own path: the adapter unmerged, and the viggle schedule supplied for the length of the edit call, which is what `Qwen21TurboBackendGateway` does. A Retouch option's sentence carries the mark's token, so it was sent with the token replaced by the number of the image holding the mask, which is what the page does.
+
+| Row | Option | Verdict | What the panel showed |
+|---|---|---|---|
+| Exposure | Brighter | Kept | Clearly brighter, the pale walls and the shopfronts keep their texture |
+| Exposure | Darker | Kept | Clear darkening, the shadow side goes moody |
+| White balance | Cooler | Kept | Cool in the shopfronts and on the paving, the jacket stays yellow |
+| White balance | Warmer | Kept | Strong and clean, the left wall goes golden |
+| Grade | Teal and orange | Kept | Strong, teal in the street, warm on the wall |
+| Grade | Muted filmic | Kept | Soft contrast, greyer paving, a gentle fade |
+| Lens | Shallow depth | Kept | Convincing, the subject sharp against a heavy bokeh |
+| Lens | Wider view | Kept | Wider, and the camera moves with it: the subject smaller and further off |
+| Lens | Telephoto | Kept | The subject closer, the frame tighter |
+| Finish | Film grain | Kept | A fine speckle over the frame at 1:1, less colored than the base model's |
+| Finish | Vignette | Kept | The corners fall off gradually, with no visible circle |
+| Finish | Halation | Kept | A warm bloom on the bright edges |
+| Retouch | Smooth the skin | Kept | The skin reads retouched, the pores kept |
+| Retouch | Brighten the eyes | Kept | The whites brighter and the iris richer: the overreach the base model shows too |
+| Retouch | Clear a blemish | Kept | The freckles cleared, and well past the mark: see below |
+
+Fifteen of 15 landed, so this backend offers the whole catalog and not a subset. That is the opposite of its generate sample, which dropped Deep focus and kept 30 of 31 options. Nothing was reworded for this schedule.
+
+**The mark still does not bound a retouch.** The blemish sample marked a patch of cheek 62 px wide at 768, and the freckles cleared across the whole cheek, including well outside the mark. That is the same finding the base model's table records, so a Retouch pick on six steps changes the area its sentence names rather than the area the mark covers.
+
+**What this sample does not settle.** One seed per option, the bar the generate rows were held to and no more. Six steps is the only schedule this distillation runs, so there is no second step count to compare against, and whether these sentences would hold at another count is not a question this model can be asked. The two fixtures are one portrait and one street, so the exposure, white balance and grade verdicts are statements about those scenes. The Retouch sentences were measured at one mark shape each, drawn by a script, and not by a hand with the brush. The timings were 10 to 23 s an image at 768 x 512 and 29 to 37 s at 768 x 768, on the office machine, with nothing else on the GPU.
 
 #### The options the first pass left out, measured 2026-10-06
 

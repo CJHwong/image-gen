@@ -1,7 +1,12 @@
 """What the Qwen-Image-2.1 backend offers the page, and the limits the core checks."""
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
-from studio.l3_interface_adapters.gateways.prompt_aids import EDIT_TEMPLATES, GENERATE_LOOKS, GENERATE_TEMPLATES
+from studio.l3_interface_adapters.gateways.prompt_aids import (
+    EDIT_LOOKS,
+    EDIT_TEMPLATES,
+    GENERATE_LOOKS,
+    GENERATE_TEMPLATES,
+)
 from studio.l3_interface_adapters.gateways.qwen_image_sizes import (
     EDIT_MATCH_CAP,
     EDIT_RESOLUTIONS,
@@ -108,6 +113,13 @@ EDIT = ModeSpec(
     prompt_hint="For example: make it night, with the lights on",
     prompt_required="An edit instruction is required.",
     templates=EDIT_TEMPLATES,
+    # The edit Look, all six rows and every option of them, because this model is the one
+    # they were sampled on: 18 options, 15 that landed and 3 that did not, on 2026-10-10.
+    # PROMPTS.md holds the table. A whole-frame option lands here: the model keeps the rest
+    # of the picture and applies the look it was asked for, and the composition held in
+    # every sample. What the mark does not do is bound a retouch, so a picked Retouch
+    # option reaches past the drawn area. PROMPTS.md records that too.
+    looks=EDIT_LOOKS,
     estimate=Estimate(
         EDIT_STEP_COST,
         EDIT_STEP_EXPONENT,

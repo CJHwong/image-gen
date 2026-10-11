@@ -1,5 +1,10 @@
 """The Look rows and the prompt templates, shared by the backends.
 
+There are two catalogs: GENERATE_LOOKS, for a run that draws a picture, and EDIT_LOOKS, for a
+run that changes a picture it already has. They are separate because the edit model keeps the
+rest of the frame, so an edit option is a look the model applies over that habit rather than a
+style it draws from nothing.
+
 They were tuned on Qwen-Image-2.1. Another model follows the same words
 differently, so each backend offers only the options that passed a test on it:
 pick_looks and pick_templates cut them down to those. PROMPTS.md holds the tests. They sit
@@ -205,6 +210,89 @@ GENERATE_LOOKS = (
             (
                 "Candid glance",
                 "The person is caught unposed in a passing moment, gaze slightly off camera, a faint smile with only small movement at the mouth and eyes.",
+            ),
+        ),
+    ),
+)
+
+
+# The edit Look: what a photograph gets after it exists, which is the half the generate
+# rows do not cover. A generate row decides how the model draws; a row here changes a
+# picture that was already drawn, and the edit model keeps the rest of that picture, so
+# every option is either a change to the whole frame or a change to the area the user
+# marked. Only a Retouch option wants the mark, and such an option carries the page's token
+# for it, `[the region you marked]`, in its own sentence: the page replaces the token with
+# the number of the image holding the mask, which is the same token a template uses. So the
+# catalog holds the intent, and the page stays ignorant of which options want an area. An
+# option without the token is a change to the whole frame, and a mark does not scope it.
+#
+# Sampled twice on 2026-10-10, one seed and 768 on the short side each time, each option
+# beside the bare fixture: on Qwen-Image-2.1 at 20 steps, where 15 of the 18 tried landed,
+# and on Viggle Turbo at its six steps, where all 15 landed. Both models kept the whole set,
+# which is why this is the catalog itself and not a subset a backend picks from. PROMPTS.md
+# holds both tables, the two fixtures, the three options that did not land on the base, and
+# what neither sample settles.
+EDIT_LOOKS = (
+    LookRow(
+        "Exposure",
+        options=(
+            ("Brighter", "Raise the exposure by half a stop, keeping the highlight detail in the pale walls."),
+            ("Darker", "Lower the exposure and deepen the shadows for a moodier image."),
+        ),
+    ),
+    LookRow(
+        "White balance",
+        options=(
+            (
+                "Cooler",
+                "Cool the white balance toward open shade, so the shadows read blue and the skin stays neutral.",
+            ),
+            ("Warmer", "Warm the white balance as at golden hour, without changing the composition."),
+        ),
+    ),
+    LookRow(
+        "Grade",
+        options=(
+            ("Teal and orange", "Teal and orange color grade, cinematic, warm skin against cool shadows."),
+            ("Muted filmic", "Muted filmic grade, soft contrast, slightly lifted blacks, gentle desaturation."),
+        ),
+    ),
+    LookRow(
+        "Lens",
+        options=(
+            (
+                "Shallow depth",
+                "Shallow depth of field, the subject sharp and the background softly blurred with round bokeh.",
+            ),
+            (
+                "Wider view",
+                "Wider view, 24mm: more of the scene in frame and the subject further off, mild perspective stretch at the edges.",
+            ),
+            ("Telephoto", "Telephoto compression, 85mm, the background drawn in close behind the subject."),
+        ),
+    ),
+    LookRow(
+        "Finish",
+        options=(
+            ("Film grain", "Add visible film grain across the frame, like a high ISO color film."),
+            ("Vignette", "Add a subtle vignette, darkening the corners without a visible circle."),
+            ("Halation", "Add a slight halation on the highlights, a soft warm glow around the bright edges."),
+        ),
+    ),
+    LookRow(
+        "Retouch",
+        options=(
+            (
+                "Smooth the skin",
+                "Smooth the skin on the face, keeping the pores and the natural texture visible in the area marked in [the region you marked].",
+            ),
+            (
+                "Brighten the eyes",
+                "Brighten the whites of the eyes and deepen the iris, keeping the catchlights in the area marked in [the region you marked].",
+            ),
+            (
+                "Clear a blemish",
+                "Remove the blemish on the cheek, leaving no trace of it in the area marked in [the region you marked].",
             ),
         ),
     ),
