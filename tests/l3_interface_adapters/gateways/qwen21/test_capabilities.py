@@ -74,6 +74,23 @@ def test_the_skeleton_is_a_medium_on_qwen21_only():
     assert "Skeleton" not in offered and not any(t.name.startswith("Turn into") for t in flux2_edit_templates)
 
 
+def test_the_edit_look_offers_the_rows_that_were_sampled_on_this_model():
+    """Nothing is cut from the edit rows here: this is the model they were sampled on. The 15
+    is the measured count, 18 sampled on 2026-10-10 and 3 that did not land, which PROMPTS.md
+    names. Only Retouch names a marked area, and it does it with the page's own token, so the
+    page never has to know which options want one."""
+    caps = capabilities()
+    edit = caps.mode("edit").looks
+    assert [row.name for row in edit] == [
+        "Exposure", "White balance", "Grade", "Lens", "Finish", "Retouch",
+    ]  # fmt: skip
+    assert sum(len(row.options) for row in edit) == 15
+    assert {row.name for row in edit} != {row.name for row in caps.mode("generate").looks}
+    for row in edit:
+        for name, sentence in row.options:
+            assert ("[the region you marked]" in sentence) == (row.name == "Retouch"), name
+
+
 def test_the_look_rows_go_style_then_shot_then_subject():
     looks = capabilities().mode("generate").looks
     assert [row.name for row in looks] == [

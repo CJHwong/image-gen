@@ -33,7 +33,7 @@ model.
 """
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
-from studio.l3_interface_adapters.gateways.prompt_aids import pick_looks, pick_templates
+from studio.l3_interface_adapters.gateways.prompt_aids import EDIT_LOOKS, pick_looks, pick_templates
 from studio.l3_interface_adapters.gateways.qwen_image_sizes import EDIT_MATCH_CAP, EDIT_RESOLUTIONS, SIZES
 
 MATCH = "match"
@@ -179,6 +179,13 @@ EDIT = ModeSpec(
     prompt_hint="For example: make it night, with the lights on",
     prompt_required="An edit instruction is required.",
     templates=EDIT_TEMPLATES,
+    # The edit rows, all six of them and every option, because this model's own sample kept
+    # the lot: 15 options on 2026-10-10, six steps, one seed, 768 on the short side, each one
+    # beside the bare fixture. Nothing was cut, which is why this is the shared catalog and
+    # not a picked subset. The whole-frame rows land the same way forty steps does, and the
+    # Retouch rows land too, with the mark spilling the way the base model's does.
+    # PROMPTS.md holds the table and what the sample does not settle.
+    looks=EDIT_LOOKS,
     estimate=EDIT_ESTIMATE,
     region_marking=True,
 )

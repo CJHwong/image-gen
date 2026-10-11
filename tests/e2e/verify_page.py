@@ -891,9 +891,15 @@ with sync_playwright() as playwright:
     )
 
     # Mode switch and cancel
+    # The edit form offers its own Look: six finishing rows, and none of the generate ones,
+    # because the edit model keeps the rest of the picture and a style row tuned for a run
+    # that draws has no place in it. A generate pick does not survive the switch either,
+    # which the check below reads.
+    edit_rows = [name.text_content() for name in page.locator("#look-rows .look-row .label").all()]
     check(
-        "edit shows no Look, since qwen21 declares none for it",
-        page.locator("#look-rows").get_by_role("button").count() == 0,
+        "edit offers the six finishing rows and none of the generate ones",
+        edit_rows == ["Exposure", "White balance", "Grade", "Lens", "Finish", "Retouch"],
+        ", ".join(edit_rows),
     )
     page.click("label[for=mode-generate]")
     toggle_look(page, "Light", "Overcast")
