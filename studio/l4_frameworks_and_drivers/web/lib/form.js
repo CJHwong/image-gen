@@ -336,16 +336,32 @@ function estimate() {
 // What stops a run, said on the button itself rather than as an error after.
 function blocker() {
   const region = page.region();
+  // A press writes into this form, and a run frees the rewriter the press is writing with:
+  // `run_image_use_case` releases it, because the rewriter does not fit beside an engine. So
+  // a run waits for the press. The keyboard shortcut obeys this for free, since it asks the
+  // button's own disabled state.
+  if (rewriteStage !== 'idle') return 'Wait for the rewrite to finish';
   if (editing() && !page.references().length) return 'Add an image to edit';
   // With a region marked, the per area rows are the prompt, so the field is not
   // asked for one.
   const regions = region.count();
-  if (!regions && !page.el.promptInput.value.trim()) return editing() ? 'Describe the change' : 'Write a prompt';
+  // An edit run may be driven by a Look pick alone, because the pick is the whole
+  // instruction: a grade or a retouch sentence needs no typed words beside it. A
+  // generate run still asks for the user's own words, since a pick there is a style
+  // over a subject rather than an instruction. The sentence is what is read, not the
+  // picked labels, so a pick that matches no option cannot pass this and then reach
+  // the server as nothing.
+  const picked = Boolean(lookText());
+  if (!regions && !page.el.promptInput.value.trim() && !(editing() && picked)) {
+    return editing() ? 'Describe the change' : 'Write a prompt';
+  }
   // The region token is not the user's to fill: the page replaces it with the
   // number of the image carrying the mask. Without a drawn region there is no
   // such image, so the run waits for one. With the tool off, the wait would never
-  // end, so that case names the way out instead.
-  if (region.mentions(page.el.promptInput.value) && !regions) {
+  // end, so that case names the way out instead. A Look pick carries the token too:
+  // a Retouch option names the area it wants, and it wants one just as much.
+  const names = region.mentions(page.el.promptInput.value) || region.mentions(lookText());
+  if (names && !regions) {
     return region.markable() ? 'Draw the region this prompt names' : 'Remove all but one image, to draw a region';
   }
   const typed = region.withoutMarker(page.el.promptInput.value);
@@ -357,7 +373,9 @@ function blocker() {
     // changes.
     const named = region.mentions(page.el.promptInput.value);
     const silent = region.colours().filter(function (colour) { return !region.text(colour).trim(); });
-    if (!named && silent.length) return 'Say what changes in the ' + region.name(silent[0]) + ' area';
+    // A pick names the change, so it takes the row's place: the sentence the page writes
+    // carries the pick, and the row stays a second way to say the same thing.
+    if (!named && silent.length && !picked) return 'Say what changes in the ' + region.name(silent[0]) + ' area';
     // The page writes a sentence around the row, so a bare phrase is a fragment:
     // "to green" would read as "to green in the orange area of <image2>". A comma
     // means the row carries its own clause, and an instruction may open with a
@@ -614,6 +632,10 @@ function picksHere(picks) {
 function withLook(prompt) {
   const added = lookText();
   if (!added) return prompt;
+  // A pick may be the whole instruction, and then nothing was typed beside it: a run
+  // driven by a pick alone must not open on the full stop of a sentence that is not
+  // there. It used to, and the model read a stray period before the instruction.
+  if (!prompt.trim()) return added;
   return (/[.!?。！？]$/.test(prompt) ? prompt : prompt + '.') + ' ' + added;
 }
 
@@ -651,9 +673,14 @@ function setupModes() {
 // is a button rather than something a run does on its own: the rewritten text
 // lands in the box, where it can be read and edited before any image time is
 // spent. It is offered only where the backend declares a rewriter for the mode
-// on screen, and it sends the prompt WITH the Look sentences, because the Look
-// is part of what the user asked for and the rewriter's job is to write all of
-// it out at length.
+// on screen.
+//
+// One writer per sentence. This sends the words in the box, and nothing else. A
+// Look sentence and a region row are the page's own: each one was sampled on the
+// model before it was offered, so its wording is the measured part, and the run
+// adds it once at submit. Sending the Look here as well reached the model twice,
+// once written out by the rewriter and once verbatim beside it, and the card then
+// named the Look under both of its own terms.
 //
 // A toggle that rewrote each run was tried first. It cannot be built this way:
 // htmx handles the submit from a listener of its own, and a listener added
@@ -666,15 +693,38 @@ function setupModes() {
 // `writing` offers Cancel.
 const rewriteStages = {
   preparing: { title: 'The rewriter is getting its weights ready', status: 'The rewriter is getting ready' },
-  writing: { title: 'Stop the rewrite and keep the prompt you typed', status: 'Rewriting the prompt, about 30s' },
+  writing: { title: 'Stop the rewrite and keep what is already written', status: 'Rewriting, about 30s' },
   stopping: { title: 'Stopping the rewrite', status: 'Stopping the rewrite' },
 };
 let rewriteStage = 'idle';
 let rewritePoll = null;
+// Which item of the press is being rewritten, so the readout can say where it is, and
+// what the press in flight holds, so a row that changes under it cannot move the count.
+let rewriteDone = 0;
+let rewriteQueue = [];
 
-// The text you typed before a rewrite replaced the box. Held apart so the card
-// keeps your own words, which the rewritten paragraph otherwise overwrites.
+// The text you typed before a rewrite replaced the box. Held apart so Reuse
+// prompt hands back your own words and not the paragraph a model wrote.
 let rewrittenFrom = null;
+
+// What one press rewrites, in order: the words in the box, then the words in each
+// marked area, in the order the areas were drawn. Each answer lands where its
+// instruction lives, so nothing is written twice, and a marked run whose rows carry
+// the whole instruction can be rewritten with the box empty.
+function rewriteItems() {
+  const items = [];
+  if (page.el.promptInput.value.trim()) items.push({ kind: 'prompt' });
+  const region = page.region();
+  region.colours().forEach(function (colour) {
+    const text = region.text(colour).trim();
+    if (text) items.push({ kind: 'row', colour: colour, text: text });
+  });
+  return items;
+}
+
+function rewriteWhere(item) {
+  return item.kind === 'prompt' ? 'the prompt' : 'the ' + page.region().name(item.colour) + ' area';
+}
 
 function rewriteOffered() {
   return (page.studio.rewrite_modes || []).indexOf(currentMode().id) >= 0;
@@ -692,22 +742,60 @@ function showRewriteVerb(button, stage) {
 function renderRewriteButton() {
   const button = document.getElementById('rewrite-toggle');
   if (!button) return;
+  // The card's own Edit this empties the form a rewrite writes into, so it reads this and
+  // locks itself while a press runs. The run button waits for the same reason, through
+  // `blocker`. The stage is asked to draw again for those changes, and only when the answer
+  // changes.
+  const writing = rewriteStage !== 'idle';
+  if (document.body.classList.contains('rewriting') !== writing) {
+    document.body.classList.toggle('rewriting', writing);
+    renderRunButton();
+    page.renderStage();
+  }
   button.hidden = !rewriteOffered();
-  const empty = !page.el.promptInput.value.trim();
+  const items = rewriteItems();
   showRewriteVerb(button, rewriteStage);
   button.disabled = rewriteStage === 'preparing' || rewriteStage === 'stopping'
-    || (rewriteStage === 'idle' && (page.busy() || empty));
+    || (rewriteStage === 'idle' && (page.busy() || !items.length));
   const stage = rewriteStages[rewriteStage];
-  button.title = stage ? stage.title : (empty
-    ? 'Write a prompt to rewrite first. A marked run takes its instruction in the region rows.'
-    : 'Rewrite the prompt into a longer instruction before generating');
+  button.title = stage ? stage.title : rewriteTitle(items.length);
   // The readout belongs to a run while one is going, so a rewrite only borrows
   // it when nothing else is. Without this a press looks like nothing happened
   // for half a minute, and the button stays live for a second press.
   if (page.busy()) return;
   const status = document.getElementById('status');
   status.hidden = rewriteStage === 'idle';
-  if (stage) page.el.statusText.textContent = stage.status;
+  if (stage) page.el.statusText.textContent = rewriteStage === 'writing' ? rewriteStatus() : stage.status;
+}
+
+// What the button promises, in the mode on screen. A generate run draws a picture and has
+// no marked areas, so there the words in the box are the only thing a press can write out.
+function rewriteTitle(hasItems) {
+  if (hasItems) {
+    return editing()
+      ? 'Rewrite the words you typed, and the words in the marked areas'
+      : 'Rewrite the prompt into a longer instruction before generating';
+  }
+  return editing()
+    ? 'Write a prompt, or say what changes in a marked area, to rewrite it first'
+    : 'Write a prompt to rewrite first';
+}
+
+// Where the press is, for the readout: which part is being written now, where it stands,
+// and what the whole press costs. The rewriter writes for 22 to 32 seconds on a warm load
+// whatever it is asked about, so a press over three parts takes about three times as long
+// as one, and the readout has to say so: it used to quote the one-part time either way.
+const REWRITE_SECONDS = 30;
+
+function rewriteStatus() {
+  // The last part stays named while its own answer lands, so the readout does not fall
+  // back to a nameless one for the moment between the last answer and the release.
+  const item = rewriteQueue[Math.min(rewriteDone, rewriteQueue.length - 1)];
+  if (!item) return rewriteStages.writing.status;
+  const where = 'Rewriting ' + rewriteWhere(item);
+  if (rewriteQueue.length === 1) return where + ', about ' + spell(REWRITE_SECONDS);
+  const at = ', ' + (rewriteDone + 1) + ' of ' + rewriteQueue.length;
+  return where + at + ', about ' + spell(rewriteQueue.length * REWRITE_SECONDS) + ' in all';
 }
 
 // What the rewriter reports is the page's only view of the job while the answer
@@ -740,20 +828,36 @@ function stopRewritePoll() {
   rewritePoll = null;
 }
 
-// The press that starts a job. The panel is held for the whole of it, and the
-// poll runs until the request settles, whichever way it settles.
+// The press that starts a job, and the whole of it: the box's words first when there
+// are any, then each marked area's own words. The panel is held across all of them, and
+// the poll runs until the request settles, whichever way it settles. A cancel stops the
+// press where it is: what is already written stays, and the areas after it are left as
+// they were.
 async function startRewrite() {
+  const items = rewriteItems();
+  if (!items.length) return;
+  rewriteQueue = items;
   rewriteStage = 'preparing';
+  rewriteDone = 0;
   holdPanel('Locked while the prompt is being rewritten.', true);
   renderRewriteButton();
   pollRewriteState();
-  try {
-    await rewritePrompt();
-  } catch (error) {
-    page.notify('error', 'The rewrite failed: ' + error.message);
+  for (const item of items) {
+    let result;
+    try {
+      result = item.kind === 'prompt' ? await rewritePrompt() : await rewriteRow(item);
+    } catch (error) {
+      page.notify('error', 'The rewrite failed: ' + error.message);
+      break;
+    }
+    if (result && result.cancelled) break;
+    rewriteDone += 1;
+    renderRewriteButton();
   }
   stopRewritePoll();
   rewriteStage = 'idle';
+  rewriteQueue = [];
+  rewriteDone = 0;
   holdPanel('Locked while the prompt is being rewritten.', false);
   renderRewriteButton();
 }
@@ -770,14 +874,13 @@ function cancelRewrite() {
   });
 }
 
-async function rewritePrompt() {
-  const promptInput = page.el.promptInput;
-  const typed = promptInput.value.trim();
+// One question to the rewriter, and its answer. The pictures the run carries go with
+// it, and not the mask: the mask is a technical picture, and the rewriter is asked
+// about the scene.
+async function askRewriter(prompt) {
   const body = new URLSearchParams();
   body.set('mode', currentMode().id);
-  body.set('prompt', withLook(promptInput.value));
-  // The pictures the run carries, and not the mask: the mask is a technical
-  // picture, and the rewriter is asked about the scene.
+  body.set('prompt', prompt);
   body.set('references', JSON.stringify(page.references().map(function (reference) { return reference.b64; })));
   const answer = await fetch('/rewrite', { method: 'POST', body: body });
   const text = await answer.text();
@@ -788,9 +891,16 @@ async function rewritePrompt() {
     throw new Error(text || answer.statusText);
   }
   if (result.error) throw new Error(result.error);
-  // A cancelled rewrite answers with no prompt, so nothing here is applied: the
-  // box keeps the words the user typed and `rewrittenFrom` stays as it was, so
-  // the card still shows their own sentence.
+  return result;
+}
+
+// The box's own words, written out at length. A cancelled rewrite answers with no
+// prompt, so nothing here is applied: the box keeps the words the user typed and
+// `rewrittenFrom` stays as it was.
+async function rewritePrompt() {
+  const promptInput = page.el.promptInput;
+  const typed = promptInput.value.trim();
+  const result = await askRewriter(typed);
   if (result.cancelled) return result;
   rewrittenFrom = typed;
   promptInput.value = result.prompt;
@@ -798,6 +908,18 @@ async function rewritePrompt() {
   // A shape the rewriter suggested is applied, so the run renders what it
   // described. It arrives as one of this mode's own sizes, or as nothing.
   if (result.size) setSelect(page.el.sizeSelect, result.size);
+  refreshForm();
+  return result;
+}
+
+// One marked area's own words, written out at length. The row is the user's own
+// instruction, so the answer goes back into that row: the box keeps the words that
+// were typed in it, and each sentence has one writer. A shape the rewriter named is
+// not applied here, because an edit takes the shape of the picture it changes.
+async function rewriteRow(item) {
+  const result = await askRewriter(item.text);
+  if (result.cancelled) return result;
+  page.region().setRow(item.colour, result.prompt.trim());
   refreshForm();
   return result;
 }
@@ -1025,7 +1147,7 @@ function wire() {
     // weights, because a load has nothing to stop.
     if (rewriteStage === 'writing') { cancelRewrite(); return; }
     if (rewriteStage !== 'idle') return;
-    if (page.busy() || !el.promptInput.value.trim()) return;
+    if (page.busy() || !rewriteItems().length) return;
     startRewrite();
   });
 

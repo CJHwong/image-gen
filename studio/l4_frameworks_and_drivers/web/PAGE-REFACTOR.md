@@ -722,6 +722,113 @@ branches.
 The two other consumers of the page stay green: `verify_capabilities.py` at 61
 of 61 and `verify_storage.py` at 20 of 20.
 
+## The Look, the rewrite and the mark
+
+The user's words: "i always think the rewrite should be work more closely with look and
+mark." The reading found the three already met, in five places, and the meeting wrong in
+three of them. All three were one fault: a sentence written twice on its way to the
+model.
+
+The page composes two kinds of sentence, and one writer per sentence is the rule. The
+prompt box is the user's, and the rewriter rewrites it. A Look sentence and a region row
+are the page's own: each was sampled on the model before it was offered, so its wording is
+the measured part, and the run adds each of them once, at submit.
+
+| What was read on the stub | Before | After |
+|---|---|---|
+| the prompt a run posts after a rewrite, with a Look picked | the Look sentence twice | once |
+| the terms the card names for that frame | the Look under `Prompt` and under `Look` | under `Look` alone |
+| the caption of a marked run that carried a pick | the pick twice, and the pin cut mid-word | the sentence whole |
+
+Every reading is from the stub, which fakes the model. All three are the page's own
+composition, so no model was needed to see them.
+
+Two further readings were dropped, because `verify_page.py` already pins both as
+deliberate: Reuse prompt hands back the words typed before a rewrite and not the
+paragraph, and a marked run's card keeps the lead and not the sentence composed around
+the region rows. The first is "your own words survive a rewrite", the second is "the card
+keeps the user's words, not the composed sentence".
+
+### The five checks, and how each one was proved
+
+Five checks pin the readings above.
+
+| Check | The claim |
+|---|---|
+| a rewrite is asked about the words in the box, and not the Look beside them | the body posted to `/rewrite` is the box's own text |
+| a run after a rewrite carries the Look once, and carries what the rewrite wrote | the posted prompt holds the Look sentence once |
+| the card names the Look apart from the prompt the rewrite wrote | the sheet's two terms do not both hold the Look |
+| the caption of a marked run keeps its sentence whole, with the pick in it once | the caption ends with the pin, and holds the pick once |
+| Reuse prompt hands back the words typed before the rewrite, and keeps the Look | the box and the pick, after a reuse |
+
+Three mutations, all in one copy of the tree and served from inside that copy, with a
+control that had nothing mutated. The copy carried every one of them at once, so each row
+below reads from the same run: 156 of 161, five failures, and no check outside the five.
+
+| Mutation | What failed |
+|---|---|
+| the rewrite is sent the Look beside the prompt again | 3 checks: the posted body, the Look once on the wire (it read twice), and the card's two terms for the Look |
+| a caption cuts its last sentence off by the pick's length | 1 check: the caption of a marked run |
+| Reuse prompt hands back the card's prompt and not the typed words | 1 check: Reuse prompt hands back the words typed before the rewrite |
+| nothing | none: 161 of 161 |
+
+What these checks do not settle is the real rewriter's own wording: the stub writes one
+sentence and the real model writes a paragraph. The claim is about what the page sends and
+what it records. `verify_page.py` runs the page on the model, and its rewrite flow picks
+no Look, so the rewrite half of this change is read on the stub alone.
+
+### One press rewrites the box and every marked area
+
+The user's own words: "how do i rewrite the mark input?", and then "one press that rewrites
+every filled row". A marked run's instruction can live in the box, in an area's own row, or
+in both. One press covers the lot, in the order the form reads: the box's words first, then
+the areas as they were drawn. Each answer lands where its own words were, so nothing is
+written twice and no sentence changes hands.
+
+| Piece | How |
+|---|---|
+| what a press covers | `rewriteItems` in `lib/form.js`: the box, then each drawn colour that carries words |
+| what one area is asked | its own row's text, with the mode and the pictures, through the same `/rewrite` route |
+| where an answer lands | back in that row, through `setRow` in `components/region-mark.js` |
+| what the readout says | "Rewriting the orange area, 2 of 3, about 1 min 30s in all". A press quotes the whole press, not the one-part time it used to quote for any size |
+| what a cancel does | it stops the press where it is: the areas after it keep the words they had |
+| what waits for the press | the run button, which says "Wait for the rewrite to finish", and the card's whole ⋯ menu. A run frees the rewriter the press is writing with, and the menu writes the box it is filling |
+| what stays locked | the card's Edit this, which switches the mode and would empty the form under the press. It reads `rewriting`, a body class the rewrite button publishes |
+
+The run and the press are one hole, found by the stub shakedown and not by reading: a run
+asked for during a press was taken by the server, and `run_image_use_case` releases the
+rewriter, because it does not fit beside an engine. So the press lost the model it was
+writing with, and the readout went dark while it kept writing. The run now waits, which the
+keyboard shortcut takes for free: it asks the button's own disabled state. The card's menu
+waits with it, since every item behind it writes the form.
+
+`setRow` writes the row's own input and does not redraw the rows, because
+`renderRegionRows` keeps the rows it has while the set of colours holds, which is exactly
+the case when one area's words change under the user. The region stub on the page gained
+one question, `colours`, whose true answer with nothing drawn is none, so the rewrite
+button can ask it before the module arrives.
+
+Six checks read the press on the stub. What they do not settle is the real rewriter's own
+wording for a row: one rewrite of a row on the office machine answers whether its answer
+names the area itself, which would double the phrase the page wraps around it.
+
+The page also says the rule where a user reads it, which the manual had never done: the
+guide names the Look and the Rewrite, the tail under the prompt labels its quoted sentence
+as the one the run adds after your words, the note by the region rows says that the change
+can still reach past the mark, and the Look note says that the rewriter writes out the
+words you typed and leaves the Look to the run. That last one answers a dead button: with
+an empty box the Rewrite button is off, and its reason had been a tooltip alone, where the
+run button's reason is the line under it. Four more checks read those four places.
+
+`verify_page.py` passed 183 of 183 on the office machine, against the tree the stub run
+verified. One of its checks reads the branch this change touched: its generate run picks
+the Overcast Look, and the check at 619 asserts the caption ends in that Look, muted.
+`verify_capabilities.py` stays at 61 of 61, `verify_storage.py` at 20 of 20, and
+`uv run pytest` at 100 percent of statements and branches.
+
+The suite is 174 checks: five for the readings, four for the copy and the notes, and nine
+for the rewrite press, three of them the run and the card's menu waiting for it.
+
 ## Non-goals
 
 1. No bundler, no npm, no build step.

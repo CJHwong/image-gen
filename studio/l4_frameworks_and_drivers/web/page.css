@@ -199,7 +199,7 @@
   .region-rows { display: flex; flex-direction: column; gap: 8px; }
   .region-row { display: flex; align-items: center; gap: 8px; }
   .region-row .swatch { cursor: default; }
-  .region-row input { flex: 1; min-width: 0; }
+  .region-row input, .region-row textarea { flex: 1; min-width: 0; min-height: 0; }
   /* Before and after: the source image lies over the edit, clipped at the
      slider. The range input covers the image, so a drag anywhere moves it.
      The source is stretched to the picture, because the edit resized the whole

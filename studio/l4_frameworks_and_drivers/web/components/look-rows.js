@@ -146,7 +146,7 @@ class LookAdds extends Drawn {
     if (!added) return html``;
     const picks = page.picks();
     const avoids = page.avoids();
-    return html`${page.rows().flatMap((row) => (picks[row.name] || []).map((label) => html`<button type="button" class="chip" aria-label=${'Remove ' + label} @click=${() => unpick(row, label)}>${label} ×</button>`))}<q>${added}</q>${avoids ? html`<p class="look-avoids">${'Negative prompt adds: ' + avoids + '. Each image takes about twice as long.'}</p>` : ''}`;
+    return html`${page.rows().flatMap((row) => (picks[row.name] || []).map((label) => html`<button type="button" class="chip" aria-label=${'Remove ' + label} @click=${() => unpick(row, label)}>${label} ×</button>`))}<span class="caption">The run adds this after your words:</span><q>${added}</q>${avoids ? html`<p class="look-avoids">${'Negative prompt adds: ' + avoids + '. Each image takes about twice as long.'}</p>` : ''}`;
   }
 }
 

@@ -339,7 +339,8 @@ function harvest() {
       entry.prompt = runLook.prompt || runLook.reader || data.prompt;
       // The user's own words, kept apart so Reuse prompt has them and not the
       // sentence the page composed. A run that is rows only has none, and an empty
-      // box is the honest thing to hand back.
+      // box is the honest thing to hand back. A rewrite puts a model's paragraph in
+      // the box, so what this holds is the text that was in the box before it.
       entry.typed = runLook.typed || runLook.prompt;
       entry.negative = runLook.negative;
       if (runLook.labels.length) entry.look = runLook;
