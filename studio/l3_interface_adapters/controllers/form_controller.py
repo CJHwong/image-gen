@@ -81,6 +81,11 @@ def run_request(form: Mapping[str, str]) -> RunImageRequest:
         total=_whole(form.get("total") or form.get("count") or "1", "count"),
         index=_whole(form.get("index") or "1", "index"),
         backend=form.get("backend", "").strip(),
+        # The page sends it only when the user asked for one result per reference, and only
+        # where the mode declares that it may, so its presence is the whole of the answer.
+        each_reference=bool(form.get("each_reference")),
+        # The page sets this only when it appended the region mask as the last reference.
+        mask=bool(form.get("mask")),
     )
 
 

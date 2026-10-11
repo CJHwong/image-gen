@@ -35,6 +35,7 @@ let runPixels = 0;
 let runEstimate = null;     // the estimate model of the mode in flight
 let runStepSeconds = 0;     // the pre-run guess per step, until real steps arrive
 let batchSource = null;     // the source of a one-image edit, for before and after
+let batchSources = [];      // one source per reference, when the batch edits one image at a time
 let runLook = null;         // the run's own prompt, look and negative, apart from what the model got
 let runSources = [];        // per reference of the run: the frame it came from, or null for an upload
 
@@ -150,6 +151,21 @@ function startWork(element) {
     page.renderStrip();
     page.renderStage();
   }
+}
+
+// The sources are blobs, and only the entries that arrive hold them. A run that made no image,
+// or fewer than it promised, leaves the rest live for the tab's life unless they go back here.
+function revokeUnclaimed() {
+  const held = new Set();
+  page.gallery().forEach(function (entry) {
+    if (entry.before) held.add(entry.before);
+    (entry.sources || []).forEach(function (source) { if (source) held.add(source); });
+  });
+  [batchSource].concat(batchSources).forEach(function (url) {
+    if (url && !held.has(url)) URL.revokeObjectURL(url);
+  });
+  batchSource = null;
+  batchSources = [];
 }
 
 function stopWork() {
@@ -310,6 +326,14 @@ function release(entry) {
   if (entry.before && !shared) URL.revokeObjectURL(entry.before);
 }
 
+// What the wipe compares this result against: the reference it edited, when the batch walked
+// them one at a time, or the one source of a single-image edit, or nothing.
+function beforeOf(data) {
+  const place = Number(data.reference);
+  if (place >= 0) return batchSources[place] || null;
+  return batchSource;
+}
+
 function harvest() {
   const incoming = page.el.incoming;
   incoming.querySelectorAll('.item').forEach(function (node) {
@@ -328,8 +352,10 @@ function harvest() {
       // The model's id beside its name, because a download names a file with it and
       // a file name cannot carry the capitals and the spaces the edge draws.
       backendId: page.backendId,
-      sources: runSources,
-      before: data.mode === 'edit' ? batchSource : null,
+      // A batch of one result each edited one picture, so it says so. Composed, every
+      // reference really did go into it, which is what all of them means.
+      sources: Number(data.reference) >= 0 ? [runSources[Number(data.reference)] || ''] : runSources,
+      before: data.mode === 'edit' ? beforeOf(data) : null,
     };
     if (runLook && data.prompt === runLook.sent) {
       // The user's own words, so the card does not read back the sentence the
@@ -427,6 +453,12 @@ function listen() {
     // a wipe between them would mislead.
     batchSource = page.editing() && references.length === 1
       ? blobUrl('data:image/png;base64,' + references[0].b64) : null;
+    // One result per reference edits each picture on its own, so every result has a source to
+    // wipe against. Composed, no single one lines up, which is what batchSource being null says.
+    const chosen = event.detail.elt.querySelector('input[name=each_reference]:checked');
+    batchSources = page.editing() && chosen && chosen.value === '1'
+      ? references.map(function (reference) { return blobUrl('data:image/png;base64,' + reference.b64); })
+      : [];
     runSources = references.map(function (reference) { return reference.source; });
     const own = page.el.promptInput.value.trim();
     runLook = {
@@ -435,10 +467,15 @@ function listen() {
       picks: JSON.parse(JSON.stringify(page.look())), negative: page.typedNegative(),
     };
     event.detail.parameters.prompt = runLook.sent;
+    // What the run is charged for. With one result per reference the count is what each
+    // reference gets, so the batch costs that many times the references, and the server's bound
+    // is on the images it makes. Posting the product keeps the two the same number.
+    event.detail.parameters.count = String(page.imageCount());
     if (page.paramSpec('negative')) event.detail.parameters.negative = page.negativeText();
     // A marked region rides as the last image, and the prompt names that image,
     // so the model is told which one carries the mask.
     const mask = region.mask();
+    event.detail.parameters.mask = mask ? '1' : '';
     if (mask) {
       // Measured 2026-09-26: one clause per region, each naming the colour the mask
       // carries, then one line pinning the rest of the picture.
@@ -473,7 +510,10 @@ function listen() {
     // A /progress response settles once a second. It is not the end of the run,
     // and treating it as one used to clear the busy state mid-generation.
     if (sideChannel(event)) return;
-    if (!document.querySelector('.chain')) stopWork();
+    if (!document.querySelector('.chain')) {
+    revokeUnclaimed();
+    stopWork();
+  }
   });
   document.body.addEventListener('htmx:responseError', stopWork);
   document.body.addEventListener('htmx:sendError', function () {

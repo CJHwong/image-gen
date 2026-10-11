@@ -167,6 +167,16 @@
             <reference-list></reference-list>
           </div>
           <input id="reference" type="file" accept="image/*" hidden>
+          <!-- What several images mean. Composed into one picture is what an edit from several
+               has always done; one result each is the batch. The mode declares whether the page
+               may offer the choice, so a form that does not declare it is the form it was. -->
+          <div class="seg" id="each-choice" hidden>
+            <input type="radio" name="each_reference" id="each-all" value="" checked>
+            <label for="each-all">One picture from all</label>
+            <input type="radio" name="each_reference" id="each-each" value="1">
+            <label for="each-each">One result each</label>
+          </div>
+          <p class="caption" id="each-note" hidden></p>
         </div>
 
         <div class="field strength-field" data-param="strength">
@@ -791,6 +801,7 @@
       currentMode: formApi.currentMode,
       paramSpec: formApi.paramSpec,
       withLook: formApi.withLook,
+      imageCount: formApi.imageCount,
       lookText: formApi.lookText,
       lookLabels: formApi.lookLabels,
       typedNegative: formApi.typedNegative,

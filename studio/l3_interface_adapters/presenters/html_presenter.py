@@ -18,7 +18,7 @@ from studio.l2_use_cases.run_image_use_case import NextRun, RunImageResponse
 
 ITEM = """<div class="item" data-seed="{seed}" data-width="{width}" data-height="{height}"
   data-steps="{steps}" data-elapsed="{elapsed:.0f}" data-position="{position}"
-  data-mode="{mode}" data-prompt="{prompt}"><img src="data:image/png;base64,{b64}" alt=""></div>"""
+  data-mode="{mode}" data-prompt="{prompt}" data-reference="{reference}"><img src="data:image/png;base64,{b64}" alt=""></div>"""
 
 CHAIN = (
     '<div class="chain" data-progress="{progress}" hx-post="/generate"'
@@ -73,6 +73,7 @@ class HtmlPresenter:
             elapsed=response.elapsed,
             prompt=html.escape(response.prompt, quote=True),
             mode=response.mode,
+            reference=response.reference,
         )
         return item + (self._chain(response.next_run) if response.next_run else "")
 
@@ -118,6 +119,10 @@ class HtmlPresenter:
             "reference_token": next_run.reference_token,
             "backend": next_run.backend,
         }
+        if next_run.each_reference:
+            values["each_reference"] = "1"
+        if next_run.mask:
+            values["mask"] = "1"
         return CHAIN.format(
             progress=f"{next_run.index} of {next_run.total}", values=html.escape(json.dumps(values), quote=True)
         )

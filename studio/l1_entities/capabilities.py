@@ -135,6 +135,12 @@ class ModeSpec:
     rides as one more reference, so the mode needs a slot for it: max_references
     has to leave room past min_references."""
 
+    each_reference: bool = False
+    """Several references may mean two things, and the page offers both only where this
+    says so: composed into one picture, which is the default, or edited one at a time,
+    each reference getting its own result from the same prompt. A mode that edits one
+    picture at a time, or that reads several as one scene, leaves this off."""
+
     def __post_init__(self) -> None:
         # The mask is one more reference, so a mode that offers the tool has to be
         # able to carry the picture and the mask. Without this check the page would

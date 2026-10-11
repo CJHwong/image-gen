@@ -102,3 +102,11 @@ def test_the_look_rows_go_style_then_shot_then_subject():
     for row in looks[:1] + looks[2:]:
         for _, sentence in row.options:
             assert not any(stock in sentence for stock in ("Portra", "Tri-X", "Fuji", "Ektachrome")), row.name
+
+
+def test_only_the_edit_mode_edits_each_reference_on_its_own():
+    """Several references mean one picture in generate, where they are the scene, and they can
+    mean one result each in edit, which is the batch the page offers. The page draws that choice
+    only where a mode declares it, so the declaration is what this pins."""
+    assert qwen21_capabilities("bf16").mode("generate").each_reference is False
+    assert qwen21_capabilities("bf16").mode("edit").each_reference is True

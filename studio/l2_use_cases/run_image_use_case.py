@@ -41,6 +41,8 @@ class RunImageRequest:
     total: int = 1
     index: int = 1
     backend: str = ""  # the backend the page was built for; blank skips the check
+    each_reference: bool = False  # one image of the batch per reference, instead of one of all
+    mask: bool = False  # the last reference is the region mask, which is nobody's own picture
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,8 @@ class NextRun:
     index: int
     reference_token: str
     backend: str
+    each_reference: bool = False
+    mask: bool = False
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,9 @@ class RunImageResponse:
     position: str  # "2 of 4", or "1 image"
     elapsed: float  # seconds, loads included
     next_run: NextRun | None
+    reference: int = -1
+    """Which reference of the batch this image edited, or -1 when all of them made one
+    picture. The page uses it to line the result up with the image it came from."""
 
 
 class RunImageUseCase:
@@ -109,15 +116,25 @@ class RunImageUseCase:
         backend = self._catalog.get(backend_id)
         capabilities = backend.capabilities()
         mode = capabilities.mode(request.mode)
-        if not 1 <= request.total <= capabilities.max_batch:
-            raise InvalidJob(f"count must be between 1 and {capabilities.max_batch}")
         images, token = self._load_references(request, mode)
+        # The mode is what declares the two meanings of several references, so a page that asks
+        # for the other one where the model was not built for it gets the declared behaviour.
+        # A mask is one more image of the run that carries it, not a member of a batch: the
+        # page appends it last, and walking it would edit the mask itself as a picture.
+        each = request.each_reference and mode.each_reference and not request.mask
+        # The count means what the mode means by it: with the references composed into one
+        # picture it is the images that run makes, and with one image per reference it is what
+        # each reference gets. So the limit multiplies too.
+        limit = capabilities.max_batch * (len(images) if each else 1)
+        if not 1 <= request.total <= limit:
+            raise InvalidJob(f"count must be between 1 and {limit}")
+        chosen, reference = self._one_reference(request, images, each)
         job = ImageJob(
             mode=mode.id,
             prompt=request.prompt.strip(),
             seed=self._seed(request.seed),
             options=mode.parse_options(request.options),
-            references=images,
+            references=chosen,
         )
         if request.index == 1:
             self._progress.clear_cancel()  # a fresh batch, so a stale cancel goes
@@ -139,6 +156,7 @@ class RunImageUseCase:
             position=label or "1 image",
             elapsed=self._clock() - started,
             next_run=next_run,
+            reference=reference,
         )
 
     def _load_references(self, request: RunImageRequest, mode: ModeSpec) -> tuple[tuple[ReferenceImage, ...], str]:
@@ -189,6 +207,22 @@ class RunImageUseCase:
             self._progress.finish()
 
     @staticmethod
+    def _one_reference(
+        request: RunImageRequest, images: tuple[ReferenceImage, ...], each: bool
+    ) -> tuple[tuple[ReferenceImage, ...], int]:
+        """What this run edits, and which reference that is: one, or all of them as one scene.
+
+        With `each_reference` the batch walks the references in turn and the index says which:
+        several images, one each, so a reference keeps its place however many images it was
+        asked for. Every other mode hands them all to one run, which is how several images
+        become one picture, and then there is no single reference to name.
+        """
+        if not each or len(images) < 2:
+            return images, -1
+        place = (request.index - 1) % len(images)
+        return (images[place],), place
+
+    @staticmethod
     def _next_run(
         request: RunImageRequest, mode: ModeSpec, job: ImageJob, image: ImageResult, token: str, backend_id: str
     ) -> NextRun | None:
@@ -206,6 +240,8 @@ class RunImageUseCase:
             index=request.index + 1,
             reference_token=token,
             backend=backend_id,
+            each_reference=request.each_reference,
+            mask=request.mask,
         )
 
     def _drop(self, token: str) -> None:

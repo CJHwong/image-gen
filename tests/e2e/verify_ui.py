@@ -1109,6 +1109,12 @@ with sync_playwright() as playwright:
     # both halves: the whole area is repainted, and the change can still reach past it. The
     # second half is the measured one: at 22 percent coverage, 21.4 percent of the change
     # landed past the object.
+    # A mark is one more image of one run, so there is no batch to make while one is drawn.
+    check(
+        "a drawn region puts the batch choice out of force",
+        page.locator("#each-choice").is_hidden() and page.locator("#each-note").is_hidden(),
+        f"choice hidden {page.locator('#each-choice').is_hidden()}, note hidden {page.locator('#each-note').is_hidden()}",
+    )
     check(
         "the note by the rows says what the mark does, and what it does not",
         "whole marked area is repainted" in page.inner_text("#region-note")
@@ -2402,6 +2408,153 @@ with sync_playwright() as playwright:
         written.evaluate("() => document.body.className"),
     )
     rewrite_context.close()
+
+    # ---- One prompt over several images ------------------------------------------
+    # Several references mean one picture in generate, and in edit they can mean one result
+    # each. The mode declares whether the page may offer that choice, and the choice is what
+    # the count is charged against: the count is what each reference gets. A page of its own
+    # reads it, so the frames the other checks count do not move.
+    batch_context = browser.new_context(viewport={"width": 1440, "height": 900})
+    batched = batch_context.new_page()
+    batched.on("pageerror", lambda error: errors.append("the batch page: " + str(error)))
+    runs_here = []
+    watch_runs(batched, runs_here)
+    batched.goto(URL)
+    set_steps(batched, 1)
+    batched.click("#count-toggle")
+    batched.wait_for_timeout(250)
+    batched.locator("#count-menu button").nth(1).click()
+    batched.fill("#prompt", "a pear on a table")
+    batched.dispatch_event("#prompt", "input")
+    batched.click("#go")
+    wait_until_running(batched)
+    wait_until_idle(batched)
+    batched.wait_for_timeout(800)
+    frames_here = batched.get_by_role("button", name=re.compile(r"^(generate|edit), seed "))
+    check(
+        "the count menu makes as many images as it says",
+        frames_here.count() == 2,
+        f"{frames_here.count()} frames",
+    )
+    # Both of them, one as the image to edit and one as a second reference.
+    frames_here.first.click()
+    batched.get_by_role("button", name="Edit this").click()
+    batched.wait_for_timeout(400)
+    frames_here.nth(1).click()
+    batched.get_by_role("button", name="More actions").click()
+    batched.wait_for_timeout(250)
+    batched.get_by_role("menuitem", name="Use as reference").click()
+    batched.wait_for_timeout(400)
+    check(
+        "the edit form offers what several images may mean, and says which way it is set",
+        batched.locator("#each-choice").is_visible() and "single picture" in batched.locator("#each-note").inner_text(),
+        batched.locator("#each-note").inner_text(),
+    )
+    batched.locator("label[for=each-each]").click()
+    batched.wait_for_timeout(300)
+    check(
+        "choosing one edit each says how many results that is",
+        "2 results" in batched.locator("#each-note").inner_text(),
+        batched.locator("#each-note").inner_text(),
+    )
+    # The count is what each reference gets, so a count above one multiplies the results, and
+    # the caption has to say the same number the button and the run make.
+    batched.click("#count-toggle")
+    batched.wait_for_timeout(250)
+    batched.locator("#count-menu button").nth(1).click()
+    batched.wait_for_timeout(300)
+    check(
+        "a count above one multiplies what the caption promises",
+        "4 results" in batched.locator("#each-note").inner_text(),
+        batched.locator("#each-note").inner_text(),
+    )
+    batched.click("#count-toggle")
+    batched.wait_for_timeout(250)
+    batched.locator("#count-menu button").first.click()
+    batched.wait_for_timeout(300)
+
+    # The press reads the pictures, so one instruction for every image is the user's own. A
+    # batch does not take a rewritten one, and composing brings it back: read before the run,
+    # because the run empties the form it sent, references and all.
+    batched.fill("#prompt", "make them chihuahua")
+    batched.dispatch_event("#prompt", "input")
+    batched.wait_for_timeout(300)
+    check(
+        "a batch does not take a rewritten instruction",
+        batched.locator("#rewrite-toggle").is_disabled()
+        and "write the instruction for all of them" in batched.locator("#each-note").inner_text().lower(),
+        f"disabled {batched.locator('#rewrite-toggle').is_disabled()}",
+    )
+    batched.locator("label[for=each-all]").click()
+    batched.wait_for_timeout(300)
+    check(
+        "composed, the press is offered again",
+        batched.locator("#rewrite-toggle").is_enabled(),
+        batched.locator("#rewrite-toggle").get_attribute("title"),
+    )
+    batched.locator("label[for=each-each]").click()
+    batched.wait_for_timeout(300)
+    check(
+        "and a batch takes it away again, with the words still in the box",
+        batched.locator("#rewrite-toggle").is_disabled()
+        and batched.locator("#prompt").input_value() == "make them chihuahua",
+        f"disabled {batched.locator('#rewrite-toggle').is_disabled()}, box {batched.locator('#prompt').input_value()!r}",
+    )
+
+    batched.fill("#prompt", "make the background a stone wall")
+    batched.dispatch_event("#prompt", "input")
+    check(
+        "the run button promises the images the whole batch makes",
+        "2 images" in batched.locator("#go-sub").inner_text(),
+        batched.locator("#go-sub").inner_text(),
+    )
+    before_here = frames_here.count()
+    batched.click("#go")
+    wait_until_running(batched)
+    wait_until_idle(batched)
+    batched.wait_for_timeout(1000)
+    check(
+        "one press gives one result for each reference",
+        frames_here.count() == before_here + 2,
+        f"{before_here} before, {frames_here.count()} after",
+    )
+    # Each result came from one of the two references, so each has a source to wipe against:
+    # the composed edit cannot, which is why it has none.
+    wipes = []
+    for index in range(frames_here.count()):
+        frames_here.nth(index).click()
+        batched.wait_for_timeout(250)
+        wipes.append(batched.get_by_role("button", name="Compare").count())
+    check(
+        "each result of the batch offers its own before and after",
+        wipes == [1, 1, 0, 0],
+        f"wipes per frame {wipes}",
+    )
+    # A result of the batch edited one of the two pictures, so its card names that one. Naming
+    # both, or naming the same one twice, is what this reads: the wipe existing is not enough.
+    edited = []
+    for index in range(2):
+        frames_here.nth(index).click()
+        batched.wait_for_timeout(300)
+        edited.append(stage_text(batched))
+    check(
+        "each result names the picture it edited, and they are not the same one",
+        len({text for text in edited}) == 2 and all("Edited from" in text for text in edited),
+        f"{edited[0][:50]!r} / {edited[1][:50]!r}",
+    )
+    # The choice belongs to the mode that declares it, and it goes back with the words when the
+    # mode changes, or a stale choice would outlive the references it was made about.
+    batched.click("label[for=mode-generate]")
+    batched.wait_for_timeout(300)
+    batched.click("label[for=mode-edit]")
+    batched.wait_for_timeout(300)
+    check(
+        "a mode switch puts the choice back with the words it was made about",
+        batched.locator("#each-all").is_checked() or not batched.locator("#each-choice").is_visible(),
+        f"all checked {batched.locator('#each-all').is_checked()}, visible {batched.locator('#each-choice').is_visible()}",
+    )
+
+    batch_context.close()
 
     # ---- What the run button is called, and what a role query reaches ----------
     # The button's name is composed from the DOM, not from the cascade: the page

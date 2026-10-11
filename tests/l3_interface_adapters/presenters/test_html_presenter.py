@@ -42,10 +42,16 @@ def chain_values(body):
     return json.loads(html.unescape(found.group(1)))
 
 
-def response(next_run=None):
+def response(next_run=None, reference=-1):
     image = ImageResult(png=b"\x89PNGdata", width=640, height=480, seed=9, steps=8)
     return RunImageResponse(
-        image=image, mode="generate", prompt='a "red" apple', position="1 of 2", elapsed=12.4, next_run=next_run
+        image=image,
+        mode="generate",
+        prompt='a "red" apple',
+        position="1 of 2",
+        elapsed=12.4,
+        next_run=next_run,
+        reference=reference,
     )
 
 
@@ -178,3 +184,45 @@ def test_progress_carries_numbers_and_the_next_poll():
     assert 'data-stage="running" data-step="3" data-total="8" data-label="1 of 2" data-stopping="1"' in body
     assert body.endswith('hx-target="#progress" hx-swap="innerHTML"></div>')
     assert presenter().progress(RunProgress()).startswith("<div hx-get")
+
+
+def test_the_chain_remembers_that_each_image_is_edited_on_its_own():
+    """The chain re-posts what it needs, and the meaning of several references is part of it:
+    without this the second image of a one-each batch would compose them instead."""
+    nxt = NextRun(
+        mode="edit",
+        prompt="p",
+        seed=10,
+        options={"steps": "8"},
+        total=2,
+        index=2,
+        reference_token="tok",
+        backend="fake",
+        each_reference=True,
+    )
+    assert chain_values(presenter().run(response(nxt)))["each_reference"] == "1"
+
+
+def test_a_result_names_the_reference_it_came_from():
+    """The page lines a batch result up with the picture it edited from this number, so the
+    before and after wipe shows that pair. Composed, there is no single one, and it is -1."""
+    item = presenter().run(response(reference=1))
+    assert 'data-reference="1"' in item
+    assert 'data-reference="-1"' in presenter().run(response())
+
+
+def test_the_chain_carries_which_image_is_the_mask():
+    """A masked batch's second request needs to know the mask from the picture, or it walks the
+    mask as one more reference to edit."""
+    nxt = NextRun(
+        mode="edit",
+        prompt="p",
+        seed=10,
+        options={"steps": "8"},
+        total=2,
+        index=2,
+        reference_token="tok",
+        backend="fake",
+        mask=True,
+    )
+    assert chain_values(presenter().run(response(nxt)))["mask"] == "1"
