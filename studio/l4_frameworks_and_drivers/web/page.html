@@ -152,7 +152,7 @@
           </div>
           <div class="region-rows" id="region-rows"></div>
           <p class="caption" id="region-preview"></p>
-          <p class="caption" id="region-note">The whole marked area is repainted, so keep the mark close to what changes.</p>
+          <p class="caption" id="region-note">The whole marked area is repainted, so keep the mark close to what changes. The change can still reach past it.</p>
         </div>
 
         <div class="field">
@@ -195,7 +195,7 @@
         <details id="look">
           <summary>Look <look-values class="values" id="look-values"></look-values></summary>
           <look-rows class="look" id="look-rows"></look-rows>
-          <p class="look-note">Each pick adds a sentence after your prompt.</p>
+          <p class="look-note"><span class="generate-only">Each pick adds a sentence after your prompt.</span><span class="edit-only">Each pick adds a sentence after your instruction, and a Retouch pick applies to the area you mark.</span> The Rewrite button writes out the words you typed, and the words in the marked areas. The Look is added after them.</p>
         </details>
 
         <details id="advanced">
@@ -375,17 +375,19 @@
   // module asks the page for what it owns and the module cannot see.
   //
   // The module is deferred, so the page's own draws ask the region questions
-  // before its handle arrives. These are the five they ask, and the answers are
+  // before its handle arrives. These are the six they ask, and the answers are
   // the true ones while nothing is drawn, which is the case until the module is
   // here. The module replaces the whole object on `region-mark-ready`. A question
   // a user action asks is not answered here: the module is deferred, so it is
-  // loaded before the page is, the way the menus are.
+  // loaded before the page is, the way the menus are. `colours` is the rewrite
+  // button's own question, and with nothing drawn the true answer is none.
   let region = {
     sync: function () {},
     preview: function () {},
     dropStale: function () {},
     onPrint: function () { return false; },
     count: function () { return 0; },
+    colours: function () { return []; },
   };
   document.addEventListener('region-mark-ready', function (event) {
     region = event.detail.configure({
@@ -397,6 +399,10 @@
       // The mode in force declares whether it takes a region at all.
       regionMarking: function () { return Boolean(formApi.currentMode().region_marking); },
       prompt: function () { return promptInput.value; },
+      // The picks are instructions the run carries, so a marked run needs them to write
+      // the sentence it sends, and the sentence itself to know whether there is one.
+      withLook: formApi.withLook,
+      lookText: formApi.lookText,
       // The stage and the sidebar are the page's. The module asks for their
       // redraws and never sequences a render it does not own.
       redraw: renderStage,
@@ -553,6 +559,9 @@
       edgeName: EDGE_NAME,
       notify: showToast,
       busy: busy,
+      // Whether a rewrite is writing. The card's Edit this empties the form a rewrite
+      // writes into, so it is locked while one runs.
+      rewriting: function () { return document.body.classList.contains('rewriting'); },
       editing: formApi.editing,
       currentMode: formApi.currentMode,
       paramSpec: formApi.paramSpec,

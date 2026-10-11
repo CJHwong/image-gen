@@ -115,12 +115,16 @@ function madeBadge(entry) {
 }
 
 function renderTopPlate() {
-  // The readout is for a run: it says what the engine is doing and how long it has
-  // been doing it. "Ready" said nothing, so the line waits for a run and goes with it.
+  // The readout is for a job: a run says what the engine is doing and how long it has been
+  // doing it, and a rewrite press says which part it is writing. "Ready" said nothing, so the
+  // line waits for one of them and goes with it. It knows about both, because the stage draws
+  // again when a press starts and when it ends, and a rule that knew only about runs wiped the
+  // press's own line off the screen.
   const status = document.getElementById('status');
-  status.hidden = !page.busy();
-  if (!page.busy()) {
-    page.statusText.textContent = '';
+  const running = page.busy();
+  status.hidden = !(running || page.rewriting());
+  if (!running) {
+    if (!page.rewriting()) page.statusText.textContent = '';
   } else if (!page.progressState()) {
     page.statusText.textContent = 'Starting';
   }
@@ -197,16 +201,25 @@ function renderStageBar(entry) {
     });
   });
   // The prompt leads, as the frame's caption; the facts sit quietly under it.
-  // The Look shows as the muted end of the caption, so the facts leave it out.
+  //
+  // The Look shows as the muted end of the caption, so the facts leave it out. The
+  // sentence it ends is the one the run sent, and a marked run pins the rest of the
+  // picture after that sentence: there the pick stands inside it and not at its end.
+  // Cutting the last sentence off by the pick's length cut the pin instead, and it
+  // left the pick half-written above itself. So the cut runs only where the pick
+  // really ends the sentence. A marked run's caption shows its sentence whole, and
+  // the pick is not dimmed there.
   const prompt = document.createElement('p');
   prompt.className = 'prompt-line';
-  if (entry.look) {
-    const said = document.createElement('span');
-    said.className = 'look-said';
-    said.textContent = entry.look.adds;
-    prompt.append(entry.look.sent.slice(0, -entry.look.adds.length), said);
+  const sent = entry.look ? entry.look.sent : entry.prompt;
+  const said = entry.look && sent.endsWith(entry.look.adds) ? entry.look.adds : '';
+  if (said) {
+    const muted = document.createElement('span');
+    muted.className = 'look-said';
+    muted.textContent = said;
+    prompt.append(sent.slice(0, -said.length), muted);
   } else {
-    prompt.textContent = entry.prompt;
+    prompt.textContent = sent;
   }
   prompt.addEventListener('click', function () { toggleSheet(prompt, entry); });
   prompt.addEventListener('keydown', function (event) {
@@ -224,6 +237,10 @@ function renderStageBar(entry) {
   const more = document.createElement('div');
   more.className = 'menu-anchor';
   const moreToggle = iconButton('more', 'More actions', function () { menus.toggleMenu(moreMenu); });
+  // Every item behind this menu writes the form, and one of them writes the box a press is
+  // filling, so the whole menu waits for the press with Edit this.
+  moreToggle.disabled = page.rewriting();
+  if (moreToggle.disabled) moreToggle.title = 'Locked while the prompt is being rewritten.';
   moreToggle.setAttribute('aria-controls', 'more-menu');
   moreToggle.setAttribute('aria-expanded', 'false');
   const moreMenu = document.createElement('div');
@@ -267,7 +284,12 @@ function renderStageBar(entry) {
   download.innerHTML = icon('download');
   const rule = document.createElement('span');
   rule.className = 'rule';
-  actions.append(textButton('brush', 'Edit this', function () { page.editThis(entry); }), more,
+  // A rewrite writes into the form, and Edit this empties it: the mode switch clears the
+  // prompt and the Look. So it is locked while one is writing, and says why.
+  const edit = textButton('brush', 'Edit this', function () { page.editThis(entry); });
+  edit.disabled = page.rewriting();
+  if (edit.disabled) edit.title = 'Locked while the prompt is being rewritten.';
+  actions.append(edit, more,
     rule, download,
     iconButton('trash', 'Remove', function () { page.strip().remove(entry.id); }, 'danger'));
   if (document.fullscreenEnabled) {
@@ -410,6 +432,8 @@ export function closeSheet() {
 // that is the shape this page already has for reading something over the print.
 const GUIDE = [
   ['Generate, or Edit', 'Generate writes a picture from a prompt. Edit changes one you already have, and needs an image from the strip: click a frame, then Edit this.'],
+  ['A Look', 'A chip adds one sentence after your words. Each model offers only the options its own test kept.'],
+  ['Rewrite', 'It writes out the words you typed, and the words in the marked areas, at length. Each answer lands where it was written, and the Look is added after them.'],
   ['Mark a region', "Fill the area you want changed. Do not circle it: the mark's own shape is the shape that comes back repainted."],
   ['What changes there', 'One row per marked colour says what changes in that area. Or pick the Mark a region template and leave the rows empty.'],
   ['The brush', 'Three widths, and a loupe follows the brush while you draw. The area you mark is the area that changes, so keep the mark close to what should change.'],

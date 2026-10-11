@@ -235,6 +235,13 @@ function renderRegionPreview() {
   preview.textContent = colours.length ? composedPrompt() : '';
 }
 
+// A row's field grows to hold what is in it, the way the prompt box does. A rewrite can put a
+// whole paragraph in a row, and a single line would hide the words the model is about to read.
+function growRow(field) {
+  field.style.height = 'auto';
+  field.style.height = field.scrollHeight + 'px';
+}
+
 function regionRow(colour) {
   const row = document.createElement('div');
   row.className = 'region-row';
@@ -242,9 +249,10 @@ function regionRow(colour) {
   swatch.className = 'swatch';
   swatch.style.background = colour;
   swatch.setAttribute('aria-hidden', 'true');
-  const input = document.createElement('input');
-  input.type = 'text';
+  const input = document.createElement('textarea');
+  input.rows = 1;
   input.value = regionText[colour] || '';
+  growRow(input);
   // A whole instruction, because the page writes a sentence around the row, and
   // a generic one drawn at random, so the example never describes the picture the
   // person is working on.
@@ -252,10 +260,17 @@ function regionRow(colour) {
   input.setAttribute('aria-label', 'What changes in the ' + markName(colour) + ' area?');
   input.addEventListener('input', function () {
     regionText[colour] = input.value;
+    growRow(input);
     page.refresh();
   });
   row.append(swatch, input);
   return row;
+}
+
+// The field a colour's row shows, when it is on screen. The rows are drawn only while the
+// brush is armed, so a colour with no row has nothing to write into.
+function rowInput(colour) {
+  return document.querySelector('#region-rows [aria-label="What changes in the ' + markName(colour) + ' area?"]');
 }
 
 function renderRegionRows() {
@@ -485,6 +500,28 @@ function maskDataUrl() {
 // model needs and a reader does not: the mark's own colour already names the
 // area. The card uses that form, because the region rows may be the only place
 // the instruction was ever written down.
+//
+// A Look pick is an instruction too, and the mark's token belongs to whichever sentence
+// wants an area: a Retouch option carries it, a whole-frame option does not. So the lead is
+// the words the run sends, and the page only puts the masked image's number where the token
+// stands. Reading the prompt field alone, as this did, dropped every pick on a marked run.
+function leadText(forReader, count) {
+  const spoken = page.withLook(page.prompt()).trim();
+  // The card drops the mark's number, which a reader does not need, and it drops a lead that
+  // only repeats the region rows. A pick is the one lead the rows do not carry, and no marked
+  // run had a pick before the edit rows existed, so no card that exists today changes.
+  if (forReader) return page.lookText() ? withoutMark(spoken) : '';
+  if (spoken.indexOf(MARK_TOKEN) < 0) return spoken;
+  return spoken.split(MARK_TOKEN).join('<image' + (count + 1) + '>').trim();
+}
+
+// The sentence a reader needs. The mark's own phrase goes with its number, since the rows and
+// the card already say that the change lands in the marked area.
+function withoutMark(text) {
+  const named = text.split(MARK_TOKEN).join('');
+  return named.replace(/\s+in the area marked in\s*(?=[.!?。！？]|$)/g, '').trim();
+}
+
 function composedPrompt(forReader) {
   const count = page.references().length;
   const suffix = forReader ? '' : ' of <image' + (count + 1) + '>';
@@ -497,11 +534,7 @@ function composedPrompt(forReader) {
   }).map(function (colour) {
     return regionText[colour].trim() + ' in the ' + markName(colour) + ' area' + suffix;
   });
-  // The template's [the region you marked] becomes the number of the image that
-  // carries the mask. Sending the token itself told the model nothing about
-  // where the change goes, and the template is the one that names the region.
-  const lead = forReader ? ''
-    : page.prompt().split(MARK_TOKEN).join('<image' + (count + 1) + '>').trim();
+  const lead = leadText(forReader, count);
   const written = (lead ? lead + ' ' : '') + (clauses.length ? clauses.join('. ') + '. ' : '');
   return written + 'Keep the background and everything else unchanged.';
 }
@@ -553,6 +586,19 @@ const handle = {
     };
   },
   setText: function (text) { regionText = text; },
+  // One area's words, after a rewrite of them. The row that is on screen is the copy in
+  // front of the user, so its own field takes the text: `renderRegionRows` keeps the rows
+  // it has while the set of colours holds, which is exactly the case here. The field grows
+  // to the answer, which for a rewrite is a paragraph rather than a phrase.
+  setRow: function (colour, text) {
+    regionText[colour] = text;
+    const input = rowInput(colour);
+    if (input) {
+      input.value = text;
+      growRow(input);
+    }
+    renderRegionPreview();
+  },
   setStrokes: function (strokes) {
     if (!marks || !strokes) return;
     // The arming above started the stroke list empty, so the strokes go back now.

@@ -469,6 +469,25 @@ with sync_playwright() as playwright:
     )
     page.get_by_role("button", name="Close-up 85mm", exact=True).click()
 
+    # The tail is where the whole sentence first shows, and it says what it is: the part the
+    # run adds after the words in the box. Without that line a reader takes the quoted
+    # sentence for the prompt itself, which is the confusion the rewrite's scope turns on.
+    check(
+        "the tail names itself as the sentence the run adds after your words",
+        page.locator("#look-adds q").count() == 1
+        and "adds this after your words" in page.locator("#look-adds .caption").inner_text().lower(),
+        page.locator("#look-adds").inner_text().replace("\n", " ")[:80],
+    )
+    # The Rewrite button is dead while there is nothing to write out, and it says why only
+    # in a tooltip, so the note that already says what a pick does also says what the
+    # rewriter touches: the words you typed and the words in the marked areas, with the
+    # Look added after them. Read through the section's own id, since the note carries none.
+    check(
+        "the Look note says the rewriter writes your words and leaves the Look to the run",
+        "writes out the words you typed, and the words in the marked areas" in page.locator("#look").inner_text(),
+        page.locator("#look").inner_text().replace("\n", " ")[-90:],
+    )
+
     # A pick from a row's own chips puts a chip under the prompt and takes the
     # row's chips away, so the content above the row changes height and the row
     # would slide out from under the pointer. The sidebar scrolls by as much.
@@ -554,6 +573,13 @@ with sync_playwright() as playwright:
         "a run in flight offers Cancel and blocks the count",
         page.locator(RUNNING).is_visible()
         and page.get_by_role("button", name=re.compile("change the count")).is_disabled(),
+    )
+    # A rewrite writes into the form a run is using, and the rewriter does not fit beside an
+    # engine, so the press waits for the run. Nothing asked for here: the state is read.
+    check(
+        "the press waits for a run, with no words put in the box",
+        page.locator("#rewrite-toggle").is_disabled() and not page.locator("#prompt").input_value().strip(),
+        f"disabled {page.locator('#rewrite-toggle').is_disabled()}, box {page.locator('#prompt').input_value()[:20]!r}",
     )
     wait_until_idle(page)
     frame_nodes(page).first.wait_for(state="visible", timeout=10000)
@@ -815,6 +841,15 @@ with sync_playwright() as playwright:
         page.locator("#guide-sheet").is_visible() and page.locator("#guide-sheet dt").count() >= 5,
         str(page.locator("#guide-sheet dt").count()),
     )
+    # The Look and the Rewrite are the page's two prompt aids, and the manual named neither
+    # of them. The Look entry says the run adds its sentence after your words. The Rewrite
+    # entry says what it leaves alone, which is the scope a user cannot read off the page.
+    entries = page.locator("#guide-sheet dt").all_inner_texts()
+    check(
+        "the guide names the Look and the Rewrite, and says what each one leaves alone",
+        "A Look" in entries and "Rewrite" in entries,
+        ", ".join(entries),
+    )
     page.keyboard.press("Escape")
     check("Escape closes the guide sheet", page.locator("#guide-sheet").is_hidden())
 
@@ -1070,6 +1105,39 @@ with sync_playwright() as playwright:
         and page.locator("#region-preview").is_visible(),
         page.locator("#region-preview").inner_text(),
     )
+    # The note beside the rows is where a user decides what the mark is for, so it carries
+    # both halves: the whole area is repainted, and the change can still reach past it. The
+    # second half is the measured one: at 22 percent coverage, 21.4 percent of the change
+    # landed past the object.
+    check(
+        "the note by the rows says what the mark does, and what it does not",
+        "whole marked area is repainted" in page.inner_text("#region-note")
+        and "reach past it" in page.inner_text("#region-note"),
+        page.inner_text("#region-note"),
+    )
+    # A rewrite of a row answers with a paragraph, not a phrase, so the field has to hold one:
+    # on one line the words the model is about to read are the words the user cannot see.
+    row_field = page.get_by_label("What changes in the orange area?")
+    row_field.fill("make it a stone wall")
+    page.wait_for_timeout(200)
+    short = row_field.evaluate("node => node.clientHeight")
+    row_field.fill(
+        "Replace the entire blurred background behind the pear with a natural stone wall of "
+        "irregular gray and beige stones, fitted together with visible mortar seams, softly "
+        "out of focus to match the depth of field, and keep the pear, the linen cloth, the "
+        "table and the warm light exactly as they are."
+    )
+    page.wait_for_timeout(200)
+    long = row_field.evaluate("node => node.clientHeight")
+    check(
+        "a row grows to hold the paragraph a rewrite puts in it",
+        long > short and row_field.evaluate("node => node.tagName") == "TEXTAREA",
+        f"one line {short}px, a paragraph {long}px, field {row_field.evaluate('node => node.tagName')}",
+    )
+    # The rows go back as they were found, empty, because the checks after this one read which
+    # area is still waiting for an instruction.
+    row_field.fill("")
+    page.wait_for_timeout(200)
     check(
         "a stroke arms both Undo and Clear",
         not page.get_by_role("button", name="Take back the last mark").is_disabled()
@@ -1168,7 +1236,49 @@ with sync_playwright() as playwright:
     # while the picture it was drawn on is the one on the stage, so the stage stays
     # there until the run has read the mask.
     page.get_by_role("button", name="Mark in orange").click()
+    # A pick is an instruction by itself, and a Retouch pick names the area it wants: with no
+    # mark drawn there is nothing to name, and the page says so rather than sending the token
+    # to the model as it stands. The section is opened only to reach the chips and is left as
+    # it was found, because a later check toggles it.
+    look_open = page.locator("details#look").evaluate("node => node.open")
+    if not look_open:
+        page.click("details#look summary")
+    page.get_by_role("button", name=re.compile("^Retouch")).click()
+    page.get_by_role("button", name="Smooth the skin", exact=True).click()
+    page.wait_for_timeout(250)
+    check(
+        "a pick that wants a marked area waits for a drawn one",
+        page.locator("#go").is_disabled() and "Draw the region this prompt names" in page.locator("#go").inner_text(),
+        page.locator("#go").inner_text().replace("\n", " "),
+    )
     stroke(page, mark_box, (90, 90), (160, 150))
+    # The pick's sentence carries the mark's token, and the page puts the masked image's number
+    # where it stands. Nothing is typed and the row is empty, so the sentence is the pick and
+    # the pin: this is the sentence the option was measured with, to the character.
+    pick_sentence = (
+        "Smooth the skin on the face, keeping the pores and the natural texture visible in the area marked in <image2>."
+    )
+    composed = page.locator("#region-preview").inner_text()
+    check(
+        "a Retouch pick alone is the sentence the marked run sends",
+        composed == pick_sentence + " Keep the background and everything else unchanged."
+        and page.locator("#go").is_enabled(),
+        composed,
+    )
+    # A prompt that names the mark itself keeps its own reference, and the pick's sentence rides
+    # with it: the lead is the words the run sends, so reading the prompt field alone would drop
+    # the pick here.
+    page.fill("#prompt", "Change only the wall in the area marked in [the region you marked].")
+    page.dispatch_event("#prompt", "input")
+    page.wait_for_timeout(250)
+    both = page.locator("#region-preview").inner_text()
+    check(
+        "a prompt that names the mark and a pick both reach the sentence",
+        "Change only the wall in the area marked in <image2>." in both and pick_sentence in both,
+        both[:160],
+    )
+    if not look_open:
+        page.click("details#look summary")
     page.get_by_label("What changes in the orange area?").fill("make it a stone wall")
     set_steps(page, 4)
     page.fill("#prompt", LONG_PROMPT)
@@ -1205,9 +1315,47 @@ with sync_playwright() as playwright:
         and "make it a stone wall in the orange area" in masked.get("prompt", ""),
         f"{len(carried)} images sent, prompt {masked.get('prompt', '')[:90]}",
     )
+    # The pick rode along, and its sentence carries the mark's own reference, so the model is
+    # told which picture holds the area it changes.
+    check(
+        "the marked run carries the pick, with the mark named in it",
+        pick_sentence in masked.get("prompt", "")
+        and masked.get("prompt", "").endswith("Keep the background and everything else unchanged."),
+        masked.get("prompt", "")[-150:],
+    )
+    # The card draws a frame's caption as the sentence the run sent, with the pick as
+    # its muted end. A marked run pins the rest of the picture after that sentence, so
+    # the pick stands inside it and not at its end: the card cut the last sentence off
+    # by the pick's length, which cut the pin and left the pick half-written above
+    # itself. The caption is a control only where it is cut short, and LONG_PROMPT is.
+    captions = page.get_by_role("button", name=re.compile("Keep the background and everything else unchanged."))
+    shown = captions.first.inner_text() if captions.count() else ""
+    check(
+        "the caption of a marked run keeps its sentence whole, with the pick in it once",
+        shown.count("Smooth the skin") == 1
+        and shown.endswith("Keep the background and everything else unchanged.")
+        and "make it a stone wall in the orange area" in shown,
+        shown[-110:],
+    )
+    # The pick was this check's, so it comes off again and the sections below read the form
+    # as they found it. A run may have put the form back already, so this asks first.
+    remove = page.get_by_role("button", name="Remove Smooth the skin")
+    if remove.count():
+        remove.click()
+        page.wait_for_timeout(250)
     check(
         "a run takes the mark with it, so the next edit starts clean",
         page.locator("#region-field").is_hidden() and page.get_by_label("Mark the area to change").count() == 0,
+    )
+
+    # The six rows the edit form offers, read as the generate ones were read above: they are
+    # the finishing rows, and no row of the generate set is among them. The text is read
+    # from the DOM, because the section may be closed here and a closed row renders nothing.
+    edit_rows = [name.text_content() for name in page.locator("#look-rows .look-row .label").all()]
+    check(
+        "the edit form offers the six finishing rows",
+        edit_rows == ["Exposure", "White balance", "Grade", "Lens", "Finish", "Retouch"],
+        ", ".join(edit_rows),
     )
 
     # ---- The print, and what is over it ----------------------------------------
@@ -2048,6 +2196,212 @@ with sync_playwright() as playwright:
         alerts.first.inner_text()[:110],
     )
     context.close()
+
+    # ---- The rewrite writes the box, and the Look rides beside it --------------
+    # A Look sentence is the page's own: it was sampled on the model before it was
+    # offered, so its wording is the measured part, and the run adds it once at
+    # submit. The rewriter is sent the words in the box for the same reason. It used
+    # to be sent the Look as well, which put that sentence on the wire twice and made
+    # the card name the Look under both of its own terms. A page of its own reads it,
+    # so the frames the other checks count do not move.
+    rewrite_context = browser.new_context(viewport={"width": 1440, "height": 900})
+    written = rewrite_context.new_page()
+    written.on("pageerror", lambda error: errors.append("the rewrite page: " + str(error)))
+    rewrites_here, runs_here = [], []
+    watch_rewrites(written, rewrites_here)
+    watch_runs(written, runs_here)
+    written.goto(URL)
+    written.click("details:has(summary:has-text('Look')) summary")
+    written.locator("#look-rows").get_by_role("button", name=re.compile("^Medium")).click()
+    written.locator("#look-rows").get_by_role("button", name="Watercolor", exact=True).click()
+    watercolour = "Watercolor painting on textured paper, soft washes, visible brush edges."
+    written.fill("#prompt", LONG_PROMPT)
+    written.dispatch_event("#prompt", "input")
+    written.click("#rewrite-toggle")
+    written.wait_for_function(
+        "() => document.querySelector('#prompt').value.includes('written for the stub')", timeout=120000
+    )
+    rewritten = written.locator("#prompt").input_value()
+    check(
+        "a rewrite is asked about the words in the box, and not the Look beside them",
+        bool(rewrites_here) and rewrites_here[-1]["prompt"] == LONG_PROMPT,
+        rewrites_here[-1]["prompt"][:70] if rewrites_here else "no rewrite was posted",
+    )
+    set_steps(written, 1)
+    written.click("#go")
+    wait_until_running(written)
+    wait_until_idle(written)
+    sent_here = runs_here[-1]["prompt"] if runs_here else ""
+    check(
+        "a run after a rewrite carries the Look once, and carries what the rewrite wrote",
+        sent_here.count(watercolour) == 1 and rewritten in sent_here,
+        f"{sent_here.count(watercolour)} times, {sent_here[-80:]!r}",
+    )
+    written.locator("#stage-bar").get_by_role("button").first.click()
+    written.locator("#prompt-sheet").wait_for(state="visible", timeout=10000)
+    parts = dict(
+        zip(
+            written.locator("#prompt-sheet dt").all_inner_texts(),
+            written.locator("#prompt-sheet dd").all_inner_texts(),
+            strict=True,
+        )
+    )
+    check(
+        "the card names the Look apart from the prompt the rewrite wrote",
+        watercolour not in parts.get("Prompt", "") and watercolour in parts.get("Look", ""),
+        f"prompt {parts.get('Prompt', '')[-60:]!r} / look {parts.get('Look', '')[:60]!r}",
+    )
+    written.keyboard.press("Escape")
+    written.get_by_role("button", name="More actions").click()
+    written.get_by_role("menuitem", name="Reuse prompt").click()
+    written.wait_for_timeout(400)
+    check(
+        "Reuse prompt hands back the words typed before the rewrite, and keeps the Look",
+        written.locator("#prompt").input_value() == LONG_PROMPT
+        and "Watercolor" in (written.locator("#look-values").text_content() or ""),
+        f"{written.locator('#prompt').input_value()[:50]!r} / {written.locator('#look-values').text_content()!r}",
+    )
+    # ---- One press rewrites the box and every marked area with words ----------
+    # A marked run's instruction can live in the box, in an area's own row, or in both.
+    # One press covers the lot, in the order the form reads: the box's words first, then
+    # the areas as they were drawn, and each answer lands where its own words were, so
+    # nothing is written twice. Read on the wire and in the two places it lands.
+    written.locator("label[for=mode-edit]").click()
+    written.get_by_role("button", name=re.compile(r"^generate, seed ")).first.click()
+    written.get_by_role("button", name="Edit this").click()
+    surface = written.get_by_label("Mark the area to change")
+    surface.wait_for(state="visible", timeout=10000)
+    written.get_by_role("button", name="Mark in orange").click()
+    drawn = surface.bounding_box()
+    for x1, y1, x2, y2 in ((90, 90, 160, 150), (200, 200, 250, 250)):
+        written.mouse.move(drawn["x"] + x1, drawn["y"] + y1)
+        written.mouse.down()
+        written.mouse.move(drawn["x"] + x2, drawn["y"] + y2, steps=8)
+        written.mouse.up()
+        written.wait_for_timeout(200)
+        if (x1, y1) == (90, 90):
+            written.get_by_role("button", name="Mark in red").click()
+    written.get_by_label("What changes in the orange area?").fill("make it a stone wall")
+    written.get_by_label("What changes in the red area?").fill("warm the tiles")
+    written.fill("#prompt", "a pear on a table")
+    written.dispatch_event("#prompt", "input")
+    before = len(rewrites_here)
+    written.click("#rewrite-toggle")
+    # The card's own Edit this switches the mode, and that empties the prompt and the Look,
+    # so it is locked for the length of the press and comes back when the press ends.
+    written.wait_for_timeout(700)
+    locked = written.get_by_role("button", name="Edit this")
+    check(
+        "the card's Edit this is locked while the rewriter writes",
+        locked.is_disabled(),
+        f"disabled {locked.is_disabled()}, title {locked.get_attribute('title')!r}",
+    )
+    # The readout is the only live word on a press, and a press over three parts takes about
+    # three times as long as one. It names the part, its place, and the whole press: it used
+    # to quote the one-part time for every press, whatever its size.
+    said = ""
+    for _ in range(40):
+        written.wait_for_timeout(200)
+        said = written.locator("#status").inner_text().strip()
+        if " of 3" in said:
+            break
+    check(
+        "the readout names the part and what the whole press costs",
+        written.locator("#status").is_visible() and " of 3" in said and "1 min 30s in all" in said,
+        f"visible {written.locator('#status').is_visible()}, {said!r}",
+    )
+    # A run would free the rewriter the press is writing with, so the run waits for the press.
+    # Cmd+Enter obeys the same rule for free, since it asks the button's own disabled state.
+    check(
+        "the run button waits for the press, and says so",
+        written.locator("#go").is_disabled()
+        and "Wait for the rewrite to finish" in written.locator("#go-sub").inner_text(),
+        f"disabled {written.locator('#go').is_disabled()}, reason {written.locator('#go-sub').inner_text()!r}",
+    )
+    frames_before = written.get_by_role("button", name=re.compile(r"^(generate|edit), seed ")).count()
+    written.keyboard.press("Meta+Enter")
+    written.wait_for_timeout(1500)
+    frames_after = written.get_by_role("button", name=re.compile(r"^(generate|edit), seed ")).count()
+    check(
+        "Cmd+Enter waits for the press like a click does",
+        frames_after == frames_before,
+        f"{frames_before} frames before, {frames_after} after",
+    )
+    check(
+        "the card's own menu waits for the press too",
+        written.get_by_role("button", name="More actions").first.is_disabled(),
+        written.get_by_role("button", name="More actions").first.get_attribute("title"),
+    )
+    written.wait_for_function(
+        "() => document.querySelector('[aria-label=\"What changes in the red area?\"]')"
+        ".value.includes('written for the stub')",
+        timeout=180000,
+    )
+    written.wait_for_timeout(300)
+    check(
+        "and the card's Edit this comes back when the press ends",
+        written.get_by_role("button", name="Edit this").is_enabled(),
+        written.get_by_role("button", name="Edit this").get_attribute("title"),
+    )
+    pressed = [item["prompt"] for item in rewrites_here[before:]]
+    check(
+        "one press rewrites the box and each marked area, in the order the form reads",
+        pressed == ["a pear on a table", "make it a stone wall", "warm the tiles"],
+        " | ".join(pressed)[:110],
+    )
+    rows = [written.get_by_label(f"What changes in the {colour} area?").input_value() for colour in ("orange", "red")]
+    after = " A longer version of it, written for the stub."
+    check(
+        "each answer lands where its own words were, and the box keeps its own",
+        written.locator("#prompt").input_value() == "a pear on a table" + after
+        and rows == ["make it a stone wall" + after, "warm the tiles" + after],
+        f"box {written.locator('#prompt').input_value()[:40]!r} / rows {rows}",
+    )
+    # The press is offered on an empty box as long as an area carries words, which is the
+    # state a marked run is in: the rows are the instruction, and the box has none.
+    written.fill("#prompt", "")
+    written.dispatch_event("#prompt", "input")
+    check(
+        "a press is offered when only the marked areas carry words",
+        written.locator("#rewrite-toggle").is_enabled(),
+        written.locator("#rewrite-toggle").get_attribute("title"),
+    )
+
+    # A cancel stops the press where it is: the areas already written keep their answer, and the
+    # ones after it keep the words they had. Two areas are needed, so both go back to what they
+    # said and the press is stopped once the first answer has landed.
+    written.get_by_label("What changes in the orange area?").fill("make it a stone wall")
+    written.get_by_label("What changes in the red area?").fill("warm the tiles")
+    written.wait_for_timeout(200)
+    written.click("#rewrite-toggle")
+    written.wait_for_function(
+        "() => document.querySelector('[aria-label=\"What changes in the orange area?\"]')"
+        ".value.includes('written for the stub')",
+        timeout=180000,
+    )
+    if written.locator("#rewrite-toggle").inner_text().strip() == "Cancel":
+        written.click("#rewrite-toggle")
+    written.wait_for_function("() => !document.body.classList.contains('rewriting')", timeout=180000)
+    written.wait_for_timeout(500)
+    orange = written.get_by_label("What changes in the orange area?").input_value()
+    red = written.get_by_label("What changes in the red area?").input_value()
+    check(
+        "a cancel stops the press where it is, and the areas after it keep their words",
+        "written for the stub" in orange and red == "warm the tiles",
+        f"orange {orange[-30:]!r}, red {red!r}",
+    )
+
+    # A reload forgets the press, so the page must come back with no claim on it. The page is
+    # only asked to draw again, which is what it does on a load.
+    written.reload()
+    written.wait_for_timeout(1200)
+    check(
+        "a reload in the middle of a press leaves no claim behind",
+        "rewriting" not in written.evaluate("() => document.body.className")
+        and written.locator("#rewrite-toggle").inner_text().strip() == "Rewrite",
+        written.evaluate("() => document.body.className"),
+    )
+    rewrite_context.close()
 
     # ---- What the run button is called, and what a role query reaches ----------
     # The button's name is composed from the DOM, not from the cascade: the page
