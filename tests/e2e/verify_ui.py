@@ -1105,6 +1105,19 @@ with sync_playwright() as playwright:
         and page.locator("#region-preview").is_visible(),
         page.locator("#region-preview").inner_text(),
     )
+    # The row is drawn tall enough for the line it holds, before anything is typed in it. A
+    # textarea measures itself off its own content and has none while it is still detached, so
+    # one grown before it is in the page takes the height of nothing: the row used to be drawn
+    # as a squashed line and only opened up when someone typed in it. `offsetHeight` is the
+    # box with its border, which is what `scrollHeight` is measured against.
+    drawn = page.get_by_label("What changes in the orange area?").evaluate(
+        "node => [node.offsetHeight, node.scrollHeight]"
+    )
+    check(
+        "a row is drawn as tall as its own line, before anything is typed",
+        abs(drawn[0] - drawn[1]) <= 2,
+        f"drawn {drawn[0]}px against its line at {drawn[1]}px",
+    )
     # The note beside the rows is where a user decides what the mark is for, so it carries
     # both halves: the whole area is repainted, and the change can still reach past it. The
     # second half is the measured one: at 22 percent coverage, 21.4 percent of the change
@@ -2592,6 +2605,18 @@ with sync_playwright() as playwright:
                }"""
         ),
         f"{rows.count()} rows",
+    )
+    # Drawn tall enough for the line each one holds, before the press fills them. A textarea
+    # measures itself off its own content and has none while it is still detached, so one grown
+    # before it is in the page takes the height of nothing. `offsetHeight` is the box with its
+    # border, which is what `scrollHeight` is measured against.
+    lines = per_image.eval_on_selector_all(
+        "#each-rows textarea", "els => els.map(el => [el.offsetHeight, el.scrollHeight])"
+    )
+    check(
+        "each instruction row is drawn as tall as its own line, before it is filled",
+        all(abs(one - other) <= 2 for one, other in lines),
+        f"{lines}",
     )
     words = "make the background a stone wall"
     per_image.fill("#prompt", words)

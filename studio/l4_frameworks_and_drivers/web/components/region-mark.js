@@ -252,7 +252,6 @@ function regionRow(colour) {
   const input = document.createElement('textarea');
   input.rows = 1;
   input.value = regionText[colour] || '';
-  growRow(input);
   // A whole instruction, because the page writes a sentence around the row, and
   // a generic one drawn at random, so the example never describes the picture the
   // person is working on.
@@ -280,6 +279,10 @@ function renderRegionRows() {
   if (rows.dataset.wanted === wanted) return;   // do not rebuild while typing
   rows.dataset.wanted = wanted;
   rows.replaceChildren.apply(rows, colours.map(regionRow));
+  // A field measures itself off its own content, and it has none until it is in the page: a
+  // textarea grown while it is still detached takes the height of nothing and is drawn as a
+  // squashed line until someone types in it.
+  rows.querySelectorAll('textarea').forEach(growRow);
   renderRegionPreview();
 }
 
