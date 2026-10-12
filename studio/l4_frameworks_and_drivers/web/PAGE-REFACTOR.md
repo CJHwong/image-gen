@@ -864,11 +864,19 @@ press writes one instruction for each image, and a row is where it lands.
 | what a press covers | `rewriteItems` in `lib/form.js` returns one item per reference for a batch, and the box is not one of them: it keeps the words the rows are written from, and a press never empties it |
 | what one image is asked | that image alone goes with the call, through `askRewriter(prompt, pictures)`, so the answer can name what is in it |
 | where an answer lands | in that image's own row, through `setEachRow`. The rows are the user's to correct, and a press over them is what a press over the box used to be |
-| what a run carries | `eachPlan` gives one instruction per image: the row's words, or the box's for a row left empty. The request for image N carries the Nth |
+| what a run carries | `eachPlan` gives one instruction per image: the words in the box, closed as a sentence, and then that image's own row, with the Look last. The request for image N carries the Nth |
+| how the two compose | `withRow` in `lib/form.js` joins them, which is the rule the marked rows already follow: the box's words lead and each row follows. A row that is empty leaves the box's words alone, so a batch that is never pressed sends what it always sent |
 | how a chain link knows which image it is | the placeholder publishes `data-index`, which its own values already carried, and the `htmx:configRequest` hook swaps the run's single prompt for that image's when the element is a chain link |
-| what the card records | the instruction that image was given, and Reuse prompt hands those words back, not the run's single prompt |
+| what the card records | the whole instruction that image was given, and Reuse prompt hands back the words that image was asked in its own right: its row, or the box's words for a row left empty |
 | a change of references | the rows were written from other pictures, so a different set of references clears them. A cancel puts the same references back, and then they stay |
-| what the run button still asks for | the words in the box. Every image falls back to them, so they stay required, which is also why the press leaves them alone |
+| what the run button asks for | the words in the box, or a row for every image. A batch whose rows all carry words runs with the box empty, which is the rule a marked run already follows; one row still empty holds it back and says so |
+
+The composition came second, and from the user's own question: "why not concat master plus
+thumbnail, like how we did with marks?" The marked rows do compose that way, so a batch that
+replaced the box's words instead was the odd one out. The cost is stated and accepted: after a
+press the model reads the intent twice, once in the user's words and once as the rewriter's
+elaboration of them, which is what a marked run does today. A rule that depended on who wrote
+the text would avoid it and be the kind of knob that turns into a fault.
 
 The stub's rewriter echoes what it is given, so the wire and the rows both say what a press
 was asked and what it wrote back. Seven checks read it there, one of them for a count above

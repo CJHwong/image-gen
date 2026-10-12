@@ -341,10 +341,12 @@ with sync_playwright() as playwright:
     page.click("#go")
     wait_idle(page)
     sent = requests_of(posts)
+    # The words in the box lead every image and that image's row joins them, which is how a
+    # marked run's rows are composed with the box's words too.
     check(
-        "each image of the batch was sent its own instruction, in order",
-        [sent.get(str(place + 1)) for place in range(4)] == answers,
-        f"{[text[:40] for text in sent.values()]}",
+        "each image is sent the words in the box leading its own instruction",
+        [sent.get(str(place + 1)) for place in range(4)] == [f"{KEEPING_WORDS}. {answer}" for answer in answers],
+        f"{[text[:50] for text in sent.values()]}",
     )
     claims = write_results(bodies, OUT)
     check(
