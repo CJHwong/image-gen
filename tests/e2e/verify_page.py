@@ -835,9 +835,12 @@ with sync_playwright() as playwright:
     )
     time.sleep(2)
     splits = [float(value.rstrip("%")) for value in page.evaluate("window.splits")]
+    # The whole of the before picture first, then the divider walks back to the middle, so
+    # what a person sees first is what the edit started from. It used to sweep the other
+    # way, from the whole of the after picture, and that showed the result first.
     check(
-        "the divider sweeps in once",
-        splits[:1] == [0] and splits[-1:] == [50] and splits == sorted(splits),
+        "the divider sweeps from the whole before to the middle",
+        splits[:1] == [100] and splits[-1:] == [50] and splits == sorted(splits, reverse=True),
         str(splits),
     )
     page.screenshot(path=OUT + "3-compare.png")
