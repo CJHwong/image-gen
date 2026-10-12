@@ -38,8 +38,8 @@ let batchSource = null;     // the source of a one-image edit, for before and af
 let batchSources = [];      // one source per reference, when the batch edits one image at a time
 let runLook = null;         // the run's own prompt, look and negative, apart from what the model got
 let runSources = [];        // per reference of the run: the frame it came from, or null for an upload
-let runTyped = [];          // per reference of a batch: the words that image was asked, as typed
-let runPrompts = [];        // the same, composed with the Look, which is what the model is given
+let runWords = [];          // per reference of a batch: the words that image was asked in its own right
+let runPrompts = [];        // the same, composed with the box's lead and the Look, which is what the model is given
 
 // When the run in flight started. The button it belongs to carries it, beside
 // the run state it already publishes, so the page reads its own state from
@@ -380,12 +380,13 @@ function harvest() {
       if (runLook.labels.length) entry.look = runLook;
     }
     // A batch wrote each image its own instruction, so the card of that image reads back the
-    // words it was given, and Reuse prompt hands those words back. The match above cannot find
-    // them: they are not the run's single prompt, they are that image's own.
+    // whole instruction it was given, and Reuse prompt hands back the words that image was
+    // asked in its own right. The match above cannot find them: they are not the run's single
+    // prompt, they are that image's own.
     const place = Number(data.reference);
-    if (place >= 0 && runTyped.length > place) {
+    if (place >= 0 && runWords.length > place) {
       entry.prompt = runPrompts[place];
-      entry.typed = runTyped[place];
+      entry.typed = runWords[place];
       entry.negative = runLook ? runLook.negative : '';
       if (runLook && runLook.labels.length) entry.look = runLook;
     }
@@ -473,7 +474,7 @@ function listen() {
     // server cycles the references the same way, so the place is taken the same way here.
     if (chain) {
       const index = Number(elt.dataset.index) - 1;
-      const place = runTyped.length ? index % runTyped.length : -1;
+      const place = runPrompts.length ? index % runPrompts.length : -1;
       if (place >= 0 && runPrompts.length > place) event.detail.parameters.prompt = runPrompts[place];
       return;
     }
@@ -498,10 +499,11 @@ function listen() {
       picks: JSON.parse(JSON.stringify(page.look())), negative: page.typedNegative(),
     };
     // One instruction for each image of a batch, or nothing when the run carries a single
-    // one. The Look is the page's own sentence and is added to whichever instruction the
-    // image gets, once, here.
-    runTyped = page.eachPlan();
-    runPrompts = runTyped.map(function (words) { return page.withLook(words); });
+    // one. Each image's own row joins the box's words, which lead every image, and the Look is
+    // the page's own sentence added last, once.
+    const plan = page.eachPlan();
+    runWords = plan.map(function (one) { return one.own; });
+    runPrompts = plan.map(function (one) { return page.withLook(one.asked); });
     event.detail.parameters.prompt = runPrompts.length ? runPrompts[0] : runLook.sent;
     // What the run is charged for. With one result per reference the count is what each
     // reference gets, so the batch costs that many times the references, and the server's bound

@@ -2495,7 +2495,7 @@ with sync_playwright() as playwright:
     check(
         "a batch offers the press, and the note says what it writes",
         batched.locator("#rewrite-toggle").is_enabled()
-        and "each image its own instruction" in batched.locator("#each-note").inner_text(),
+        and "a row adds what that one needs" in batched.locator("#each-note").inner_text(),
         f"enabled {batched.locator('#rewrite-toggle').is_enabled()}, "
         f"note {batched.locator('#each-note').inner_text()[-70:]!r}",
     )
@@ -2664,9 +2664,49 @@ with sync_playwright() as playwright:
     per_image.wait_for_timeout(600)
     prompts = [post.get("prompt") for post in runs]
     check(
-        "each image of the batch is sent its own instruction",
-        len(runs) == 2 and prompts[0] == "make the wall stone" and prompts[1] == second,
+        "each image of the batch is sent its own instruction, with the words in the box leading",
+        len(runs) == 2 and prompts[0] == words + ". make the wall stone" and prompts[1] == words + ". " + second,
         f"{prompts}",
+    )
+    # A batch whose every image carries words of its own is a whole instruction with an empty
+    # box, which is what a marked run already allows. One row still empty holds the run back.
+    per_image.set_input_files("#reference", [str(SCRATCH / "reference-a.png"), str(SCRATCH / "reference-b.png")])
+    per_image.get_by_role("img", name="reference-a.png").wait_for(state="visible", timeout=10000)
+    per_image.locator("label[for=each-each]").click()
+    per_image.wait_for_timeout(300)
+    rows = per_image.locator("#each-rows textarea")
+    # Both rows are set, one of them to nothing: the same two pictures come back with the rows
+    # they were written from, so an empty row has to be asked for and not assumed.
+    rows.nth(0).fill("only the sky")
+    rows.nth(0).dispatch_event("input")
+    rows.nth(1).fill("")
+    rows.nth(1).dispatch_event("input")
+    per_image.wait_for_timeout(250)
+    check(
+        "one row still empty holds the run back, and says so",
+        not per_image.locator("#go").is_enabled() and "each image" in per_image.inner_text("#go-sub"),
+        per_image.inner_text("#go-sub"),
+    )
+    rows.nth(1).fill("only the floor")
+    rows.nth(1).dispatch_event("input")
+    set_steps(per_image, 1)
+    per_image.wait_for_timeout(250)
+    check(
+        "a batch of rows runs with the box empty",
+        per_image.locator("#go").is_enabled(),
+        per_image.inner_text("#go-sub"),
+    )
+    bare = []
+    watch_runs(per_image, bare)
+    per_image.click("#go")
+    wait_until_running(per_image)
+    wait_until_idle(per_image)
+    per_image.wait_for_timeout(600)
+    sent = [post.get("prompt") for post in bare]
+    check(
+        "and each image is sent its own words alone",
+        sent == ["only the sky", "only the floor"],
+        f"{sent}",
     )
     # A count above one asks for several results from every image, so the requests outnumber
     # the images and the place comes back around. Two images and a count of two is four
@@ -2697,7 +2737,8 @@ with sync_playwright() as playwright:
     prompts = [post.get("prompt") for post in more]
     check(
         "a count above one asks each image again, and its own words come back around",
-        prompts == ["a stone wall", "warmer light", "a stone wall", "warmer light"],
+        prompts
+        == [words + ". a stone wall", words + ". warmer light", words + ". a stone wall", words + ". warmer light"],
         f"{prompts}",
     )
     instructions.close()

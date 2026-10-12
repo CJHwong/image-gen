@@ -262,12 +262,13 @@ function renderEachNote() {
   // results are the count times the references, and the caption has to say the product.
   const results = imageCount();
   // The rewriter reads one picture at a time, so it can name the picture it read, and a
-  // batch uses that: the rows below hold one instruction per image. A row left empty takes
-  // the words in the box, which is what a batch did before the rows existed.
+  // batch uses that: the rows below hold one instruction per image, each written from its own
+  // picture. The box's words lead every image and a row joins them, which is how the marked
+  // rows are composed too.
   const batched = eachOffered();
   note.textContent = 'Each image is edited on its own, so one press gives you ' + results
     + (results === 1 ? ' result.' : ' results.')
-    + (batched ? ' Rewrite writes each image its own instruction, read from that image, and a row left empty takes your words.' : '');
+    + (batched ? ' Your words lead every image, a row adds what that one needs, and Rewrite writes a row from its own picture.' : '');
 }
 
 // ---- One instruction for each image of a batch -------------------------------
@@ -295,13 +296,38 @@ function setEachRow(place, text) {
   growField(field);
 }
 
-// What each image of the batch will be asked, in the order of the references: the
-// row's own words, or the box's words for a row left empty. Empty outside a batch,
-// where the box's one instruction is the whole of it.
+// One instruction out of two: the words in the box, closed as a sentence, then what that
+// image's own row says. This is how the mark path composes them, where the box's words lead
+// and each marked area's row follows. A trailing row joins the sentence rather than standing
+// beside it, and either half may be empty and write nothing.
+function withRow(lead, row) {
+  const said = lead.trim();
+  const own = row.trim();
+  if (!said) return own;
+  if (!own) return said;
+  return (/[.!?。！？]$/.test(said) ? said : said + '.') + ' ' + own;
+}
+
+// What each image of a batch is asked, in the order of the references. `asked` is the whole
+// instruction that image's request carries, before the Look; `own` is the words that image
+// was asked in its own right, which is its row, or the box's words for a row left empty.
+// That second one is what the card hands back on Reuse prompt.
 function eachPlan() {
   if (!eachOffered()) return [];
-  const own = page.el.promptInput.value.trim();
-  return page.references().map(function (_, place) { return eachText[place] || own; });
+  const lead = page.el.promptInput.value.trim();
+  return page.references().map(function (_, place) {
+    const row = (eachText[place] || '').trim();
+    return { asked: withRow(lead, row), own: row || lead };
+  });
+}
+
+// Whether every image of the batch carries words of its own, which is a whole instruction with
+// nothing in the box. A batch of rows is the case a marked run already allows, so the run is
+// offered there too, and a row still left empty holds the run back.
+function eachCarries() {
+  return eachOffered() && page.references().every(function (_, place) {
+    return (eachText[place] || '').trim();
+  });
 }
 
 function eachRow(place) {
@@ -517,7 +543,12 @@ function blocker() {
   // picked labels, so a pick that matches no option cannot pass this and then reach
   // the server as nothing.
   const picked = Boolean(lookText());
-  if (!regions && !page.el.promptInput.value.trim() && !(editing() && picked)) {
+  // A batch whose every image carries words of its own is a whole instruction with nothing in
+  // the box, the way a marked run's rows already are. One row still empty holds the run back
+  // and says so, because that image would reach the server with no words at all.
+  const carried = eachCarries();
+  if (!regions && !carried && !page.el.promptInput.value.trim() && !(editing() && picked)) {
+    if (eachOffered()) return 'Say what each image needs, or write a prompt';
     return editing() ? 'Describe the change' : 'Write a prompt';
   }
   // The region token is not the user's to fill: the page replaces it with the

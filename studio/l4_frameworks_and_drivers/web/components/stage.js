@@ -433,7 +433,7 @@ export function closeSheet() {
 const GUIDE = [
   ['Generate, or Edit', 'Generate writes a picture from a prompt. Edit changes one you already have, and needs an image from the strip: click a frame, then Edit this.'],
   ['A Look', 'A chip adds one sentence after your words. Each model offers only the options its own test kept.'],
-  ['Rewrite', 'It writes out the words you typed, and the words in the marked areas, at length. Each answer lands where it was written, and the Look is added after them. In a batch it writes one instruction for each image, read from that image.'],
+  ['Rewrite', 'It writes out the words you typed, and the words in the marked areas, at length. Each answer lands where it was written, and the Look is added after them. In a batch your words lead every image and each row adds to them, and the press writes a row from its own picture.'],
   ['Mark a region', "Fill the area you want changed. Do not circle it: the mark's own shape is the shape that comes back repainted."],
   ['What changes there', 'One row per marked colour says what changes in that area. Or pick the Mark a region template and leave the rows empty.'],
   ['The brush', 'Three widths, and a loupe follows the brush while you draw. The area you mark is the area that changes, so keep the mark close to what should change.'],
