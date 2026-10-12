@@ -878,8 +878,9 @@ the page: the place was taken straight, so past the first pass over the referenc
 carried the run's single prompt again.
 
 What the stub cannot see is whether an answer is about the picture it was given, which is the
-whole point: that is read on the model, by the spike above and by a real run of a batch whose
-rows hold four different instructions.
+whole point: that is read on the model, by the spike above and by `tests/e2e/verify_batch.py`,
+which makes four pictures of four subjects and edits them twice, once without a press and once
+with one, and reads the pairing between a result and its picture off their backgrounds.
 
 That run was made on the office machine, four pictures of four subjects and one instruction in
 the user's words. The press filled all four rows in 102 seconds, about 25 each, and each
