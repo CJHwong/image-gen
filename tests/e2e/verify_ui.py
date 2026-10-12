@@ -2721,6 +2721,32 @@ with sync_playwright() as playwright:
     )
     plain_context.close()
 
+    # ---- The order several files are picked in ---------------------------------
+    # A browser reads the files of one pick one at a time, and they finish in their own order,
+    # so a list built as each read lands can hold them grouped by how long the read took. It is
+    # built from the picks instead. On a real machine, four photographs picked at once put two
+    # of them in the wrong places, which is what this guards, in its own place because it needs
+    # four references held and the blocks above count them.
+    #
+    # What it traps, measured against a copy of this tree with the old read loop in it: 2 of 12
+    # uploads came back in the wrong order, and the wrong order looks like ["reference-b.png",
+    # "reference-b.png", "reference-a.png", "reference-a.png"]. Against this tree, 0 of 12.
+    order_context = browser.new_context(viewport={"width": 1440, "height": 900})
+    picked_in_order = order_context.new_page()
+    picked_in_order.goto(URL)
+    picked_in_order.locator(IDLE).wait_for(state="visible", timeout=60000)
+    picked_in_order.locator("label[for=mode-edit]").click()
+    wanted = ["reference-a.png", "reference-b.png", "reference-a.png", "reference-b.png"]
+    picked_in_order.set_input_files("#reference", [str(SCRATCH / name) for name in wanted])
+    picked_in_order.wait_for_function("() => document.querySelectorAll('#thumbs .thumb').length === 4", timeout=10000)
+    held = picked_in_order.eval_on_selector_all("#thumbs .thumb", "els => els.map(el => el.title)")
+    check(
+        "several files picked in one go land in the order they were picked",
+        held == wanted,
+        f"{held}",
+    )
+    order_context.close()
+
     check("no page errors", not errors, str(errors)[:200])
     if session is not None:
         js_coverage.report(session)

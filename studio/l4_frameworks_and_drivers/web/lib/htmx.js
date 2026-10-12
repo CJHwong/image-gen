@@ -72,6 +72,12 @@ function snapshotInputs() {
   };
 }
 
+// Everything the run consumed goes back to nothing: the words, the seed, the marks, the
+// references, and the settings with them, because the form the run sent is emptied and the
+// guide tells a reader that Run empties the form it sent. A step count picked for one job is
+// typed again for the next one, which is the price of that rule and not a fault in it: the
+// settings inside one batch are kept, since a chain link never clears the form.
+//
 // The defaults come from the mode, through the same call a mode switch makes,
 // rather than from a value named here that could drift away from the backend.
 function clearInputs() {
