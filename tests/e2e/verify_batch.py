@@ -144,7 +144,14 @@ def nearest_source(result, sources):
 
 
 def names(answer, place):
+    """Which of a picture's own words an answer carries. A reader, not a judgement: "dog" inside
+    "dog bed" counts, and that is the noise on the measurement line."""
     return [word for word in SUBJECTS[place] if word in answer.lower()]
+
+
+def names_other(answer, place):
+    """Another picture's subject words, which an answer about this picture should not carry."""
+    return [word for other, words in SUBJECTS.items() if other != place for word in words if word in answer.lower()]
 
 
 def few_steps(page):
@@ -327,15 +334,26 @@ with sync_playwright() as playwright:
         len(answers) == 4 and all(answers),
         f"{sum(1 for answer in answers if answer)} of 4 filled in {pressed:.0f}s",
     )
+    # Four answers, one per picture, and no two the same. That is what a press per image
+    # guarantees and what a single paragraph over four pictures cannot: the fault this guards
+    # gave four copies of one answer.
+    #
+    # Whether an answer *names* the picture it was written from is read here and not asserted.
+    # It is a second model's wording: three runs of this check named four, four and three of
+    # four, so an assertion on it would fail on the model's luck rather than on the page. The
+    # printed line is the measurement, and the claim that an instruction is obeyed is the
+    # pairing check below, which reads the pixels and has held every time.
+    named = [names(answers[place], pictures[place]) for place in range(4)]
     check(
-        "each instruction is written from its own picture, and they are not the same one",
-        len(set(answers)) == 4
-        and len(set(pictures)) == 4
-        and all(pictures[place] >= 0 and names(answers[place], pictures[place]) for place in range(4)),
-        "; ".join(
-            f"row {place + 1} is source {pictures[place] + 1}: {names(answers[place], pictures[place])}"
-            for place in range(4)
-        ),
+        "the press wrote four different instructions, one for each picture",
+        len(answers) == 4 and all(answers) and len(set(answers)) == 4 and len(set(pictures)) == 4,
+        f"{len(set(answers))} answers for {len(set(pictures))} pictures, in {pressed:.0f}s",
+    )
+    print("  an instruction naming its own picture:", f"{sum(1 for one in named if one)} of 4", named)
+    print(
+        "  a picture named by another's instruction:",
+        sum(1 for place in range(4) if pictures[place] >= 0 and names_other(answers[place], pictures[place])),
+        "of 4",
     )
 
     page.click("#go")

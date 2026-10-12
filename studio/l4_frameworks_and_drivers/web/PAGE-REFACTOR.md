@@ -878,6 +878,14 @@ press the model reads the intent twice, once in the user's words and once as the
 elaboration of them, which is what a marked run does today. A rule that depended on who wrote
 the text would avoid it and be the kind of knob that turns into a fault.
 
+`verify_batch.py` asserts three things about a pressed batch: four answers, one for each picture
+and no two the same; that each request carries the words in the box leading that image's own row;
+and that every result kept the scene of the picture it was written from, which is read off the
+backgrounds and held every time. What it prints and does not assert is whether an answer names its
+own picture. That is a second model's wording: three runs of the check named four, four and then
+three of four, so an assertion there would fail on the model's luck rather than on the page. The
+first of the three is what the fault it guards broke, where four copies of one answer were made.
+
 The stub's rewriter echoes what it is given, so the wire and the rows both say what a press
 was asked and what it wrote back. Seven checks read it there, one of them for a count above
 one: the requests then outnumber the images, and the place comes back around with the index's
