@@ -871,10 +871,28 @@ press writes one instruction for each image, and a row is where it lands.
 | what the run button still asks for | the words in the box. Every image falls back to them, so they stay required, which is also why the press leaves them alone |
 
 The stub's rewriter echoes what it is given, so the wire and the rows both say what a press
-was asked and what it wrote back. Six checks read it there. What the stub cannot see is
-whether an answer is about the picture it was given, which is the whole point: that is read
-on the model, by the spike above and by a real run of a batch whose rows hold four different
-instructions.
+was asked and what it wrote back. Seven checks read it there, one of them for a count above
+one: the requests then outnumber the images, and the place comes back around with the index's
+remainder, the same way the server takes it. That one was a fault in this change and not in
+the page: the place was taken straight, so past the first pass over the references a request
+carried the run's single prompt again.
+
+What the stub cannot see is whether an answer is about the picture it was given, which is the
+whole point: that is read on the model, by the spike above and by a real run of a batch whose
+rows hold four different instructions.
+
+That run was made on the office machine, four pictures of four subjects and one instruction in
+the user's words. The press filled all four rows in 102 seconds, about 25 each, and each
+instruction is about its own picture: the red-green macaw, the black cat with its own window
+frame and navy drape, and one that warns against rendering its subject as a rabbit. The fourth
+is about the dog it was given without naming it, and the check passes it on the word "dog"
+inside "dog bed", which is the user's own phrase.
+
+One thing that run does not settle, and the rows exist for it: the rewriter keeps its own
+reading of the words. Given the black cat and "make it a chihuahua sitting in a dog bed", one
+of the four answers leaves the cat as a cat and only sets it in a bed, so that result is not
+the change the user asked for. A press is one model's reading and not a promise, and the row
+it lands in is the user's to correct.
 
 ## Non-goals
 
