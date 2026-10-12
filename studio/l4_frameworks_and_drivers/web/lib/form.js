@@ -320,7 +320,6 @@ function eachRow(place) {
   const input = document.createElement('textarea');
   input.rows = 1;
   input.value = eachText[place] || '';
-  growField(input);
   input.setAttribute('aria-label', eachLabel(place));
   input.addEventListener('input', function () {
     eachText[place] = input.value;
@@ -354,6 +353,10 @@ function renderEachRows() {
   if (rows.dataset.wanted) eachText = {};
   rows.dataset.wanted = wanted;
   rows.replaceChildren.apply(rows, page.references().map(function (_, place) { return eachRow(place); }));
+  // A field measures itself off its own content, and it has none until it is in the page: a
+  // textarea grown while it is still detached takes the height of nothing and is drawn as a
+  // squashed line until someone types in it.
+  rows.querySelectorAll('textarea').forEach(growField);
 }
 
 function growField(field) {
