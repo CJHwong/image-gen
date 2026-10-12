@@ -38,6 +38,8 @@ let batchSource = null;     // the source of a one-image edit, for before and af
 let batchSources = [];      // one source per reference, when the batch edits one image at a time
 let runLook = null;         // the run's own prompt, look and negative, apart from what the model got
 let runSources = [];        // per reference of the run: the frame it came from, or null for an upload
+let runTyped = [];          // per reference of a batch: the words that image was asked, as typed
+let runPrompts = [];        // the same, composed with the Look, which is what the model is given
 
 // When the run in flight started. The button it belongs to carries it, beside
 // the run state it already publishes, so the page reads its own state from
@@ -371,6 +373,16 @@ function harvest() {
       entry.negative = runLook.negative;
       if (runLook.labels.length) entry.look = runLook;
     }
+    // A batch wrote each image its own instruction, so the card of that image reads back the
+    // words it was given, and Reuse prompt hands those words back. The match above cannot find
+    // them: they are not the run's single prompt, they are that image's own.
+    const place = Number(data.reference);
+    if (place >= 0 && runTyped.length > place) {
+      entry.prompt = runPrompts[place];
+      entry.typed = runTyped[place];
+      entry.negative = runLook ? runLook.negative : '';
+      if (runLook && runLook.labels.length) entry.look = runLook;
+    }
     page.gallery().unshift(entry);
     page.keep(entry);
     page.setArrived(entry.id);
@@ -445,7 +457,17 @@ function listen() {
   // The references are an array, not a form field, so they are attached here.
   // Only the form itself carries them: a chain request already has a token.
   document.body.addEventListener('htmx:configRequest', function (event) {
-    if (event.detail.elt !== page.el.form) return;
+    const elt = event.detail.elt;
+    const chain = elt.classList.contains('chain');
+    if (elt !== page.el.form && !chain) return;
+    // A link of the batch asks for one image, and the index the placeholder publishes is
+    // which one. A batch writes each image its own instruction, so that request carries the
+    // words of that image and not the run's single prompt.
+    if (chain) {
+      const place = Number(elt.dataset.index) - 1;
+      if (place >= 0 && runPrompts.length > place) event.detail.parameters.prompt = runPrompts[place];
+      return;
+    }
     const references = page.references();
     const region = page.region();
     // Only a one-image edit changes that image in place. An edit from several
@@ -466,7 +488,12 @@ function listen() {
       adds: page.lookText(), labels: page.lookLabels(),
       picks: JSON.parse(JSON.stringify(page.look())), negative: page.typedNegative(),
     };
-    event.detail.parameters.prompt = runLook.sent;
+    // One instruction for each image of a batch, or nothing when the run carries a single
+    // one. The Look is the page's own sentence and is added to whichever instruction the
+    // image gets, once, here.
+    runTyped = page.eachPlan();
+    runPrompts = runTyped.map(function (words) { return page.withLook(words); });
+    event.detail.parameters.prompt = runPrompts.length ? runPrompts[0] : runLook.sent;
     // What the run is charged for. With one result per reference the count is what each
     // reference gets, so the batch costs that many times the references, and the server's bound
     // is on the images it makes. Posting the product keeps the two the same number.

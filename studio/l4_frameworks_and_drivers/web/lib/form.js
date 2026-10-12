@@ -230,6 +230,7 @@ function renderEachChoice() {
   document.getElementById('each-choice').hidden = !offers;
   document.getElementById('each-note').hidden = !offers;
   renderEachNote();
+  renderEachRows();
 }
 
 // The images a run makes. The count is what each reference gets, so with one result per
@@ -248,12 +249,104 @@ function renderEachNote() {
   // The same number the run button promises: the count is what each reference gets, so the
   // results are the count times the references, and the caption has to say the product.
   const results = imageCount();
-  // The rewriter reads the pictures, so its answer names the one it read, and the others would
-  // be pulled toward it. With one instruction for every image, the instruction is the user's.
-  const batched = page.references().length > 1;
+  // The rewriter reads one picture at a time, so it can name the picture it read, and a
+  // batch uses that: the rows below hold one instruction per image. A row left empty takes
+  // the words in the box, which is what a batch did before the rows existed.
+  const batched = eachOffered();
   note.textContent = 'Each image is edited on its own, so one press gives you ' + results
     + (results === 1 ? ' result.' : ' results.')
-    + (batched ? ' Write the instruction for all of them: the Rewrite button needs one picture.' : '');
+    + (batched ? ' Rewrite writes each image its own instruction, read from that image, and a row left empty takes your words.' : '');
+}
+
+// ---- One instruction for each image of a batch -------------------------------
+// A batch applies one instruction to every image. The box holds it, and this holds
+// what one image is asked instead, once a press has written it: the rewriter reads
+// one picture at a time, so its answer can name that picture, and four pictures
+// read at once come back as a paragraph about one of them.
+let eachText = {};        // the place of a reference to the words that image is asked
+
+// Whether the rows are in force: a batch of more than one image, which is the only
+// case where one instruction per image means anything.
+function eachOffered() {
+  return chosenEach() && page.references().length > 1;
+}
+
+function eachLabel(place) {
+  return 'What image ' + (place + 1) + ' is asked';
+}
+
+function setEachRow(place, text) {
+  eachText[place] = text;
+  const field = document.querySelector('#each-rows [aria-label="' + eachLabel(place) + '"]');
+  if (!field) return;
+  field.value = text;
+  growField(field);
+}
+
+// What each image of the batch will be asked, in the order of the references: the
+// row's own words, or the box's words for a row left empty. Empty outside a batch,
+// where the box's one instruction is the whole of it.
+function eachPlan() {
+  if (!eachOffered()) return [];
+  const own = page.el.promptInput.value.trim();
+  return page.references().map(function (_, place) { return eachText[place] || own; });
+}
+
+function eachRow(place) {
+  const row = document.createElement('div');
+  row.className = 'each-row';
+  const reference = page.references()[place];
+  if (reference) {
+    // The picture itself is the row's name: four images of a batch are told apart by
+    // looking at them, and a number would only be a place in a list.
+    const thumb = document.createElement('img');
+    thumb.className = 'each-thumb';
+    thumb.alt = '';
+    thumb.src = 'data:image/png;base64,' + reference.b64;
+    row.append(thumb);
+  }
+  const input = document.createElement('textarea');
+  input.rows = 1;
+  input.value = eachText[place] || '';
+  growField(input);
+  input.setAttribute('aria-label', eachLabel(place));
+  input.addEventListener('input', function () {
+    eachText[place] = input.value;
+    growField(input);
+    refreshForm();
+  });
+  row.append(input);
+  return row;
+}
+
+// What tells one set of references from another, cheaply: the head of each picture and
+// its length. A cancel puts the same references back, and this has to see that they are
+// the same, so a run that is cancelled keeps the rows it was pressed for.
+function referenceKey() {
+  return page.references().map(function (reference) {
+    return reference.b64.slice(0, 24) + reference.b64.length;
+  }).join('|');
+}
+
+// The rows are rebuilt when the references change and not on every pass, so a rebuild
+// never lands under the caret while a row is being typed in. Different images mean the
+// rows were written from other pictures, so their words go with them: an instruction
+// written for one image is not another image's.
+function renderEachRows() {
+  const rows = document.getElementById('each-rows');
+  const offered = eachOffered();
+  rows.hidden = !offered;
+  if (!offered) return;
+  const wanted = referenceKey();
+  if (rows.dataset.wanted === wanted) return;
+  if (rows.dataset.wanted) eachText = {};
+  rows.dataset.wanted = wanted;
+  rows.replaceChildren.apply(rows, page.references().map(function (_, place) { return eachRow(place); }));
+}
+
+function growField(field) {
+  field.style.height = 'auto';
+  field.style.height = field.scrollHeight + 'px';
 }
 
 function clampCount() {
@@ -772,8 +865,21 @@ let rewrittenFrom = null;
 // marked area, in the order the areas were drawn. Each answer lands where its
 // instruction lives, so nothing is written twice, and a marked run whose rows carry
 // the whole instruction can be rewritten with the box empty.
+//
+// A batch is the other way round. It applies one instruction to every image, and the
+// pictures are what differ, so the press writes one instruction for each image, from
+// that image, and lands each answer in that image's own row. The box keeps the words
+// that were typed in it: they are the instruction the rows are written from, and they
+// stay the words of a run that was never pressed.
 function rewriteItems() {
   const items = [];
+  if (eachOffered()) {
+    page.references().forEach(function (_, place) {
+      const text = (eachText[place] || '').trim() || page.el.promptInput.value.trim();
+      if (text) items.push({ kind: 'image', place: place, text: text });
+    });
+    return items;
+  }
   if (page.el.promptInput.value.trim()) items.push({ kind: 'prompt' });
   const region = page.region();
   region.colours().forEach(function (colour) {
@@ -784,7 +890,9 @@ function rewriteItems() {
 }
 
 function rewriteWhere(item) {
-  return item.kind === 'prompt' ? 'the prompt' : 'the ' + page.region().name(item.colour) + ' area';
+  if (item.kind === 'prompt') return 'the prompt';
+  if (item.kind === 'image') return 'the words for image ' + (item.place + 1);
+  return 'the ' + page.region().name(item.colour) + ' area';
 }
 
 function rewriteOffered() {
@@ -816,13 +924,10 @@ function renderRewriteButton() {
   button.hidden = !rewriteOffered();
   const items = rewriteItems();
   showRewriteVerb(button, rewriteStage);
-  const batched = chosenEach() && page.references().length > 1;
   button.disabled = rewriteStage === 'preparing' || rewriteStage === 'stopping'
-    || (rewriteStage === 'idle' && (page.busy() || !items.length || batched));
+    || (rewriteStage === 'idle' && (page.busy() || !items.length));
   const stage = rewriteStages[rewriteStage];
-  button.title = stage ? stage.title : (batched
-    ? 'One instruction is applied to every image, so write it for all of them'
-    : rewriteTitle(items.length));
+  button.title = stage ? stage.title : rewriteTitle(items);
   // The readout belongs to a run while one is going, so a rewrite only borrows
   // it when nothing else is. Without this a press looks like nothing happened
   // for half a minute, and the button stays live for a second press.
@@ -834,7 +939,15 @@ function renderRewriteButton() {
 
 // What the button promises, in the mode on screen. A generate run draws a picture and has
 // no marked areas, so there the words in the box are the only thing a press can write out.
-function rewriteTitle(hasItems) {
+// A batch is the third case: the pictures differ, so the press writes one instruction for
+// each of them, and one press over four images is four times the wait.
+function rewriteTitle(items) {
+  if (items.length && items[0].kind === 'image') {
+    return items.length === 1
+      ? 'Write out the words for that image, read from that image'
+      : 'Write out one instruction for each image, read from that image';
+  }
+  const hasItems = items.length > 0;
   if (hasItems) {
     return editing()
       ? 'Rewrite the words you typed, and the words in the marked areas'
@@ -909,7 +1022,9 @@ async function startRewrite() {
   for (const item of items) {
     let result;
     try {
-      result = item.kind === 'prompt' ? await rewritePrompt() : await rewriteRow(item);
+      result = item.kind === 'prompt' ? await rewritePrompt()
+        : item.kind === 'image' ? await rewriteImage(item)
+          : await rewriteRow(item);
     } catch (error) {
       page.notify('error', 'The rewrite failed: ' + error.message);
       break;
@@ -940,12 +1055,14 @@ function cancelRewrite() {
 
 // One question to the rewriter, and its answer. The pictures the run carries go with
 // it, and not the mask: the mask is a technical picture, and the rewriter is asked
-// about the scene.
-async function askRewriter(prompt) {
+// about the scene. A caller that names its own pictures is asking about those alone,
+// which is how one image of a batch gets an instruction that names it.
+async function askRewriter(prompt, pictures) {
+  const images = pictures || page.references().map(function (reference) { return reference.b64; });
   const body = new URLSearchParams();
   body.set('mode', currentMode().id);
   body.set('prompt', prompt);
-  body.set('references', JSON.stringify(page.references().map(function (reference) { return reference.b64; })));
+  body.set('references', JSON.stringify(images));
   const answer = await fetch('/rewrite', { method: 'POST', body: body });
   const text = await answer.text();
   let result;
@@ -984,6 +1101,18 @@ async function rewriteRow(item) {
   const result = await askRewriter(item.text);
   if (result.cancelled) return result;
   page.region().setRow(item.colour, result.prompt.trim());
+  refreshForm();
+  return result;
+}
+
+// One image's own words, for a batch: the rewriter is given that picture alone, so its
+// answer can name what is in it. The answer lands in that image's row and nowhere else,
+// and the box keeps the words the rows were written from.
+async function rewriteImage(item) {
+  const reference = page.references()[item.place];
+  const result = await askRewriter(item.text, reference ? [reference.b64] : []);
+  if (result.cancelled) return result;
+  setEachRow(item.place, result.prompt.trim());
   refreshForm();
   return result;
 }
@@ -1069,6 +1198,7 @@ const handle = {
   picksHere: picksHere,
   withLook: withLook,
   imageCount: imageCount,
+  eachPlan: eachPlan,
   typedNegative: typedNegative,
   negativeText: negativeText,
   rewrittenFrom: function () { return rewrittenFrom; },
