@@ -56,7 +56,7 @@ Run this flow when you add a backend. Also run it when you change one: its capab
    - Run `prek run --all-files`. It runs ruff, ty, import-linter and the secret scan. `--all-files` skips untracked files; while files are untracked, pass `--files $(git ls-files -co --exclude-standard)` instead.
    - Run `uv run pytest`, then `uv run pytest -m live -k <id>`. The first one fails when the statement or branch coverage of `studio/` drops below 100%.
 9. **Prove it with real runs.** A green test is a gate, not proof.
-   - `tests/e2e/verify_capabilities.py`, which needs no GPU.
+   - `tests/e2e/verify_capabilities.py`, which needs no GPU. It also reads the page's geometry, so run it after a page change and not only after a backend change: a sentence added to the Look note took the closed section past the height it guards, and nothing else noticed.
    - `tests/e2e/verify_backends.py`, against `uv run studio --port <port> --backend <id>`.
    - `tests/e2e/verify_page.py` and `tests/e2e/verify_storage.py`, if the page changed.
    - `tests/e2e/verify_ui.py`, against `uv run studio --stub --port <port>`, if a control on the page changed. It needs no GPU.
