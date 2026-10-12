@@ -895,6 +895,24 @@ of the four answers leaves the cat as a cat and only sets it in a bed, so that r
 the change the user asked for. A press is one model's reading and not a promise, and the row
 it lands in is the user's to correct.
 
+## Several files picked at once
+
+A browser reads the files of one pick one at a time, and the reads finish in their own order. The
+list used to be built as each read landed, so its order followed how long each read took rather
+than what was picked. Measured on the office machine with four pictures in one pick: their
+sources came back as 1, 4, 2, 3 instead of 1, 2, 3, 4, and the background comparison between a
+result and its picture named the pair that had changed places. Nothing misled anyone about which
+picture was which, since the thumbnail, the row and the result all carry the same picture, and
+the order a person picked in is still the order they expect to see.
+
+`addFiles` holds every read now and builds the list from them in the order they were picked. A
+file the browser cannot read joins nothing, which used to happen in silence.
+
+The check pins the rule with four files picked in one go. Trapping the fault is not certain,
+because it is a race: against a copy of this tree with the old read loop in it, 2 of 12 uploads
+came back in the wrong order, and against this tree, 0 of 12. So the check catches a return of
+it most of the time and not always, and the measurement above is what says the fault was real.
+
 ## Non-goals
 
 1. No bundler, no npm, no build step.

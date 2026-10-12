@@ -141,15 +141,27 @@ function addReference(b64, name, source) {
   renderReferences();
 }
 
-function addFiles(files) {
-  Array.from(files).filter(function (file) {
-    return file.type.startsWith('image/');
-  }).forEach(function (file) {
+// One file, read, or nothing when the browser will not read it.
+function readReference(file) {
+  return new Promise(function (resolve) {
     const reader = new FileReader();
-    reader.onload = function () {
-      addReference(reader.result.split(',')[1], file.name);
-    };
+    reader.onload = function () { resolve({ b64: reader.result.split(',')[1], name: file.name }); };
+    reader.onerror = function () { resolve(null); };   // a file that cannot be read joins nothing
     reader.readAsDataURL(file);
+  });
+}
+
+// The reads finish in their own order, and a list built in that order would put the third
+// picture a person picked in the second place. So they are all kept and the list is built
+// from them in the order they were picked, which is the order they were shown the picker in.
+function addFiles(files) {
+  const images = Array.from(files).filter(function (file) {
+    return file.type.startsWith('image/');
+  });
+  Promise.all(images.map(readReference)).then(function (read) {
+    read.forEach(function (reference) {
+      if (reference) addReference(reference.b64, reference.name);
+    });
   });
 }
 
