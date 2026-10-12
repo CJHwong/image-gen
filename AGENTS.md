@@ -14,7 +14,7 @@ One model fits in memory at a time. A second job on the GPU makes every timing w
 6. On the office machine, `uv` must be on the PATH of the server **and of the children it spawns**: `export PATH=/opt/homebrew/bin:$PATH`. Starting the server with the absolute path to `uv` works and leaves the edit engine unable to find it, which fails as `env: uv: No such file or directory`. That reads like a broken edit rather than a broken environment, and it cost three runs.
 7. Never pipe a check through a filter when you need its status. `| grep` makes the exit code the filter's, so a traceback reads as a pass.
 8. Take the digest of what you measured at the same moment as the measurement, or bracket the run with it. A digest sampled later is not evidence about the bytes under test. One such digest belonged to a revision another worker's mutation script had rewritten, and the difference was reported as a flaky check that did not exist.
-9. The whole web/ tree is CPU work. Slices of it, and the UI suite, need no GPU: only `verify_page.py` does, because it generates and edits real images and asserts on their pixels.
+9. The whole web/ tree is CPU work. Slices of it, and the UI suite, need no GPU: only `verify_page.py` and `verify_batch.py` do, because they generate and edit real images and assert on their pixels.
 10. A page-only change can spend hours on the stub before any GPU time. That pays: one campaign of fuzzed clicks and a battery over every Look option, template and backend found 47 faults with no model loaded. Keep the instrument outside the repo, and rebuild it from this rule when a change is large: `pytest`, `verify_ui`, one walk over every Look option and template, and a fuzzer that presses real controls at random and reads the state the page publishes.
 11. The stub fakes the engines, so it cannot see what a model writes. A change whose behaviour depends on the model's own words still needs a real run: the stub stayed green on the collage fault that a real rewriter produced.
 
@@ -60,6 +60,7 @@ Run this flow when you add a backend. Also run it when you change one: its capab
    - `tests/e2e/verify_backends.py`, against `uv run studio --port <port> --backend <id>`.
    - `tests/e2e/verify_page.py` and `tests/e2e/verify_storage.py`, if the page changed.
    - `tests/e2e/verify_ui.py`, against `uv run studio --stub --port <port>`, if a control on the page changed. It needs no GPU.
+   - `tests/e2e/verify_batch.py`, if a batch changed. It makes four pictures of four subjects and edits them twice, once without a press and once with one, so it needs the GPU and about twenty minutes.
    - In the browser, one generate, one edit, and one cancel during a run.
 10. **Get a review.** Get an independent code review of the change. Fix each finding the way step 7 says, then run steps 8 and 9 again.
 11. **Update the docs.**
