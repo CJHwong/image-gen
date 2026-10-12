@@ -190,9 +190,12 @@ function toggle() {
   return button;
 }
 
-// The first time an edit shows, the divider sweeps in from the left edge, which
-// shows it can be dragged. After that it opens at the middle. The wipe is drawn
-// into the print's own box, which the stage owns, so the page asks for it.
+// The first time an edit shows, the divider sweeps from the whole of the before picture
+// to the middle, which shows both what the edit started from and that the divider can be
+// dragged. It used to sweep the other way, from the whole of the after to the middle, and
+// then the first thing a person saw was the result and the original only crept in.
+// After that first time it opens at the middle. The wipe is drawn into the print's own
+// box, which the stage owns, so the page asks for it.
 function compare(pic, entry) {
   const before = document.createElement('img');
   before.className = 'before';
@@ -225,18 +228,19 @@ function compare(pic, entry) {
 
 // The wipe paints in the frame the browser is about to draw, so the property it
 // writes is read back on the next paint and the sweep is smooth. It stops when
-// the print goes or a person takes the control.
+// the print goes or a person takes the control. The whole of the before picture
+// holds while the print takes focus, and the divider then walks back to the middle.
 function sweep(range, split) {
   const delay = 650;      // once the print is in focus, while its grain still settles
   const length = 650;
   let start = null;
-  range.value = '0';
+  range.value = '100';
   split();
   requestAnimationFrame(function frame(now) {
     if (!range.isConnected || range.dataset.touched) return;
     if (start === null) start = now + delay;
     const progress = Math.min(1, Math.max(0, (now - start) / length));
-    range.value = String(Math.round(50 * (1 - Math.pow(1 - progress, 3))));
+    range.value = String(Math.round(50 + 50 * Math.pow(1 - progress, 3)));
     split();
     if (progress < 1) requestAnimationFrame(frame);
   });
