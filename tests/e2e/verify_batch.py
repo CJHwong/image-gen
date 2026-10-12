@@ -170,6 +170,32 @@ def few_steps(page):
         page.click("#advanced summary")
 
 
+def watch_rewrites(page, presses):
+    """Every press, with the answer the rewriter gave it.
+
+    A press that fails says so in a toast and leaves the rows empty, and the answer is what says
+    why. Without it a run can only report that nothing happened, which is what one run of this
+    check did after waiting fifteen minutes on a press that had already given up.
+    """
+
+    def note_request(request):
+        if request.method == "POST" and request.url.endswith("/rewrite"):
+            presses.append({"body": parse_post(request), "answer": None})
+
+    def note_response(response):
+        if response.request.method != "POST" or not response.url.endswith("/rewrite"):
+            return
+        try:
+            answer = response.text()[:400]
+        except Exception as error:
+            answer = f"a body that could not be read: {error}"
+        if presses:
+            presses[-1]["answer"] = answer
+
+    page.on("request", note_request)
+    page.on("response", note_response)
+
+
 def watch(page, posts, bodies):
     page.on(
         "request",
@@ -314,13 +340,21 @@ with sync_playwright() as playwright:
     watch(page, posts, bodies)
 
     few_steps(page)
+    presses = []
+    watch_rewrites(page, presses)
     started = time.monotonic()
     page.click("#rewrite-toggle")
     # A press that never filled a row is reported by the check below and not raised here,
     # so the four answers, the requests and the pictures are all read either way.
+    # The press ends either by filling the rows or by giving up, and a rewriter that failed says
+    # so in a toast. Waiting only for the rows hides that: one run of this check waited fifteen
+    # minutes on a press that had already ended with nothing in it, which read as a page fault
+    # when all it was was a failure the page had reported to a reader.
     with contextlib.suppress(Exception):
         page.wait_for_function(
-            "() => [...document.querySelectorAll('#each-rows textarea')].every(row => row.value.trim() !== '')",
+            "() => [...document.querySelectorAll('#each-rows textarea')].every(row => row.value.trim() !== '')"
+            " || (document.getElementById('rewrite-toggle').innerText.trim() === 'Rewrite'"
+            " && !document.body.classList.contains('rewriting'))",
             timeout=900000,
         )
     page.wait_for_function(
@@ -332,7 +366,12 @@ with sync_playwright() as playwright:
     check(
         "the press wrote an instruction for every image",
         len(answers) == 4 and all(answers),
-        f"{sum(1 for answer in answers if answer)} of 4 filled in {pressed:.0f}s",
+        f"{sum(1 for answer in answers if answer)} of 4 filled in {pressed:.0f}s"
+        + (
+            ""
+            if all(answers)
+            else ". The page said: " + (page.locator("#toasts").inner_text().strip().replace("\n", " ") or "nothing")
+        ),
     )
     # Four answers, one per picture, and no two the same. That is what a press per image
     # guarantees and what a single paragraph over four pictures cannot: the fault this guards
@@ -343,6 +382,8 @@ with sync_playwright() as playwright:
     # four, so an assertion on it would fail on the model's luck rather than on the page. The
     # printed line is the measurement, and the claim that an instruction is obeyed is the
     # pairing check below, which reads the pixels and has held every time.
+    if not all(answers):
+        print(f"  the press posted {len(presses)} rewrites; the rewriter answered: {presses}")
     named = [names(answers[place], pictures[place]) for place in range(4)]
     check(
         "the press wrote four different instructions, one for each picture",

@@ -23,6 +23,7 @@ lists the two this suite switches between. So the shipping settings are the ones
 to run it against, and the switch needs no flag.
 """
 
+import contextlib
 import json
 import re
 import shutil
@@ -2740,6 +2741,41 @@ with sync_playwright() as playwright:
         prompts
         == [words + ". a stone wall", words + ". warmer light", words + ". a stone wall", words + ". warmer light"],
         f"{prompts}",
+    )
+    # A press right after a run, which is the state that run leaves: the form is emptied, the
+    # references go with it, and the rows are built again from the pictures that come back. That
+    # sequence was missing here and a run of `verify_batch.py` on the office ended with a press
+    # that wrote nothing at all, so the wiring is read here where it costs no GPU.
+    per_image.set_input_files("#reference", [str(SCRATCH / "reference-a.png"), str(SCRATCH / "reference-b.png")])
+    per_image.get_by_role("img", name="reference-a.png").wait_for(state="visible", timeout=10000)
+    per_image.locator("label[for=each-each]").click()
+    per_image.fill("#prompt", words)
+    per_image.dispatch_event("#prompt", "input")
+    per_image.wait_for_timeout(300)
+    rows = per_image.locator("#each-rows textarea")
+    pressed_again = []
+    watch_rewrites(per_image, pressed_again)
+    per_image.click("#rewrite-toggle")
+    # The rows already hold the words this press is about to replace, so "every row is filled" is
+    # true the moment it is asked and the press gets read before it has posted: one request of
+    # two. The wait is for the press to be over, which the body says and the stale rows do not.
+    with contextlib.suppress(Exception):
+        per_image.wait_for_function(
+            "() => !document.body.classList.contains('rewriting')"
+            " && [...document.querySelectorAll('#each-rows textarea')].every(row => row.value.trim() !== '')",
+            timeout=90000,
+        )
+    per_image.wait_for_function(VERB_IS_REWRITE, timeout=60000)
+    check(
+        "a press after a run writes into the rows it built again",
+        len(pressed_again) == 2 and all(rows.nth(place).input_value().strip() for place in range(2)),
+        f"{len(pressed_again)} rewrites, rows {[rows.nth(place).input_value()[:20] for place in range(2)]}"
+        + (
+            ""
+            if len(pressed_again) == 2 and all(rows.nth(place).input_value().strip() for place in range(2))
+            else ". The page said: "
+            + (per_image.locator("#toasts").inner_text().strip().replace("\n", " ") or "nothing")
+        ),
     )
     instructions.close()
 
