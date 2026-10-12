@@ -2643,6 +2643,38 @@ with sync_playwright() as playwright:
         len(runs) == 2 and prompts[0] == "make the wall stone" and prompts[1] == second,
         f"{prompts}",
     )
+    # A count above one asks for several results from every image, so the requests outnumber
+    # the images and the place comes back around. Two images and a count of two is four
+    # requests over two rows, and the third takes the first row's words again.
+    per_image.set_input_files("#reference", [str(SCRATCH / "reference-a.png"), str(SCRATCH / "reference-b.png")])
+    per_image.get_by_role("img", name="reference-a.png").wait_for(state="visible", timeout=10000)
+    per_image.locator("label[for=each-each]").click()
+    per_image.wait_for_timeout(300)
+    per_image.click("#count-toggle")
+    per_image.wait_for_timeout(250)
+    per_image.locator("#count-menu button").nth(1).click()
+    per_image.wait_for_timeout(250)
+    rows = per_image.locator("#each-rows textarea")
+    rows.nth(0).fill("a stone wall")
+    rows.nth(0).dispatch_event("input")
+    rows.nth(1).fill("warmer light")
+    rows.nth(1).dispatch_event("input")
+    per_image.fill("#prompt", words)
+    per_image.dispatch_event("#prompt", "input")
+    set_steps(per_image, 1)
+    per_image.wait_for_timeout(250)
+    more = []
+    watch_runs(per_image, more)
+    per_image.click("#go")
+    wait_until_running(per_image)
+    wait_until_idle(per_image)
+    per_image.wait_for_timeout(600)
+    prompts = [post.get("prompt") for post in more]
+    check(
+        "a count above one asks each image again, and its own words come back around",
+        prompts == ["a stone wall", "warmer light", "a stone wall", "warmer light"],
+        f"{prompts}",
+    )
     instructions.close()
 
     # ---- What the run button is called, and what a role query reaches ----------

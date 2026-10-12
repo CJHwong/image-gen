@@ -462,9 +462,12 @@ function listen() {
     if (elt !== page.el.form && !chain) return;
     // A link of the batch asks for one image, and the index the placeholder publishes is
     // which one. A batch writes each image its own instruction, so that request carries the
-    // words of that image and not the run's single prompt.
+    // words of that image and not the run's single prompt. The index counts the requests and
+    // not the images: a count above one asks for several results from every image, and the
+    // server cycles the references the same way, so the place is taken the same way here.
     if (chain) {
-      const place = Number(elt.dataset.index) - 1;
+      const index = Number(elt.dataset.index) - 1;
+      const place = runTyped.length ? index % runTyped.length : -1;
       if (place >= 0 && runPrompts.length > place) event.detail.parameters.prompt = runPrompts[place];
       return;
     }
