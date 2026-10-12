@@ -535,6 +535,14 @@ takes one instruction for all of them is pulled toward whichever one the answer 
 page gives the rewriter one picture at a time for a batch, and each answer lands in that
 image's own row.
 
+Asked one picture at a time, the rewriter keeps its own reading of the words. In a later run
+of four, with "make it a chihuahua sitting in a dog bed" and one picture per call, three of the
+four answers carried the transformation: one turned the parrot's plumage into the chihuahua's
+own coat, as its own instruction asked. The fourth left its subject alone. Given the black cat,
+the answer was to keep the cat completely unchanged and set it in a bed, so the result is a cat
+in a bed and not the change the words asked for. A press is one model's reading, and the row
+it lands in is the user's to correct.
+
 What this does not settle: one sample, one seed and one instruction, and the answer's own
 quality is not read here. The subject each answer names is found by looking for that
 subject's own words in it, which is a reader and not a judgement.
