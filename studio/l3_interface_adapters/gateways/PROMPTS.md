@@ -514,6 +514,31 @@ So the free gives back **17.53 GB**. The 14.05 GB the last row starts from is th
 script's own earlier image-engine phase, so the delta belongs to the rewriter. The peak
 never falls, which is what a peak is.
 
+#### Several pictures at once, measured 2026-10-12
+
+The page's note claimed that the rewriter reads the pictures, so its answer names the one
+it read. Four pictures of four different subjects were put to it: a golden retriever, a
+black cat, a grey rabbit and a red parrot, each generated on the office machine at the
+first tier size the form offers, eight steps. The same words go with them both ways:
+"make it a chihuahua sitting in a dog bed".
+
+| What was asked | What came back |
+|---|---|
+| all four pictures in one call | one paragraph of 1588 characters, about one of the four. Its first sentence places "the golden retriever from `<image1>`", and the other three are named nowhere |
+| one picture per call | four answers of four, 643 to 1950 characters, and each names its own subject: the golden retriever, the black cat, the grey rabbit, the red parrot |
+
+The single calls took 14, 16, 24 and 30 seconds, and the one call over the four took 49: the
+other three are encoded and attended to and then left out of the answer.
+
+So one picture is what the rewriter can be asked about, and a run of several pictures that
+takes one instruction for all of them is pulled toward whichever one the answer names. The
+page gives the rewriter one picture at a time for a batch, and each answer lands in that
+image's own row.
+
+What this does not settle: one sample, one seed and one instruction, and the answer's own
+quality is not read here. The subject each answer names is found by looking for that
+subject's own words in it, which is a reader and not a judgement.
+
 ## Marking a region
 
 The page's **Mark a region** tool sends the marked area as the last image of the

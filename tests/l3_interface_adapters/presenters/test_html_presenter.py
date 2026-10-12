@@ -111,6 +111,9 @@ def test_a_batch_adds_the_next_request():
         "backend": "fake",
     }
     assert 'data-progress="2 of 2"' in body
+    # The image of the batch this placeholder asks for, published for the page: a batch
+    # that writes each image its own instruction needs to know which image it is posting.
+    assert 'data-index="2"' in body
 
 
 def test_a_late_image_of_a_batch_posts_no_picture_again():

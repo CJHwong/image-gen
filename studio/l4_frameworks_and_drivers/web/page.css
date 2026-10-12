@@ -200,6 +200,13 @@
   .region-row { display: flex; align-items: center; gap: 8px; }
   .region-row .swatch { cursor: default; }
   .region-row input, .region-row textarea { flex: 1; min-width: 0; min-height: 0; }
+  /* One instruction for each image of a batch. The picture is the row's name: four
+     images are told apart by looking at them, and a number would be a place in a list. */
+  .each-rows { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .each-row { display: flex; align-items: center; gap: 8px; }
+  .each-row textarea { flex: 1; min-width: 0; min-height: 0; }
+  .each-thumb { flex: none; width: 34px; height: 34px; border-radius: 6px; object-fit: cover;
+    border: 1px solid var(--line-strong); }
   /* Before and after: the source image lies over the edit, clipped at the
      slider. The range input covers the image, so a drag anywhere moves it.
      The source is stretched to the picture, because the edit resized the whole

@@ -14,6 +14,8 @@ One model fits in memory at a time. A second job on the GPU makes every timing w
 6. Never pipe a check through a filter when you need its status. `| grep` makes the exit code the filter's, so a traceback reads as a pass.
 7. Take the digest of what you measured at the same moment as the measurement, or bracket the run with it. A digest sampled later is not evidence about the bytes under test. One such digest belonged to a revision another worker's mutation script had rewritten, and the difference was reported as a flaky check that did not exist.
 8. The whole web/ tree is CPU work. Slices of it, and the UI suite, need no GPU: only `verify_page.py` does, because it generates and edits real images and asserts on their pixels.
+9. A page-only change can spend hours on the stub before any GPU time. That pays: one campaign of fuzzed clicks and a battery over every Look option, template and backend found 47 faults with no model loaded. Keep the instrument outside the repo, and rebuild it from this rule when a change is large: `pytest`, `verify_ui`, one walk over every Look option and template, and a fuzzer that presses real controls at random and reads the state the page publishes.
+10. The stub fakes the engines, so it cannot see what a model writes. A change whose behaviour depends on the model's own words still needs a real run: the stub stayed green on the collage fault that a real rewriter produced.
 
 ## Backend flow
 

@@ -2473,17 +2473,18 @@ with sync_playwright() as playwright:
     batched.locator("#count-menu button").first.click()
     batched.wait_for_timeout(300)
 
-    # The press reads the pictures, so one instruction for every image is the user's own. A
-    # batch does not take a rewritten one, and composing brings it back: read before the run,
-    # because the run empties the form it sent, references and all.
+    # A batch writes each image its own instruction, read from that image, so the press is
+    # the user's to make here. It is offered, and the note says what it writes, because the
+    # four answers of a batch cost four times one.
     batched.fill("#prompt", "make them chihuahua")
     batched.dispatch_event("#prompt", "input")
     batched.wait_for_timeout(300)
     check(
-        "a batch does not take a rewritten instruction",
-        batched.locator("#rewrite-toggle").is_disabled()
-        and "write the instruction for all of them" in batched.locator("#each-note").inner_text().lower(),
-        f"disabled {batched.locator('#rewrite-toggle').is_disabled()}",
+        "a batch offers the press, and the note says what it writes",
+        batched.locator("#rewrite-toggle").is_enabled()
+        and "each image its own instruction" in batched.locator("#each-note").inner_text(),
+        f"enabled {batched.locator('#rewrite-toggle').is_enabled()}, "
+        f"note {batched.locator('#each-note').inner_text()[-70:]!r}",
     )
     batched.locator("label[for=each-all]").click()
     batched.wait_for_timeout(300)
@@ -2495,10 +2496,10 @@ with sync_playwright() as playwright:
     batched.locator("label[for=each-each]").click()
     batched.wait_for_timeout(300)
     check(
-        "and a batch takes it away again, with the words still in the box",
-        batched.locator("#rewrite-toggle").is_disabled()
+        "and back to a batch, with the words still in the box",
+        batched.locator("#rewrite-toggle").is_enabled()
         and batched.locator("#prompt").input_value() == "make them chihuahua",
-        f"disabled {batched.locator('#rewrite-toggle').is_disabled()}, box {batched.locator('#prompt').input_value()!r}",
+        f"enabled {batched.locator('#rewrite-toggle').is_enabled()}, box {batched.locator('#prompt').input_value()!r}",
     )
 
     batched.fill("#prompt", "make the background a stone wall")
@@ -2555,6 +2556,94 @@ with sync_playwright() as playwright:
     )
 
     batch_context.close()
+
+    # ---- One instruction for each image of a batch -----------------------------
+    # A batch applies one instruction to every image, and the pictures are what differ. The
+    # rewriter reads one picture at a time, so a press writes one instruction for each image,
+    # from that image. The stub's rewriter echoes what it is given, so the wire and the rows
+    # both say what a press was asked and what it wrote back.
+    instructions = browser.new_context(viewport={"width": 1440, "height": 900})
+    per_image = instructions.new_page()
+    per_image.goto(URL)
+    set_steps(per_image, 1)
+    per_image.locator("label[for=mode-edit]").click()
+    per_image.set_input_files("#reference", [str(SCRATCH / "reference-a.png"), str(SCRATCH / "reference-b.png")])
+    per_image.get_by_role("img", name="reference-a.png").wait_for(state="visible", timeout=10000)
+    per_image.wait_for_timeout(300)
+    check(
+        "no instruction rows while the images are composed",
+        per_image.locator("#each-rows").is_hidden() and per_image.locator("#each-rows textarea").count() == 0,
+        f"hidden {per_image.locator('#each-rows').is_hidden()}",
+    )
+    per_image.locator("label[for=each-each]").click()
+    per_image.wait_for_timeout(300)
+    rows = per_image.locator("#each-rows textarea")
+    check(
+        "one row per image comes with the choice, each named by its own picture",
+        per_image.locator("#each-rows").is_visible()
+        and rows.count() == 2
+        and rows.nth(0).get_attribute("aria-label") == "What image 1 is asked"
+        and rows.nth(1).get_attribute("aria-label") == "What image 2 is asked"
+        and per_image.evaluate(
+            """() => {
+                 const rows = [...document.querySelectorAll('#each-rows .each-thumb')].map(img => img.src);
+                 const refs = [...document.querySelectorAll('#thumbs .thumb img')].map(img => img.src);
+                 return JSON.stringify(rows) === JSON.stringify(refs);
+               }"""
+        ),
+        f"{rows.count()} rows",
+    )
+    words = "make the background a stone wall"
+    per_image.fill("#prompt", words)
+    per_image.dispatch_event("#prompt", "input")
+    per_image.wait_for_timeout(250)
+    check(
+        "the press is offered for a batch, and says what it writes",
+        per_image.locator("#rewrite-toggle").is_enabled()
+        and "each image" in (per_image.locator("#rewrite-toggle").get_attribute("title") or ""),
+        per_image.locator("#rewrite-toggle").get_attribute("title"),
+    )
+    asked = []
+    watch_rewrites(per_image, asked)
+    per_image.click("#rewrite-toggle")
+    per_image.wait_for_function(
+        "() => [...document.querySelectorAll('#each-rows textarea')].every(row => row.value.trim() !== '')",
+        timeout=60000,
+    )
+    per_image.wait_for_function(VERB_IS_REWRITE, timeout=60000)
+    pictures = [json.loads(post["references"]) for post in asked]
+    check(
+        "the press asks about one image at a time, and about each image once",
+        len(asked) == 2
+        and all(len(images) == 1 for images in pictures)
+        and pictures[0] != pictures[1]
+        and all(post["prompt"] == words for post in asked),
+        f"{len(asked)} rewrites, {[len(images) for images in pictures]} picture(s) each",
+    )
+    check(
+        "each answer lands in its own image's row",
+        all(rows.nth(index).input_value().startswith(words) for index in range(2)),
+        f"{rows.nth(0).input_value()[:40]!r} / {rows.nth(1).input_value()[:40]!r}",
+    )
+    # The rows are the user's to correct, and a run carries each image its own. The images are
+    # the stub's, so the instruction each one was sent is read on the wire.
+    rows.nth(0).fill("make the wall stone")
+    rows.nth(0).dispatch_event("input")
+    per_image.wait_for_timeout(250)
+    second = rows.nth(1).input_value()
+    runs = []
+    watch_runs(per_image, runs)
+    per_image.click("#go")
+    wait_until_running(per_image)
+    wait_until_idle(per_image)
+    per_image.wait_for_timeout(600)
+    prompts = [post.get("prompt") for post in runs]
+    check(
+        "each image of the batch is sent its own instruction",
+        len(runs) == 2 and prompts[0] == "make the wall stone" and prompts[1] == second,
+        f"{prompts}",
+    )
+    instructions.close()
 
     # ---- What the run button is called, and what a role query reaches ----------
     # The button's name is composed from the DOM, not from the cascade: the page

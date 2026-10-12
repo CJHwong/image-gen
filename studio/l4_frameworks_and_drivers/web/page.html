@@ -177,6 +177,9 @@
             <label for="each-each">One result each</label>
           </div>
           <p class="caption" id="each-note" hidden></p>
+          <!-- What each image of a batch is asked, one row per image, written by a press
+               of Rewrite. A row left empty takes the words in the box. -->
+          <div class="each-rows" id="each-rows" hidden></div>
         </div>
 
         <div class="field strength-field" data-param="strength">
@@ -205,7 +208,7 @@
         <details id="look">
           <summary>Look <look-values class="values" id="look-values"></look-values></summary>
           <look-rows class="look" id="look-rows"></look-rows>
-          <p class="look-note"><span class="generate-only">Each pick adds a sentence after your prompt.</span><span class="edit-only">Each pick adds a sentence after your instruction, and a Retouch pick applies to the area you mark.</span> The Rewrite button writes out the words you typed, and the words in the marked areas. The Look is added after them.</p>
+          <p class="look-note"><span class="generate-only">Each pick adds a sentence after your prompt.</span><span class="edit-only">Each pick adds a sentence after your instruction, and a Retouch pick applies to the area you mark.</span> The Rewrite button writes out the words you typed, and the words in the marked areas. For a batch it writes one instruction for each image, read from that image. The Look is added after them.</p>
         </details>
 
         <details id="advanced">
@@ -802,6 +805,7 @@
       paramSpec: formApi.paramSpec,
       withLook: formApi.withLook,
       imageCount: formApi.imageCount,
+      eachPlan: formApi.eachPlan,
       lookText: formApi.lookText,
       lookLabels: formApi.lookLabels,
       typedNegative: formApi.typedNegative,

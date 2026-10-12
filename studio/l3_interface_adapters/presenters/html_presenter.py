@@ -21,7 +21,7 @@ ITEM = """<div class="item" data-seed="{seed}" data-width="{width}" data-height=
   data-mode="{mode}" data-prompt="{prompt}" data-reference="{reference}"><img src="data:image/png;base64,{b64}" alt=""></div>"""
 
 CHAIN = (
-    '<div class="chain" data-progress="{progress}" hx-post="/generate"'
+    '<div class="chain" data-index="{index}" data-progress="{progress}" hx-post="/generate"'
     ' hx-vals=\'{values}\' hx-trigger="load" hx-target="this"'
     ' hx-swap="outerHTML"></div>'
 )
@@ -105,9 +105,10 @@ class HtmlPresenter:
     def _chain(next_run: NextRun) -> str:
         """The placeholder that fetches the next image of the batch.
 
-        It carries every text value it needs. The reference images are the one
-        exception: they stay on the server under the token, so a large image is
-        not posted again for each image.
+        It carries every text value it needs, and its own index, which is the image
+        of the batch it asks for. The reference images are the one exception: they
+        stay on the server under the token, so a large image is not posted again for
+        each image.
         """
         values = {
             **next_run.options,
@@ -124,7 +125,9 @@ class HtmlPresenter:
         if next_run.mask:
             values["mask"] = "1"
         return CHAIN.format(
-            progress=f"{next_run.index} of {next_run.total}", values=html.escape(json.dumps(values), quote=True)
+            index=str(next_run.index),
+            progress=f"{next_run.index} of {next_run.total}",
+            values=html.escape(json.dumps(values), quote=True),
         )
 
     @staticmethod

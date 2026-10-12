@@ -841,11 +841,40 @@ Composed is what the page has always done; one result each is the batch.
 | what it costs | the count is what each reference gets, so the images are the count times the references, and the run button promises that product. The server's bound is on the images, so it multiplies with the references too |
 | the chain | the references are loaded once under a token; each request of the chain edits one of them, and the index says which |
 | the wipe | each result carries the reference it came from, so its before and after shows that pair. Composed, no single source lines up, and there is no wipe |
-| what is left out | a mark belongs to one picture, so the region rows and the mark stay with the single-image edit, and a batch takes no rewritten instruction: the rewriter reads the pictures, so its answer names the one it read and the others would be pulled toward it |
+| what is left out | a mark belongs to one picture, so the region rows and the mark stay with the single-image edit. A batch writes each of its images its own instruction instead, which is the section below |
 
 Six checks read it on the stub, including that one press leaves one result per reference and
 that each of them offers its own wipe. The name of the control was changed once already: "One
 edit each" matched the suite's own `get_by_role("radio", name="Edit")` and stopped the run.
+
+## One instruction for each image of a batch
+
+The user's own words: "but sometimes i think the look and mark input is enough?", and then
+"what about using text only rewriter for one result each?" with a real run behind it. A batch
+applied one instruction to every image, and the press was refused there, on the strength of a
+claim the note made: the rewriter reads the pictures, so its answer names the one it read. The
+claim was measured rather than argued. Four pictures of four subjects at once gave one
+paragraph of 1588 characters about one of them; the same four one at a time gave four answers,
+each naming its own subject (see "Several pictures at once" in `gateways/PROMPTS.md`). So the
+press writes one instruction for each image, and a row is where it lands.
+
+| Piece | How |
+|---|---|
+| the rows | one per reference, under the choice, drawn only for a batch of more than one image. The picture is the row's own name, and its label is "What image 2 is asked" |
+| what a press covers | `rewriteItems` in `lib/form.js` returns one item per reference for a batch, and the box is not one of them: it keeps the words the rows are written from, and a press never empties it |
+| what one image is asked | that image alone goes with the call, through `askRewriter(prompt, pictures)`, so the answer can name what is in it |
+| where an answer lands | in that image's own row, through `setEachRow`. The rows are the user's to correct, and a press over them is what a press over the box used to be |
+| what a run carries | `eachPlan` gives one instruction per image: the row's words, or the box's for a row left empty. The request for image N carries the Nth |
+| how a chain link knows which image it is | the placeholder publishes `data-index`, which its own values already carried, and the `htmx:configRequest` hook swaps the run's single prompt for that image's when the element is a chain link |
+| what the card records | the instruction that image was given, and Reuse prompt hands those words back, not the run's single prompt |
+| a change of references | the rows were written from other pictures, so a different set of references clears them. A cancel puts the same references back, and then they stay |
+| what the run button still asks for | the words in the box. Every image falls back to them, so they stay required, which is also why the press leaves them alone |
+
+The stub's rewriter echoes what it is given, so the wire and the rows both say what a press
+was asked and what it wrote back. Six checks read it there. What the stub cannot see is
+whether an answer is about the picture it was given, which is the whole point: that is read
+on the model, by the spike above and by a real run of a batch whose rows hold four different
+instructions.
 
 ## Non-goals
 
