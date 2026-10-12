@@ -147,6 +147,22 @@ def names(answer, place):
     return [word for word in SUBJECTS[place] if word in answer.lower()]
 
 
+def few_steps(page):
+    """The step count this check needs, set on the run that is about to use it.
+
+    The field goes back to the mode's own default when a run empties the form, which is 40
+    on this backend, so a phase cannot rely on the phase before it. Eight steps is enough
+    for the answer read here: which picture each result came from.
+    """
+    panel = page.locator("#advanced")
+    if not panel.evaluate("el => el.open"):
+        page.click("#advanced summary")
+    page.fill("#steps", "8")
+    page.dispatch_event("#steps", "input")
+    if panel.evaluate("el => el.open"):
+        page.click("#advanced summary")
+
+
 def watch(page, posts, bodies):
     page.on(
         "request",
@@ -210,14 +226,13 @@ with sync_playwright() as playwright:
     page.goto(f"http://127.0.0.1:{PORT}/")
     page.locator(RUN_IDLE).wait_for(state="visible", timeout=120000)
 
-    # Small and few-stepped: this check is about which picture each result came from, and a
-    # bigger one costs the same GPU time for the same answer.
+    # The smallest shape the form offers: this check is about which picture each result came
+    # from, and a bigger one costs the same GPU time for the same answer.
     page.click("#advanced summary")
-    page.fill("#steps", "8")
-    page.dispatch_event("#steps", "input")
     page.locator("#tier-sizes").get_by_role("button").first.click()
 
     for index, prompt in enumerate(SOURCE_PROMPTS, start=1):
+        few_steps(page)
         page.fill("#prompt", prompt)
         page.dispatch_event("#prompt", "input")
         page.click("#go")
@@ -231,10 +246,6 @@ with sync_playwright() as playwright:
     )
 
     page.click("label[for=mode-edit]")
-    if page.locator("#steps").is_hidden():
-        page.click("#advanced summary")
-    page.fill("#steps", "8")
-    page.dispatch_event("#steps", "input")
 
     # ---- The batch that is not pressed: one instruction for every image ----------------
     upload(page, sources)
@@ -245,6 +256,7 @@ with sync_playwright() as playwright:
     posts = []
     bodies = []
     watch(page, posts, bodies)
+    few_steps(page)
     page.click("#go")
     wait_idle(page)
 
@@ -294,6 +306,7 @@ with sync_playwright() as playwright:
     bodies = []
     watch(page, posts, bodies)
 
+    few_steps(page)
     started = time.monotonic()
     page.click("#rewrite-toggle")
     # A press that never filled a row is reported by the check below and not raised here,
