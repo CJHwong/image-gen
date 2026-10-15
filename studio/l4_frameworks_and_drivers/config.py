@@ -55,7 +55,10 @@ def load_config(path: Path, backend: str | None = None, quantize: int | None = N
 def _settings(section: dict, base: Path) -> dict:
     settings = {}
     for key, value in section.items():
-        if key.endswith(("_script", "_dir", "_path")):
+        if key == "python_path":
+            # The venv symlink selects the site-packages the model runtime needs.
+            value = str((base / Path(value).expanduser()).absolute())
+        elif key.endswith(("_script", "_dir", "_path")):
             value = str((base / Path(value).expanduser()).resolve())
         if key == "quantize":
             value = value or None

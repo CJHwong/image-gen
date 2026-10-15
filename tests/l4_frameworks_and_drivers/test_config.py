@@ -44,6 +44,19 @@ def test_a_tilde_path_setting_expands_to_the_home_directory(tmp_path: Path):
     assert config.backend("flux2")["model_dir"] == str(Path("~/models").expanduser())
 
 
+def test_python_path_keeps_a_virtual_environment_symlink(tmp_path: Path):
+    python_target = tmp_path / "python-install" / "bin" / "python3"
+    python_target.parent.mkdir(parents=True)
+    python_target.write_text("python executable")
+    python_link = tmp_path / "venv" / "bin" / "python"
+    python_link.parent.mkdir(parents=True)
+    python_link.symlink_to(python_target)
+
+    config = load_config(write(tmp_path, 'default_backend = "qwen21"\n[ltx25]\npython_path = "venv/bin/python"\n'))
+
+    assert config.backend("ltx25")["python_path"] == str(python_link)
+
+
 def test_a_flag_opens_the_page_on_a_backend_the_file_left_out(tmp_path: Path):
     """`--backend flux2` has to add flux2 to the offered list as well. Otherwise
     the page opens on a backend its own picker cannot name."""
