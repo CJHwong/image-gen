@@ -116,11 +116,6 @@
      max-content and the left side widens over the controls at the right. */
   .work { display: grid; grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
-  .topbar { grid-row: 1; }
-  #image-stage { grid-column: 1; grid-row: 2; }
-  #strip-wrap { grid-column: 1; grid-row: 3; }
-  #video-studio { grid-column: 1; grid-row: 2 / span 2; display: grid; min-width: 0; min-height: 0; }
-  #video-studio[hidden] { display: none; }
   /* The camera's top plate: the model dial on the left, the status readout on
      the right. The readout is the one place that says how a run is going. */
   .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 52px; min-width: 0;
@@ -460,86 +455,6 @@
   .strip-wrap { background: var(--film); padding: 8px 18px 6px; --text-2: #a3a3a3; --text-3: #7a7a7a;
     --line-strong: #3a3a3a; --accent: #ededed; }
   .strip-wrap[hidden] { display: none; }
-  .video-studio-shell { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: 100%; height: 100%;
-    min-height: 0; overflow: hidden; background: var(--chrome); color: var(--text); }
-  .video-studio-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px;
-    border-bottom: 1px solid var(--line); }
-  .video-studio-head > div { display: flex; align-items: baseline; gap: 12px; }
-  .video-studio-head strong { font: 600 16px/1 var(--serif); }
-  .eyebrow { color: var(--text-3); font: 10px/1 var(--mono); letter-spacing: .1em; }
-  .video-preview-area { display: grid; place-items: center; min-height: 0; padding: 18px;
-    background: radial-gradient(ellipse 70% 90% at 50% 45%, #49423c, #211e1b 75%); }
-  .video-preview-pane { display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 8px; width: 100%; height: 100%; min-height: 0; }
-  .video-preview-pane video { display: block; max-width: 100%; max-height: 100%; background: #0b0b0b;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, .45); }
-  .video-preview-pane video[hidden], .video-preview-stub[hidden] { display: none; }
-  .video-source-label { max-width: 100%; color: #d8d0c8; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .video-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 360px;
-    color: #f1ece7; text-align: center; }
-  .video-empty > span { color: #b7aaa0; }
-  .video-empty-mark { display: grid; place-items: center; width: 112px; height: 72px; border: 1px solid #746a62;
-    border-radius: 8px; color: #b7aaa0; font: 11px var(--mono); letter-spacing: .12em; }
-  .video-preview-stub { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 360px;
-    color: #f1ece7; text-align: center; }
-  .video-preview-stub > span:not(.video-source-label) { color: #b7aaa0; font-size: 12px; }
-  .video-editing-area { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(220px, .75fr);
-    grid-template-rows: minmax(100px, 1fr) minmax(96px, auto); gap: 12px 20px; min-height: 0;
-    padding: 12px 18px 14px; border-top: 1px solid var(--line); }
-  #video-timeline-root, #video-error-root, #video-gallery-root { display: contents; }
-  .video-timeline { grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; min-width: 0; }
-  .timeline-head, .video-reference-head, .video-gallery-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .timeline-head { min-height: 28px; color: var(--text-2); font-size: 12px; }
-  .timeline-head > div { display: flex; align-items: center; gap: 12px; }
-  .timeline-head output { color: var(--text-3); font: 11px var(--mono); }
-  .timeline-actions { display: flex; align-items: center; gap: 10px; }
-  .timeline-actions .text-btn { white-space: nowrap; font-size: 10px; }
-  .track-name { padding: 2px 5px; border: 1px solid var(--line-strong); border-radius: 3px; font: 10px var(--mono); }
-  .timeline-ruler { display: grid; grid-template-columns: repeat(5, 1fr); margin: 10px 0 4px 30px;
-    color: var(--text-3); font: 9px var(--mono); }
-  .timeline-ruler span:last-child { text-align: right; }
-  .timeline-track { position: relative; display: flex; align-items: center; min-height: 42px; padding-left: 30px;
-    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--chrome-2); }
-  .timeline-track::after { content: ""; position: absolute; z-index: 1; top: -5px; bottom: -5px;
-    left: calc(30px + (100% - 30px) * var(--playhead, 0)); width: 2px; background: var(--accent-fill); pointer-events: none; }
-  .timeline-clip { display: flex; align-items: center; width: 100%; min-width: 0; height: 30px; padding: 0 10px;
-    border: 1px solid var(--accent-fill); border-radius: 4px; background: var(--accent-soft); color: var(--text);
-    font-size: 11px; overflow: hidden; }
-  .timeline-clip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .timeline-track input[type=range] { position: absolute; z-index: 2; inset: 0 0 0 30px; width: calc(100% - 30px);
-    height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
-  .timeline-track input[type=range]:focus-visible { opacity: .08; outline: 1px solid var(--accent-fill); }
-  .timeline-empty { display: grid; place-items: center; min-height: 72px; color: var(--text-3); font-size: 12px; }
-  .video-reference-tray, .video-gallery { min-width: 0; overflow: hidden; }
-  .video-reference-tray { grid-column: 2; grid-row: 1; }
-  .video-reference-head, .video-gallery-head { min-height: 22px; color: var(--text-2); font-size: 11px; }
-  .video-reference-head > div { display: flex; gap: 8px; align-items: baseline; }
-  .video-reference-head span, .video-gallery-head span { color: var(--text-3); }
-  .video-references { display: flex; gap: 8px; overflow-x: auto; padding: 6px 0; min-height: 52px; }
-  .video-reference { position: relative; display: flex; flex: none; flex-direction: column; gap: 4px;
-    width: 106px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 5px; }
-  .video-reference img { width: 100%; height: 46px; object-fit: cover; border-radius: 4px; }
-  .video-reference button { position: absolute; top: 1px; right: 1px; width: 18px; height: 18px; padding: 0;
-    border: 0; border-radius: 4px; background: rgba(0, 0, 0, .7); color: #fff; cursor: pointer; }
-  .video-reference-settings { display: grid; gap: 4px; color: var(--text-3); font-size: 9px; }
-  .video-reference-settings label { display: grid; grid-template-columns: 35px minmax(0, 1fr); align-items: center; gap: 4px; }
-  .video-reference-settings input[type=number] { width: 100%; min-width: 0; height: 20px; padding: 1px 3px;
-    border: 1px solid var(--line); border-radius: 3px; background: var(--chrome-2); color: var(--text); font: 10px var(--mono); }
-  .video-reference-settings label:has(input[type=range]) { grid-template-columns: 35px minmax(0, 1fr) 28px; }
-  .video-reference-settings input[type=range] { min-width: 0; width: 100%; accent-color: var(--accent-fill); }
-  .video-reference-settings output { color: var(--text-2); font: 9px var(--mono); }
-  .video-ref-empty { align-self: center; color: var(--text-3); font-size: 11px; }
-  .video-gallery { grid-column: 2; grid-row: 2; border-top: 1px solid var(--line); padding-top: 4px; }
-  .video-clips { display: flex; gap: 8px; overflow-x: auto; padding: 6px 0; }
-  .video-gallery-item { display: flex; flex: none; flex-direction: column; align-items: stretch; gap: 3px; width: 86px; }
-  .video-clip { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 0; border: 1px solid transparent;
-    border-radius: 5px; background: none; color: var(--text-2); text-align: left; cursor: pointer; }
-  .video-clip.selected { border-color: var(--accent-fill); }
-  .video-clip-thumb { display: flex; flex-direction: column; justify-content: space-between; height: 40px; padding: 5px;
-    border-radius: 3px; background: linear-gradient(135deg, #51483f, #211f1d); color: #e0d5cb; font: 8px var(--mono); }
-  .video-clip-name { padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
-  .video-clip-remove { align-self: flex-start; border: 0; background: none; color: var(--text-3); cursor: pointer; font-size: 9px; }
-  .video-error { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: 11px; }
   .strip-head { display: flex; justify-content: space-between; align-items: center;
     padding: 0 2px 2px; color: var(--text-3); font-size: 12px; }
   .strip-actions { display: flex; gap: 14px; }
@@ -611,23 +526,6 @@
   .modes label:hover { color: var(--text); }
   .modes input:checked + label { background: var(--chrome-3); color: var(--text); }
   .modes input:focus-visible + label { outline: 1.5px solid var(--accent); }
-  .mode-controls { display: flex; flex-direction: column; gap: 22px; }
-  .mode-controls[hidden] { display: none; }
-  .media-modes, .video-ratios { display: grid; gap: 2px; padding: 2px; background: var(--chrome-2);
-    border: 1px solid var(--line); border-radius: 8px; }
-  .media-modes { grid-template-columns: 1fr 1fr; }
-  .media-modes button, .video-ratios button { min-height: 34px; border: 0; border-radius: 6px;
-    background: none; color: var(--text-3); cursor: pointer; }
-  .media-modes button[aria-pressed=true], .video-ratios button[aria-pressed=true] {
-    background: var(--chrome-3); color: var(--text); }
-  .media-modes button:focus-visible, .video-ratios button:focus-visible { outline: 1.5px solid var(--accent); }
-  .video-ratios { grid-template-columns: repeat(3, 1fr); }
-  .share-video { align-self: flex-start; }
-  .video-footer { align-items: stretch; flex-direction: column; gap: 5px; }
-  .video-footer button { width: 100%; min-height: 50px; border: 1px solid var(--line); border-radius: 9px;
-    background: var(--accent-fill); color: var(--on-accent); font-weight: 600; cursor: pointer; }
-  .video-footer button:disabled { opacity: .65; cursor: wait; }
-  .video-footer #video-request-status { min-height: 12px; color: var(--text-3); font-size: 10px; text-align: center; }
 
   .refs { border: 1px dashed var(--line-strong); border-radius: 8px; background: none;
     cursor: pointer; padding: 12px; transition: border-color .15s, background-color .15s; }
@@ -783,12 +681,6 @@
   @media (max-width: 900px) {
     .app { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
     .work { grid-template-rows: auto 62vh auto; }
-    #video-studio { grid-row: 2 / span 2; min-height: 720px; }
-    .video-studio-shell { min-height: 720px; }
-    .video-editing-area { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; overflow-y: auto; }
-    .video-timeline { grid-column: 1; grid-row: 1; }
-    .video-reference-tray { grid-column: 1; grid-row: 2; }
-    .video-gallery { grid-column: 1; grid-row: 3; }
     .status #status-text { display: none; }
     .canvas { padding: 18px; }
     .stage-bar { flex-wrap: wrap; gap: 10px; padding: 0 18px 14px; }

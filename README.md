@@ -1,6 +1,6 @@
 <h1 align="center"><img src="docs/images/logo.svg" width="120" alt=""><br>image-gen</h1>
 
-A local multimedia studio for Apple Silicon image generation and video pipelines. Write a prompt, share still references, and move frames between the two workspaces. The server saves no prompt or image. Your browser keeps results until you clear them.
+A local image generation page for Apple Silicon. Write a prompt, get an image, then say what to change. One page, one adapter per model. The server saves no image or prompt. Your browser keeps the images, with their prompts, until you clear them.
 
 ![The page after an edit: the elevator's beach door turned into a snowstorm, with the before and after slider on the print](docs/images/hero.jpg)
 
@@ -8,14 +8,13 @@ A local multimedia studio for Apple Silicon image generation and video pipelines
 
 This walk-through makes the image above: first a beach outside an elevator, then the same elevator in a snowstorm. It needs a Mac with Apple Silicon and [uv](https://docs.astral.sh/uv/). It was built on a machine with 64 GB of memory.
 
-1. Download the official Qwen Turbo checkpoint from [Models](#models). Then clone the repo and start the page.
+1. Clone the repo and start the page.
 
        git clone git@github.com:CJHwong/image-gen.git
        cd image-gen
        uv run studio
 
-   The server reads the checkpoint from `model_dir` in `studio.toml`. It does not download these weights.
-   When the terminal says "Ready", open http://127.0.0.1:8765.
+   The first start downloads the Qwen-Image-2.1 weights, about 33 GB. When the terminal says "Ready", open http://127.0.0.1:8765.
 
 2. Paste this prompt into **Prompt**, pick **16:9** under **Size**, and press **Generate**.
 
@@ -38,8 +37,6 @@ Both images stay in the strip at the bottom, also after a reload.
 ## How to
 
 - **Use another port:** `uv run studio --port 9000`.
-- **Use full Qwen-Image-2.1:** `uv run studio --backend qwen21`.
-- **Use Viggle Turbo:** `uv run studio --backend viggle_turbo`.
 - **Save memory on qwen21:** `uv run studio -q 8` loads the weights as int8.
 - **Use FLUX.2:** set up its weights (see [Models](#models)), then `uv run studio --backend flux2`. The title of the page becomes a menu that switches between the models. To offer both every time, add `"flux2"` to `visible_backends` in [studio.toml](studio.toml).
 - **Write a prompt the model follows:** start from the **Templates** menu, and add a style from the **Look** section. Each model offers only the Look options that passed a test on it. [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) has the tests.
@@ -52,8 +49,7 @@ Both images stay in the strip at the bottom, also after a reload.
 
   ![The four themes: Darkroom, Leica M, Kodak Instamatic and Polaroid SX-70](docs/images/themes.jpg)
 
-- **Work on the page without a model:** `uv run studio --stub`. Image runs return placeholder images. Video requests return metadata only, with no fake video file. The stub uses no GPU.
-- **Share media between workspaces:** use image references as Video keyframes. Capture a timeline frame for Image or set it as a Video keyframe with a target frame and strength.
+- **Work on the page without a model:** `uv run studio --stub`. Each model keeps its form, but a run shows fake steps and returns a placeholder image. It uses no GPU.
 
 ## Reference
 
@@ -93,26 +89,17 @@ Both images stay in the strip at the bottom, also after a reload.
 
 | Model | Adapter | Modes | Weights |
 |---|---|---|---|
-| Qwen-Image-2.1-Turbo (default) | `gateways/qwen21_turbo` | generate and edit, fixed at 8 steps, through mflux (MLX) | local 32.5 GB checkpoint |
-| Qwen-Image-2.1 | `gateways/qwen21` | generate, img2img, and instruction edit with up to 10 images, through mflux (MLX) | downloads on first use |
-| Viggle Turbo | `gateways/viggle` | the same modes, in six steps | Qwen base weights, plus a 1.3 GB adapter |
+| Qwen-Image-2.1 (default) | `gateways/qwen21` | generate and img2img, and instruction edit with up to 10 images, all through mflux (MLX) | downloads itself |
+| Viggle Turbo | `gateways/viggle` | the same, in six steps | 33 GB above, plus a 1.3 GB adapter |
 | FLUX.2 klein-base-9B, uncensored | `gateways/flux2` | generate and img2img, edit with up to 4 images, all through mflux (MLX) | manual setup below |
-| LTX-2.5 | `ltx25_runner.py` | text-to-video and still-keyframe video generation | local split weights and CUDA pipeline |
 
-**The prompt aids are per model.** A Look option or a template appears only after it passes a test on that model. The official Turbo backend offers no Looks or templates yet. Runtime output still needs a real local check. Qwen-Image-2.1 offers 31 Look options and 15 templates, and its edit form offers 15 more options in six rows. Viggle Turbo offers only the prompt aids its six-step sample kept. FLUX.2 offers the 11 options and 8 templates it was tested with. The tests and limits are in [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md).
+**The prompt aids are per model.** A Look option or a template is offered only where it passed a test on that model, because an option tuned on the 40-step base is not evidence on a distilled schedule. Qwen-Image-2.1 offers 31 Look options and 15 templates, and its edit form offers 15 more options in six rows: exposure, white balance, grade, lens, a film finish, and retouch. Viggle Turbo offers the 30 Look options and 15 templates its own six-step sample kept, and the same 15 edit options in six rows, which its own sample kept in full. FLUX.2 offers the 11 options and 8 templates it was tested with, and no edit rows. The tests, their fixtures and their limits are in [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md).
 
 **Marking a region.** In edit mode, **Mark a region** turns the print into a drawing surface: a brush in three widths, four colours, a loupe that follows the brush at three times the size, undo and clear. It needs an image from the strip, because the brush draws on the print and an upload has no print. Each region travels as a last, separate image, in the palette colour that names it, on black, and the prompt names that image and each area's colour. Measured on Qwen-Image-2.1 with the mask and the sentence the page sends, one seed and 20 steps, on a drawn shape whose edge the mark matched: the change landed 15.8 times more inside the marked area than outside it, and the rest of the frame moved by 4.3 of 255. On the fixture the earlier figure came from, rebuilt from what [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) records, the same edit scored 28.8 against 37.5 on the diffusers engine this repo has since removed, and on a mark over a patch of a uniform surface 3.1 against 2.4. The two engines are comparable and neither dominates; one seed on one fixture is not a benchmark either way. Where the mark's edge meets the object's, the mark's own colour does not appear; where a hand-drawn mark reaches past its object it can, which is the next paragraph's point. The wording is not what carries it: naming the colour scored the same as naming the image, within noise. And the figure is only ever a statement about the picture it was taken on. Measured again on 2026-10-06, in one run through one metric: a mark over a uniform surface scores 3.1x, one that matches a filled object's own edge 15.8x, and the circle fixture 28.8x, with the same recolour inside all three times and the whole difference in what changed outside. A region figure is a property of the scene as much as of the tool, and two figures from two scenes say nothing about either. Viggle Turbo offers the tool as well, on its own measurement: at six steps a mark holds where the marked area is an object's own edge, 21.0x against the base model's 28.8x on the same scene, and bounds a patch of uniform surface no better than the base does, 2.2x against 3.1x. Its page path was proven end to end as well, on three marks drawn on the print: the run whose mark followed the object's edge scored 25.8x. FLUX.2 does not offer the tool, because it has not been tested with a region. The verdicts, and what the numbers do and do not settle, are in [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md).
 
 **The marked area is what gets repainted.** The extent of the change is the area the mark covers, not the object under it: measured at 22.0% coverage the change spilled 21.4% past the object, against 14.0% at 18.9% coverage, and neither the mask's colour nor the roughness of its edge moved that. So keep the mark close to what should change, and reach for the thin brush on anything small.
 
-The image adapters generate through MLX, so image generation runs on Apple Silicon. A real studio refuses to start where MLX is missing. The `--stub` option still works there. Porting image generation to another vendor is not built. See [PORTABILITY.md](studio/l3_interface_adapters/gateways/qwen21/PORTABILITY.md).
-
-**Qwen-Image-2.1-Turbo.** The default uses the official full checkpoint, not Viggle's LoRA. Download it into the folder named by `[qwen21_turbo].model_dir`:
-
-       D=~/Library/Caches/models/qwen-image-2.1-turbo
-       hf download Qwen/Qwen-Image-2.1-Turbo --local-dir "$D"
-
-The gateway checks for local files before it loads. It does not fetch missing weights. The UI fixes sampling at 8 steps and hides untested prompt aids. The scheduler mapping uses an unshifted linear sigma table for the official scheduler's `shift=1`. The real model path and image-edit path still need validation on the target machine.
+Both adapters generate through MLX, so this server runs on Apple Silicon. It refuses to start a real studio where MLX is missing; `--stub` still works there, because it fakes the engines. Porting generation to another vendor is not built. The decisions it needs are in [PORTABILITY.md](studio/l3_interface_adapters/gateways/qwen21/PORTABILITY.md).
 
 **Qwen-Image-2.1.** The weights are `Qwen/Qwen-Image-2.1` on HuggingFace. They are not gated, about 33 GB in bf16. They download into `~/.cache/huggingface` on the first run (`HF_HOME` moves the cache).
 
@@ -125,28 +112,6 @@ The gateway checks for local files before it loads. It does not fetch missing we
 Use `hf`, not `huggingface-cli`: huggingface_hub 2.x deprecated the old name, and it now exits without downloading anything.
 
 The adapter is passed to the model unmerged, which is what its card asks for: mflux merges by default, and merging into bf16 loses about 30 percent of what the adapter changes. Six steps is the only step count it was trained for, so the page offers no other, and it runs without guidance, so there is no negative prompt to set. It offers no Looks, no templates and no region marking yet: those were tested on the 40-step base and not on this schedule.
-
-**LTX-2.5 video.** Video generation runs the official distilled pipeline from local files. The server reads `python_path` and `model_dir` under `[ltx25]`. It does not install the pipeline or download weights.
-
-The official Python pipeline needs Python 3.12 or later, CUDA 12.7 or later, and PyTorch 2.7. It does not run on an Apple-Silicon-only machine. Follow the [official model card](https://huggingface.co/Lightricks/LTX-2.5) and install the repository:
-
-       git clone https://github.com/Lightricks/LTX-2.git ~/Workspace/LTX-2
-       cd ~/Workspace/LTX-2
-       uv sync
-
-Then download the distilled model components:
-
-       D=~/Library/Caches/models/ltx-2.5
-       hf download Lightricks/LTX-2.5 \
-         diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors \
-         text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors \
-         vae/ltx-2.5-video-vae-bf16.safetensors \
-         vae/ltx-2.5-audio-vae-bf16.safetensors \
-         model_patches/ltx-2.5-duration-head-bf16.safetensors \
-         latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors \
-         --local-dir "$D"
-
-The Video workspace sends still references as keyframes. Each keyframe has an output frame and strength. Captured clip frames work as keyframes. The imported video itself is not a video-conditioning input.
 
 **FLUX.2 klein-base-9B.** mflux reads one diffusers-layout folder, and its name must contain `klein-base-9b`. The default is `~/Library/Caches/models/mflux-klein-base-9b-uncensored`; `model_dir` in `studio.toml` moves it. It takes about 33 GB.
 

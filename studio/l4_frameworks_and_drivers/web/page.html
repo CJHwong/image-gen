@@ -31,7 +31,6 @@
 <script type="module" src="/page/components/image-strip.js"></script>
 <script type="module" src="/page/components/toast-host.js"></script>
 <script type="module" src="/page/components/progress-card.js"></script>
-<script type="module" src="/page/components/video-studio.js"></script>
 <script type="module" src="/page/lib/store.js"></script>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <link rel="stylesheet" href="/page/page.css">
@@ -85,7 +84,7 @@
       </div>
     </header>
 
-    <section class="stage" id="image-stage">
+    <section class="stage">
       <div class="canvas" id="canvas"></div>
       <div class="stage-bar" id="stage-bar" hidden></div>
       <!-- The messages are components/toast-host.js, which draws them from its
@@ -93,8 +92,6 @@
            by and the polite live region it already had. -->
       <toast-host class="toasts" id="toasts" role="status" aria-live="polite"></toast-host>
     </section>
-
-    <video-studio id="video-studio" hidden></video-studio>
 
     <section class="strip-wrap" id="strip-wrap" hidden>
       <div class="strip-head">
@@ -117,16 +114,10 @@
   </div>
 
   <aside>
-    <form id="form" class="mode-generate" data-media-mode="image" hx-post="/generate" hx-target="#incoming" hx-swap="beforeend">
+    <form id="form" class="mode-generate" hx-post="/generate" hx-target="#incoming" hx-swap="beforeend">
       <input type="hidden" name="backend" value="__BACKEND__">
       <div class="controls">
-        <div class="media-modes" role="group" aria-label="Workspace">
-          <button type="button" id="media-image-mode" aria-pressed="true">Image</button>
-          <button type="button" id="media-video-mode" aria-pressed="false">Video</button>
-        </div>
-
-        <div id="image-controls" class="mode-controls">
-        <div class="modes" role="radiogroup" aria-label="Image mode">
+        <div class="modes" role="radiogroup" aria-label="Mode">
           <input type="radio" name="mode" id="mode-generate" value="generate" checked>
           <label for="mode-generate"><svg class="icon"><use href="#i-sparkle"/></svg>Generate</label>
           <input type="radio" name="mode" id="mode-edit" value="edit">
@@ -176,9 +167,6 @@
             <reference-list></reference-list>
           </div>
           <input id="reference" type="file" accept="image/*" hidden>
-          <button type="button" class="text-btn share-video" id="share-references-video" hidden>
-            Share references with Video
-          </button>
           <!-- What several images mean. Composed into one picture is what an edit from several
                has always done; one result each is the batch. The mode declares whether the page
                may offer the choice, so a form that does not declare it is the form it was. -->
@@ -264,34 +252,9 @@
             </div>
           </div>
         </details>
-        </div>
-
-        <div id="video-controls" class="mode-controls video-controls" hidden>
-          <div class="field prompt-field">
-            <div class="field-head"><label for="video-prompt">Video prompt</label></div>
-            <textarea id="video-prompt" rows="4" placeholder="Describe the motion and the scene."></textarea>
-          </div>
-          <div class="field">
-            <div class="field-head"><label for="video-duration">Duration</label></div>
-            <select id="video-duration">
-              <option value="6">6 seconds</option>
-              <option value="10">10 seconds</option>
-              <option value="15">15 seconds</option>
-            </select>
-          </div>
-          <div class="field">
-            <span class="label">Frame shape</span>
-            <div class="video-ratios" role="group" aria-label="Video frame shape">
-              <button type="button" data-ratio="16:9" aria-pressed="true">16:9</button>
-              <button type="button" data-ratio="9:16" aria-pressed="false">9:16</button>
-              <button type="button" data-ratio="1:1" aria-pressed="false">1:1</button>
-            </div>
-          </div>
-          <p class="caption" id="video-frame-count">6 seconds, 145 frames at 24 fps.</p>
-        </div>
       </div>
 
-      <div class="footer" id="image-footer">
+      <div class="footer">
         <div class="run menu-anchor">
         <button id="go" type="submit" data-state="idle">
           <run-button id="run-labels" data-state="idle"></run-button>
@@ -304,10 +267,6 @@
         <div class="menu up" id="count-menu" role="menu" hidden></div>
         </div>
         <input type="hidden" id="count" name="count" value="1">
-      </div>
-      <div class="footer video-footer" id="video-footer" hidden>
-        <button id="video-generate" type="button">Generate video</button>
-        <span id="video-request-status" role="status" aria-live="polite"></span>
       </div>
     </form>
   </aside>
@@ -370,176 +329,11 @@
   // shape in flight. The form asks for each through the getters on its door.
   const referenceInput = document.getElementById('reference');
   const refsZone = document.getElementById('refs');
-  const videoStudio = document.getElementById('video-studio');
-  let mediaMode = 'image';
 
   // The references are the page's array, not the form's, because a run posts it
   // and `verify_capabilities.py` reads it by name out of the page's global
   // scope. The form asks for it and reassigns through the two helpers below.
   let references = [];
-
-  function renderMediaActions() {
-    document.getElementById('share-references-video').hidden = mediaMode !== 'image' || !references.length;
-  }
-
-  function setMediaMode(next) {
-    mediaMode = next;
-    form.dataset.mediaMode = mediaMode;
-    const video = mediaMode === 'video';
-    document.getElementById('media-image-mode').setAttribute('aria-pressed', String(!video));
-    document.getElementById('media-video-mode').setAttribute('aria-pressed', String(video));
-    document.getElementById('image-stage').hidden = video;
-    videoStudio.hidden = !video;
-    document.getElementById('image-footer').hidden = video;
-    document.getElementById('video-footer').hidden = !video;
-    document.getElementById('strip-wrap').hidden = video || (!gallery.length && !busy());
-    document.getElementById('video-controls').hidden = !video;
-    document.getElementById('image-controls').hidden = video;
-    renderMediaActions();
-  }
-
-  function dataUrlFor(entry) {
-    if (entry.b64) return Promise.resolve('data:image/png;base64,' + entry.b64);
-    return kept.blobOf(entry.src).then(function (blob) {
-      return new Promise(function (resolve, reject) {
-        const reader = new FileReader();
-        reader.onload = function () { resolve(reader.result); };
-        reader.onerror = function () { reject(reader.error || new Error('The image could not be read.')); };
-        reader.readAsDataURL(blob);
-      });
-    });
-  }
-
-  function shareReferencesWithVideo() {
-    references.forEach(function (reference) {
-      videoStudio.addImageReference({
-        id: reference.id,
-        name: reference.name,
-        src: 'data:image/png;base64,' + reference.b64,
-        base64: reference.b64,
-      });
-    });
-    setMediaMode('video');
-  }
-
-  function base64FromDataUrl(src) {
-    return src.slice(src.indexOf(',') + 1);
-  }
-
-  function shareImageWithVideo(entry) {
-    dataUrlFor(entry).then(function (src) {
-      videoStudio.addImageReference({
-        id: 'image-' + entry.id,
-        name: 'Image ' + entry.seed,
-        src: src,
-        base64: base64FromDataUrl(src),
-      });
-      setMediaMode('video');
-    }).catch(function (error) {
-      showToast('error', 'The image did not load as a video reference: ' + error.message);
-    });
-  }
-
-  document.getElementById('media-image-mode').addEventListener('click', function () { setMediaMode('image'); });
-  document.getElementById('media-video-mode').addEventListener('click', function () { setMediaMode('video'); });
-  document.getElementById('share-references-video').addEventListener('click', shareReferencesWithVideo);
-  document.addEventListener('video-frame-captured', function (event) {
-    const reader = new FileReader();
-    reader.onload = function () {
-      const base64 = base64FromDataUrl(reader.result);
-      if (event.detail.target === 'video') {
-        videoStudio.addImageReference({
-          id: 'video-frame-' + Date.now(),
-          name: event.detail.name,
-          src: reader.result,
-          base64: base64,
-          frameIndex: event.detail.frameIndex,
-        });
-      } else {
-        formApi.addReference(base64, event.detail.name);
-        setMediaMode('image');
-      }
-    };
-    reader.onerror = function () {
-      showToast('error', 'The video frame could not be read as an image reference.');
-    };
-    reader.readAsDataURL(event.detail.blob);
-  });
-
-  function selectedVideoShape() {
-    const selected = document.querySelector('.video-ratios button[aria-pressed="true"]');
-    const shapes = { '16:9': [960, 544], '9:16': [544, 960], '1:1': [768, 768] };
-    return shapes[selected ? selected.dataset.ratio : '16:9'];
-  }
-
-  function syncVideoFrameCount() {
-    const duration = Number(document.getElementById('video-duration').value);
-    const frames = Math.round(duration * 24 / 8) * 8 + 1;
-    document.getElementById('video-frame-count').textContent =
-      duration + ' seconds, ' + frames + ' frames at 24 fps.';
-    videoStudio.setFrameLimit(frames);
-  }
-
-  document.getElementById('video-duration').addEventListener('change', syncVideoFrameCount);
-  document.querySelectorAll('.video-ratios button').forEach(function (button) {
-    button.addEventListener('click', function () {
-      document.querySelectorAll('.video-ratios button').forEach(function (option) {
-        option.setAttribute('aria-pressed', String(option === button));
-      });
-    });
-  });
-
-  document.getElementById('video-generate').addEventListener('click', async function () {
-    const button = this;
-    const status = document.getElementById('video-request-status');
-    const duration = Number(document.getElementById('video-duration').value);
-    const numFrames = Math.round(duration * 24 / 8) * 8 + 1;
-    const [width, height] = selectedVideoShape();
-    const settings = { width: width, height: height, numFrames: numFrames, frameRate: 24, duration: duration };
-    button.disabled = true;
-    button.textContent = 'Generating video…';
-    status.textContent = 'Sending prompt and keyframes.';
-    videoStudio.clearError();
-    try {
-      const invalidKeyframe = videoStudio.imageReferences.find(function (reference) {
-        return reference.frameIndex < 0 || reference.frameIndex >= numFrames;
-      });
-      if (invalidKeyframe) {
-        throw new Error('Keyframe frames must be between 0 and ' + (numFrames - 1) + '.');
-      }
-      const response = await fetch('/video/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(videoStudio.requestPayload({
-          prompt: document.getElementById('video-prompt').value,
-          width: width,
-          height: height,
-          numFrames: numFrames,
-          frameRate: 24,
-        })),
-      });
-      const contentType = response.headers.get('content-type') || '';
-      if (!response.ok) {
-        const failure = await response.json();
-        throw new Error(failure.error || 'The video request failed.');
-      }
-      if (contentType.indexOf('video/mp4') !== -1) {
-        videoStudio.addGeneratedClip(await response.blob(), settings);
-        status.textContent = 'Video added to the gallery.';
-      } else {
-        const output = await response.json();
-        if (!output.stub) throw new Error('The video server returned an unknown response.');
-        videoStudio.addStubClip(output);
-        status.textContent = 'Stub response added. No video file was generated.';
-      }
-    } catch (error) {
-      videoStudio.setError(error.message);
-      status.textContent = 'Video generation failed.';
-    } finally {
-      button.disabled = false;
-      button.textContent = 'Generate video';
-    }
-  });
 
   let formApi = null;
   document.addEventListener('form-ready', function (event) {
@@ -575,7 +369,6 @@
       setReferences: function (next) { references = next; },
       renderStage: renderStage,
       renderStrip: renderStrip,
-      renderMediaActions: renderMediaActions,
     });
   });
 
@@ -717,7 +510,7 @@
 
   function renderStrip() {
     const wrap = document.getElementById('strip-wrap');
-    wrap.hidden = mediaMode !== 'image' || (!gallery.length && !busy());
+    wrap.hidden = !gallery.length && !busy();
     const count = gallery.length;
     const images = count + (count === 1 ? ' image' : ' images');
     document.getElementById('strip-note').innerHTML = keeping
@@ -802,7 +595,6 @@
       setLook: formApi.setLook,
       referFrom: referFrom,
       editThis: editThis,
-      useInVideo: shareImageWithVideo,
       refreshForm: function () { return formApi.refreshForm(); },
       growPrompt: function () { return formApi.growPrompt(); },
       openTemplates: function () { return formApi.openTemplates(); },
@@ -986,8 +778,6 @@
   let toastHost = null;
   document.addEventListener('toast-ready', function (event) { toastHost = event.detail; });
   function showToast(kind, text) { toastHost.notify(kind, text); }
-
-  setMediaMode('image');
 
   // ---- Run, progress, cancel --------------------------------------------------
   // The poll, the run post, the cancel and everything the stage reads while one

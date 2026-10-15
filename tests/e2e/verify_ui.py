@@ -13,13 +13,14 @@ The stub is enough, since this checks the page and not a model. It keeps each
 backend's real form and fakes only the engine, so the controls here are the ones
 the real backend declares, and a run finishes in seconds instead of minutes:
 
-    uv run studio --stub --backend qwen21 --port <port>
+    uv run studio --stub --port <port>
     uv run --with playwright python tests/e2e/verify_ui.py <port>
     uv run --with playwright python tests/e2e/verify_ui.py <port> --headed    # watch it run
     uv run --with playwright python tests/e2e/verify_ui.py <port> --coverage  # and measure
 
-The suite starts on qwen21 and switches to Viggle Turbo. The official Turbo
-backend remains in the picker as the configured default and third option.
+The picker is offered only while studio.toml lists more than one backend, and it
+lists the two this suite switches between. So the shipping settings are the ones
+to run it against, and the switch needs no flag.
 """
 
 import contextlib
@@ -54,9 +55,8 @@ IDLE = "#go[data-state='idle']"
 VERB_IS_CANCEL = "() => document.getElementById('rewrite-toggle').innerText.trim() === 'Cancel'"
 VERB_IS_REWRITE = "() => document.getElementById('rewrite-toggle').innerText.trim() === 'Rewrite'"
 FRAME = re.compile(r"^(generate|edit), seed ")
-# The base and Viggle models the suite compares. The official Turbo checkpoint is
-# also in the shipping picker, but this suite measures prompt aids only on these.
-# Each name is read exactly: the second carries
+# The two models studio.toml offers, in the picker's order. The switch is between
+# these, so what ships decides them. Each name is read exactly: the second carries
 # the first inside it, and a substring match would find both rows.
 FIRST = "Qwen-Image-2.1"
 SECOND = "Qwen-Image-2.1-viggle-turbo"

@@ -76,36 +76,6 @@ def test_the_viggle_backend_cannot_be_built_without_its_adapter_path(tmp_path: P
         build_backends(config)
 
 
-def test_official_turbo_backend_is_built_from_its_local_weight_directory(tmp_path: Path):
-    config = settings(
-        tmp_path,
-        'default_backend = "qwen21_turbo"\n[qwen21_turbo]\nquantize = 0\nmodel_dir = "weights/qwen-turbo"\n',
-    )
-
-    backend = build_backends(config)["qwen21_turbo"]
-
-    assert backend.capabilities().backend_id == "qwen21_turbo"
-    assert backend._model_dir == (tmp_path / "weights/qwen-turbo").resolve()
-
-
-def test_official_turbo_needs_a_local_weight_directory_setting(tmp_path: Path):
-    config = settings(tmp_path, 'default_backend = "qwen21_turbo"\n[qwen21_turbo]\nquantize = 0\n')
-
-    with pytest.raises(ConfigError, match=r"model_dir under \[qwen21_turbo\]"):
-        build_backends(config)
-
-
-def test_official_turbo_gets_the_same_optional_prompt_rewriters(tmp_path: Path):
-    config = settings(
-        tmp_path,
-        'default_backend = "qwen21_turbo"\n'
-        '[qwen21_turbo]\nquantize = 0\nmodel_dir = "weights"\n'
-        'rewrite_generate_model = "Qwen/PE-T2I"\nrewrite_edit_model = "Qwen/PE-I2I"\n',
-    )
-
-    assert build_rewriters(config)["qwen21_turbo"].modes() == ("generate", "edit")
-
-
 @pytest.fixture
 def served():
     """A real server on a free port, over a backend whose run lasts until it is cancelled."""
