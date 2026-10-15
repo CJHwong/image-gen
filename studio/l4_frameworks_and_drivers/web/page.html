@@ -278,14 +278,14 @@
                 <button class="text-btn" type="button" data-action="add-video">Add video</button>
               </div>
             </div>
-            <p class="caption">Paste images with ⌘V. Add or drop video clips; their frames can become keyframes.</p>
+            <p class="caption">Paste images with ⌘V. Add or drop videos to capture frames. Set each image's output frame below.</p>
             <section class="video-source-group" aria-label="Source video clips">
               <div class="video-source-group-head"><strong>Video clips</strong></div>
               <div class="video-source-list" id="video-source-list"></div>
             </section>
             <section class="video-reference-tray" aria-label="Image references for video">
               <div class="video-reference-head">
-                <div><strong>Image keyframes</strong><span id="video-reference-count">0 shared</span></div>
+                <div><strong>Image references</strong><span id="video-reference-count">0 references</span></div>
               </div>
               <div class="video-references" id="video-references"></div>
             </section>
@@ -667,30 +667,41 @@
     const [width, height] = selectedVideoShape();
     button.disabled = true;
     button.textContent = 'Generating video…';
-    status.textContent = 'Sending prompt and keyframes.';
+    status.textContent = 'Sending prompt and image references.';
     videoStudio.clearError();
     try {
       const seed = selectedVideoSeed();
+      const prompt = document.getElementById('video-prompt').value;
       const settings = {
+        backend: STUDIO.video.backend.id,
+        modelName: STUDIO.video.backend.name,
+        prompt: prompt,
         width: width,
         height: height,
         numFrames: numFrames,
         frameRate: capabilities.frame_rate,
         duration: duration,
         seed: seed,
-        modelName: STUDIO.video.backend.name,
+        references: videoStudio.imageReferences.map(function (reference) {
+          return {
+            name: reference.name,
+            frameIndex: reference.frameIndex,
+            strength: reference.strength,
+          };
+        }),
       };
-      const invalidKeyframe = videoStudio.imageReferences.find(function (reference) {
+      const invalidReference = videoStudio.imageReferences.find(function (reference) {
         return reference.frameIndex < 0 || reference.frameIndex >= numFrames;
       });
-      if (invalidKeyframe) {
-        throw new Error('Keyframe frames must be between 0 and ' + (numFrames - 1) + '.');
+      if (invalidReference) {
+        throw new Error('Image reference frames must be between 0 and ' + (numFrames - 1) + '.');
       }
+      const requestStarted = performance.now();
       const response = await fetch('/video/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(videoStudio.requestPayload({
-          prompt: document.getElementById('video-prompt').value,
+          prompt: prompt,
           width: width,
           height: height,
           numFrames: numFrames,
@@ -705,14 +716,21 @@
         throw new Error(failure.error || 'The video request failed.');
       }
       if (contentType.indexOf('video/mp4') !== -1) {
-        videoStudio.addGeneratedClip(await response.blob(), settings);
+        const video = await response.blob();
+        settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
+        videoStudio.addGeneratedClip(video, settings);
         status.textContent = 'Video added to the gallery.';
       } else {
         const output = await response.json();
         if (!output.stub) throw new Error('The video server returned an unknown response.');
-        videoStudio.addStubClip(output);
+        settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
+        videoStudio.addStubClip(output, settings);
         status.textContent = 'Stub response added. No video file was generated.';
       }
+      const promptInput = document.getElementById('video-prompt');
+      promptInput.value = '';
+      promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+      videoStudio.clearImageReferences();
     } catch (error) {
       videoStudio.setError(error.message);
       status.textContent = 'Video generation failed.';

@@ -27,6 +27,73 @@ function isVideoFile(file) {
   return file.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|ogv)$/i.test(file.name);
 }
 
+function videoMetadata(settings, result = {}) {
+  const references = Array.isArray(settings.references) ? settings.references : [];
+  const seed = result.seed ?? settings.seed ?? null;
+  return {
+    backend: settings.backend || '',
+    modelName: settings.modelName || 'Video',
+    prompt: settings.prompt || '',
+    width: Number(result.width ?? settings.width ?? 0),
+    height: Number(result.height ?? settings.height ?? 0),
+    numFrames: Number(result.num_frames ?? settings.numFrames ?? 0),
+    frameRate: Number(result.frame_rate ?? settings.frameRate ?? 0),
+    seed: Number.isInteger(seed) ? seed : null,
+    elapsedSeconds: Number(settings.elapsedSeconds) || 0,
+    references: references,
+  };
+}
+
+async function createVideoThumbnail(sourceUrl) {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.preload = 'auto';
+  const frameReady = new Promise(function (resolve, reject) {
+    video.addEventListener('loadeddata', resolve, { once: true });
+    video.addEventListener('error', function () {
+      reject(new Error('The video could not be decoded for its thumbnail.'));
+    }, { once: true });
+  });
+  let timeoutId;
+  video.src = sourceUrl;
+  video.load();
+  try {
+    const timeout = new Promise(function (resolve, reject) {
+      timeoutId = window.setTimeout(function () {
+        reject(new Error('The video thumbnail took too long to load.'));
+      }, 10000);
+    });
+    await Promise.race([frameReady, timeout]);
+    if (!video.videoWidth || !video.videoHeight) {
+      throw new Error('The video has no frame for its thumbnail.');
+    }
+    const scale = Math.min(1, 240 / video.videoWidth, 320 / video.videoHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('The video thumbnail canvas is unavailable.');
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const thumbnail = await new Promise(function (resolve, reject) {
+      canvas.toBlob(function (blob) {
+        if (blob) resolve(blob);
+        else reject(new Error('The video thumbnail could not be saved.'));
+      }, 'image/jpeg', 0.78);
+    });
+    return URL.createObjectURL(thumbnail);
+  } finally {
+    window.clearTimeout(timeoutId);
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
+}
+
+function releaseClipUrls(clip) {
+  if (clip.objectUrl) URL.revokeObjectURL(clip.url);
+  if (clip.thumbnailUrl) URL.revokeObjectURL(clip.thumbnailUrl);
+}
+
 class VideoStudio extends LitElement {
   clips = [];
   imageReferences = [];
@@ -87,9 +154,7 @@ class VideoStudio extends LitElement {
       this.sourcePanel.removeEventListener('drop', this.handleSourceDrop);
     }
     super.disconnectedCallback();
-    this.clips.forEach(function (clip) {
-      if (clip.objectUrl) URL.revokeObjectURL(clip.url);
-    });
+    this.clips.forEach(releaseClipUrls);
   }
 
   firstUpdated() {
@@ -124,6 +189,13 @@ class VideoStudio extends LitElement {
     if (this.selectedReferenceId === id) {
       this.selectedReferenceId = this.imageReferences.length ? this.imageReferences[0].id : null;
     }
+    this.renderImageReferences();
+    this.renderTimelineView(this.selectedClip());
+  }
+
+  clearImageReferences() {
+    this.imageReferences = [];
+    this.selectedReferenceId = null;
     this.renderImageReferences();
     this.renderTimelineView(this.selectedClip());
   }
@@ -182,12 +254,12 @@ class VideoStudio extends LitElement {
     const count = document.getElementById('video-reference-count');
     if (!list || !count) return;
     count.textContent = this.imageReferences.length
-      + (this.imageReferences.length === 1 ? ' keyframe' : ' keyframes');
+      + (this.imageReferences.length === 1 ? ' image' : ' images');
     list.replaceChildren();
     if (!this.imageReferences.length) {
       const empty = document.createElement('span');
       empty.className = 'video-ref-empty';
-      empty.textContent = 'Add an image or paste with ⌘V. Each still becomes a keyframe.';
+      empty.textContent = 'Add an image or paste with ⌘V. Set the output frame for each image.';
       list.append(empty);
       return;
     }
@@ -329,27 +401,42 @@ class VideoStudio extends LitElement {
   }
 
   addGeneratedClip(blob, settings) {
-    const duration = settings.numFrames / settings.frameRate;
-    this.addClip({
+    const metadata = videoMetadata(settings);
+    const clip = {
       id: 'clip-' + nextClipId++,
       kind: 'generated',
-      name: (settings.modelName || 'Video') + ' ' + Math.round(settings.duration) + 's',
+      name: metadata.modelName + ' ' + Math.round(settings.duration) + 's',
       url: URL.createObjectURL(blob),
       objectUrl: true,
-      duration: duration,
+      duration: metadata.numFrames / metadata.frameRate,
+      metadata: metadata,
+    };
+    this.addClip(clip);
+    createVideoThumbnail(clip.url).then((thumbnailUrl) => {
+      if (!this.isConnected || !this.clips.includes(clip)) {
+        URL.revokeObjectURL(thumbnailUrl);
+        return;
+      }
+      clip.thumbnailUrl = thumbnailUrl;
+      this.renderVideoGallery();
+    }).catch((error) => {
+      clip.thumbnailError = error.message;
+      this.renderVideoGallery();
     });
   }
 
-  addStubClip(result) {
+  addStubClip(result, settings) {
     const duration = result.num_frames / result.frame_rate;
+    const metadata = videoMetadata(settings, result);
     this.addClip({
       id: 'clip-' + nextClipId++,
       kind: 'generated',
-      name: 'LTX-2.5 stub ' + Math.round(duration) + 's',
+      name: metadata.modelName + ' stub ' + Math.round(duration) + 's',
       url: null,
       objectUrl: false,
       duration: duration,
       stub: true,
+      metadata: metadata,
     });
   }
 
@@ -520,7 +607,7 @@ class VideoStudio extends LitElement {
 
   removeClip(id) {
     const removed = this.clips.find(function (clip) { return clip.id === id; });
-    if (removed && removed.objectUrl) URL.revokeObjectURL(removed.url);
+    if (removed) releaseClipUrls(removed);
     this.clips = this.clips.filter(function (clip) { return clip.id !== id; });
     if (this.selectedClipId === id) {
       this.selectedClipId = this.clips.length ? this.clips[0].id : null;
@@ -616,7 +703,7 @@ class VideoStudio extends LitElement {
     return html`
       <section class="video-timeline" id="video-timeline" aria-label="Video timeline">
         <header class="timeline-head">
-          <div><strong>Timeline</strong><span class="track-name">V1</span></div>
+          <div><strong>Timeline</strong></div>
           <output id="video-timecode"><span id="video-timecode-value"></span></output>
           <div class="timeline-actions">
             <button class="text-btn" type="button" data-action="capture-video-frame" ?disabled=${!clip || clip.stub}>Add frame to Video</button>
@@ -630,7 +717,7 @@ class VideoStudio extends LitElement {
             <span>${formatTime(duration)}</span>
           </div>` : html`<p class="source-empty">Choose a source video in the sidebar to scrub it and capture a frame.</p>`}
         <div class="timeline-track source-track" style=${'--playhead: ' + (clip ? Math.min(100, this.currentTime / duration * 100) : 0) + '%'}>
-          <span class="track-name">V1</span>
+          <span class="track-label">${clip && clip.kind === 'generated' ? 'Generated video' : 'Source video'}</span>
           <div class="timeline-rail">
             <div class="timeline-clip${clip ? '' : ' timeline-clip-empty'}"><span>${clip ? clip.name : 'Source video'}</span></div>
             ${clip ? html`<input id="video-playhead" type="range" min="0" max=${duration} step="0.01"
@@ -638,8 +725,8 @@ class VideoStudio extends LitElement {
           </div>
         </div>
         <header class="keyframes-head">
-          <div><strong>Output keyframes</strong><span class="track-name">K1</span></div>
-          <span>${this.frameLimit || 0} frames</span>
+          <div><strong>Image references</strong></div>
+          <span>${this.imageReferences.length} images, ${this.frameLimit || 0} output frames</span>
         </header>
         <div class="timeline-ruler keyframe-ruler" aria-hidden="true">
           <span>F000</span><span>F${String(Math.round(frameSpan / 4)).padStart(3, '0')}</span>
@@ -647,8 +734,8 @@ class VideoStudio extends LitElement {
           <span>F${String(Math.round(frameSpan * 3 / 4)).padStart(3, '0')}</span>
           <span>F${String(frameSpan).padStart(3, '0')}</span>
         </div>
-        <div class="timeline-track keyframe-track" id="video-keyframe-track">
-          <span class="track-name">K1</span>
+        <div class="timeline-track keyframe-track image-reference-track" id="video-keyframe-track" aria-label="Image reference track">
+          <span class="track-label">Images</span>
           <div class="keyframe-rail">
             ${this.imageReferences.length ? this.imageReferences.map((reference) => {
               const frameIndex = Number.isFinite(reference.frameIndex) ? reference.frameIndex : 0;
@@ -661,7 +748,7 @@ class VideoStudio extends LitElement {
                 <img src=${reference.src} alt="">
                 <span>F${String(frameIndex).padStart(3, '0')}</span>
               </button>`;
-            }) : html`<span class="keyframe-empty">Share or add an image to place its keyframe.</span>`}
+            }) : html`<span class="keyframe-empty">Add an image in the right panel and set its output frame.</span>`}
           </div>
         </div>
       </section>
@@ -714,8 +801,23 @@ class VideoStudio extends LitElement {
               <button class="video-clip${clip.id === this.selectedClipId ? ' selected' : ''}"
                 type="button" aria-label=${'Select video ' + clip.name} aria-pressed=${clip.id === this.selectedClipId}
                 data-action="select-clip" data-clip-id=${clip.id}>
-                <span class="video-clip-thumb"><span>VIDEO</span><span>${formatTime(clip.duration || duration)}</span></span>
+                <span class="video-clip-thumb">
+                  ${clip.thumbnailUrl
+                    ? html`<img src=${clip.thumbnailUrl} alt="">`
+                    : html`<span class="video-clip-placeholder" title=${clip.thumbnailError || ''}>
+                      ${clip.stub ? 'STUB' : clip.thumbnailError ? 'NO PREVIEW' : 'PREVIEW'}
+                    </span>`}
+                  <span class="video-clip-duration">${formatTime(clip.duration || duration)}</span>
+                </span>
                 <span class="video-clip-name">${clip.name}</span>
+                <span class="video-clip-parameters">${clip.metadata.width} × ${clip.metadata.height}, ${clip.metadata.frameRate} fps, ${clip.metadata.numFrames} frames</span>
+                <span class="video-clip-run">Seed ${clip.metadata.seed === null ? 'not set' : clip.metadata.seed},
+                  ${clip.stub ? 'Request' : 'Took'} ${formatTime(clip.metadata.elapsedSeconds)}</span>
+                <span class="video-clip-references" title=${clip.metadata.references.map((reference) =>
+                  reference.name + ', frame ' + reference.frameIndex + ', strength ' + Number(reference.strength).toFixed(2)).join(', ')}>
+                  ${clip.metadata.references.length} image ${clip.metadata.references.length === 1 ? 'reference' : 'references'}
+                </span>
+                <span class="video-clip-prompt" title=${clip.metadata.prompt}>${clip.metadata.prompt || 'No prompt recorded'}</span>
               </button>
               <button class="video-clip-remove" type="button" aria-label=${'Remove video ' + clip.name}
                 data-action="remove-clip" data-clip-id=${clip.id}>Remove</button>
@@ -728,8 +830,9 @@ class VideoStudio extends LitElement {
     if (!clip) {
       return html`<div class="video-empty">
         <div class="video-empty-mark">VIDEO</div>
-        <strong>Build a video sequence</strong>
-        <span>Add a source clip in the right panel to scrub frames and send a still to Image.</span>
+        <strong>Preview a video</strong>
+        <span>Select a source video or generated clip.</span>
+        <span>Use the timeline to capture a frame as an image reference.</span>
       </div>`;
     }
     return html`<div class="video-preview-pane">
@@ -747,9 +850,6 @@ class VideoStudio extends LitElement {
   render() {
     return html`
       <div class="video-studio-shell">
-        <header class="video-studio-head">
-          <div><span class="eyebrow">VIDEO WORKSPACE</span><strong>Sequence</strong></div>
-        </header>
         <div class="video-preview-area" id="video-preview-root"></div>
         <div class="video-editing-area">
           <div id="video-timeline-root"></div>
