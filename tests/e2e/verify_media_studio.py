@@ -12,6 +12,7 @@ import urllib.parse
 from pathlib import Path
 
 from PIL import Image
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 PORT = sys.argv[1]
@@ -358,6 +359,17 @@ with sync_playwright() as playwright:
         and page.locator("#video-keyframe-track [data-action='select-reference']").count() == 1,
     )
     check(
+        "video timeline names its tracks and removes internal track codes",
+        page.locator(".video-studio-head").count() == 0
+        and page.locator("#video-timeline .source-track .track-label").text_content() == "Source video"
+        and page.locator("#video-timeline .image-reference-track .track-label").text_content() == "Images"
+        and "Image references" in page.locator("#video-timeline").inner_text()
+        and "Output keyframes" not in page.locator("#video-timeline").inner_text()
+        and "V1" not in page.locator("#video-timeline").inner_text()
+        and "K1" not in page.locator("#video-timeline").inner_text(),
+        page.locator("#video-timeline").inner_text(),
+    )
+    check(
         "video sources stay beside the prompt in the right sidebar",
         page.locator("aside #video-source-panel").count() == 1
         and page.locator(".work #video-source-panel").count() == 0
@@ -547,7 +559,8 @@ with sync_playwright() as playwright:
     check(
         "keyframes outside the selected duration are stopped before the request",
         not video_posts
-        and page.locator("#video-studio .video-error").inner_text() == "Keyframe frames must be between 0 and 120.",
+        and page.locator("#video-studio .video-error").inner_text()
+        == "Image reference frames must be between 0 and 120.",
         page.locator("#video-studio .video-error").inner_text(),
     )
     page.locator("#video-source-panel .video-reference input[type=number]").nth(1).fill("9")
@@ -593,6 +606,8 @@ with sync_playwright() as playwright:
         == "Seed must be a whole number from 0 to 4294967295.",
         page.locator("#video-studio .video-error").inner_text(),
     )
+    sent_frame = int(page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value())
+    sent_strength = float(page.locator("#video-source-panel .video-reference input[type=range]").nth(1).input_value())
     page.fill("#video-seed", "42")
     page.get_by_role("button", name="Generate video").click()
     page.wait_for_function(
@@ -616,9 +631,8 @@ with sync_playwright() as playwright:
         and request.get("height") == 1024
         and len(request.get("references", [])) == 3
         and request.get("seed") == 42
-        and request["references"][1].get("frame_index")
-        == int(page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value())
-        and request["references"][1].get("strength") == 0.55
+        and request["references"][1].get("frame_index") == sent_frame == 9
+        and request["references"][1].get("strength") == sent_strength == 0.55
         and all(len(reference.get("image", "")) > 100 for reference in request.get("references", [])),
         json.dumps({key: value for key, value in request.items() if key != "references"})
         + f", references: {len(request.get('references', []))}",
@@ -629,6 +643,77 @@ with sync_playwright() as playwright:
         and page.locator("#video-source-list .video-source").count() == 1
         and page.get_by_text("The stub returns metadata only.").is_visible(),
         f"video clips: {page.locator('#video-gallery .video-clip').count()}",
+    )
+    check(
+        "a successful video run clears its prompt and image references",
+        page.locator("#video-prompt").input_value() == ""
+        and page.locator("#video-source-panel .video-reference").count() == 0
+        and page.locator("#video-reference-count").inner_text() == "0 images"
+        and page.locator("#video-source-list .video-source").count() == 1
+        and page.locator("#video-duration").input_value() == "241"
+        and page.locator("#video-seed").input_value() == "42",
+        f"prompt: {page.locator('#video-prompt').input_value()!r}, "
+        f"image references: {page.locator('#video-source-panel .video-reference').count()}, "
+        f"source videos: {page.locator('#video-source-list .video-source').count()}",
+    )
+    stub_card = page.locator("#video-gallery .video-gallery-item").first
+    stub_details = stub_card.inner_text()
+    check(
+        "stub gallery card shows the prompt, settings, seed, and request time",
+        "A kite rises as the camera pans across the shore" in stub_details
+        and "576 \u00d7 1024" in stub_details
+        and "24 fps" in stub_details
+        and "241 frames" in stub_details
+        and "Seed 42" in stub_details
+        and "3 image references" in stub_details
+        and "Request" in stub_details,
+        stub_details,
+    )
+    page.evaluate(
+        """({videoBytes}) => {
+          document.getElementById('video-studio').addGeneratedClip(
+            new Blob([new Uint8Array(videoBytes)], {type: 'video/webm'}),
+            {
+              backend: 'ltx25', modelName: 'LTX-2.5',
+              prompt: 'An amber kite crosses a blue sky',
+              width: 96, height: 64, numFrames: 12, frameRate: 12,
+              duration: 1, seed: 7, elapsedSeconds: 83.2,
+              references: [
+                {name: 'start.png', frameIndex: 0, strength: 0.4},
+                {name: 'end.png', frameIndex: 11, strength: 0.6},
+              ],
+            },
+          );
+        }""",
+        {"videoBytes": list(video_bytes)},
+    )
+    thumbnail_ready = False
+    try:
+        page.wait_for_function(
+            "() => { const thumbnail = document.querySelector('#video-gallery .video-clip-thumb img');"
+            "return thumbnail && thumbnail.complete && thumbnail.naturalWidth > 0; }",
+            timeout=10000,
+        )
+        thumbnail_ready = True
+    except PlaywrightTimeoutError:
+        pass
+    generated_card = page.locator("#video-gallery .video-gallery-item").nth(1)
+    generated_details = generated_card.inner_text()
+    check(
+        "generated gallery thumbnail and model settings appear with the clip",
+        thumbnail_ready
+        and generated_card.locator(".video-clip-thumb img").count() == 1
+        and "96 \u00d7 64" in generated_details
+        and "12 fps" in generated_details
+        and "12 frames" in generated_details
+        and "Seed 7" in generated_details
+        and "2 image references" in generated_details
+        and "Took 01:23.2" in generated_details
+        and "An amber kite crosses a blue sky" in generated_details
+        and generated_card.locator(".video-clip-references").get_attribute("title")
+        == "start.png, frame 0, strength 0.40, end.png, frame 11, strength 0.60"
+        and page.locator("#video-timeline .source-track .track-label").text_content() == "Generated video",
+        generated_details,
     )
     switch_workspace(page, "image")
     check(
