@@ -2809,9 +2809,11 @@ name = "studio"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "huggingface-hub" },
     { name = "mflux" },
     { name = "mlx-vlm" },
     { name = "pillow" },
+    { name = "safetensors" },
 ]
 
 [package.dev-dependencies]
@@ -2825,9 +2827,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "huggingface-hub" },
     { name = "mflux", git = "https://github.com/mflux-community/mflux?rev=f63b4f0f00c8dba5de94f478c9e4be62dbc70ddc" },
     { name = "mlx-vlm", specifier = ">=0.7.3" },
     { name = "pillow" },
+    { name = "safetensors" },
 ]
 
 [package.metadata.requires-dev]
