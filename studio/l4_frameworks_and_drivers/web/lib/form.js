@@ -217,7 +217,8 @@ function editResolution() {
   const reference = lastReference();
   if (!reference || !reference.width) return 1024;
   const side = Math.round(Math.sqrt(reference.width * reference.height));
-  const cap = currentMode().estimate && currentMode().estimate.match_cap;
+  const estimate = estimateModel();
+  const cap = estimate && estimate.match_cap;
   return cap ? Math.min(side, cap) : side;
 }
 
@@ -479,6 +480,11 @@ function costKey() {
     + (twoPass() ? ' two-pass' : '');
 }
 
+function estimateModel() {
+  const mode = currentMode();
+  return page.references().length && mode.reference_estimate ? mode.reference_estimate : mode.estimate;
+}
+
 // The images a run will carry: the references, and the mask when one is drawn.
 // Each one is encoded and attended to, so the count is part of the cost.
 function sentReferences() {
@@ -508,29 +514,31 @@ function targetPixels() {
 
 // Seconds per step for the form as it stands, from what this device has
 // shown so far or else from the backend's constants.
-function stepSeconds() {
-  const model = currentMode().estimate;
-  if (!model) return 0;
+function stepSeconds(estimate) {
+  const costModel = estimate || estimateModel();
+  if (!costModel) return 0;
   // The constant holds the passes it was measured with, so rescale it to the
   // passes the form asks for. A learned rate is already per pass count.
-  const passes = (twoPass() ? 2 : 1) / (model.two_pass ? 2 : 1);
+  const passes = (twoPass() ? 2 : 1) / (costModel.two_pass ? 2 : 1);
   const learned = page.learnedCost[costKey()];
   const cost = learned === undefined
-    ? model.step_cost * passes * referenceFactor(model) : learned;
-  return cost * Math.pow(targetPixels() / 1e6, model.exponent);
+    ? costModel.step_cost * passes * referenceFactor(costModel) : learned;
+  return cost * Math.pow(targetPixels() / 1e6, costModel.exponent);
 }
 
 function estimate() {
   const count = imageCount();
   const images = count > 1 ? count + ' images' : '';
-  const model = currentMode().estimate;
-  if (!model || !paramSpec('steps')) return images;
+  const costModel = estimateModel();
+  if (!costModel || !paramSpec('steps')) return images;
   // Every run of a one-each batch carries one reference, so the mode's own growth for several
   // references does not apply to any of them.
   const steps = Number(document.getElementById('steps').value) || 0;
-  const perStep = stepSeconds();
-  const overhead = model.overhead_per_image ? count * model.overhead : model.overhead;
-  const time = 'about ' + spell(count * steps * perStep + overhead);
+  const measuredSteps = costModel.strength_scales_steps && page.references().length
+    ? stepsToRun() : steps;
+  const perStep = stepSeconds(costModel);
+  const overhead = costModel.overhead_per_image ? count * costModel.overhead : costModel.overhead;
+  const time = 'about ' + spell(count * measuredSteps * perStep + overhead);
   return images ? images + ', ' + time : time;
 }
 
@@ -1265,6 +1273,7 @@ const handle = {
   targetRatio: targetRatio,
   targetPixels: targetPixels,
   costKey: costKey,
+  estimateModel: estimateModel,
   stepSeconds: stepSeconds,
   estimate: estimate,
   refreshForm: refreshForm,
