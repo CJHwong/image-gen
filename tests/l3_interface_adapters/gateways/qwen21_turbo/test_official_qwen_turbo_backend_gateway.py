@@ -27,7 +27,7 @@ def checkpoint(root):
     for relative_path in (
         "model_index.json",
         "scheduler/scheduler_config.json",
-        "processor/preprocessor_config.json",
+        "processor/processor_config.json",
         "processor/tokenizer.json",
         "vae/config.json",
         "vae/diffusion_pytorch_model.safetensors",
