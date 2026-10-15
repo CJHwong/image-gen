@@ -1,10 +1,8 @@
-"""Which engine this machine can run. The one place the platform decides.
+"""Whether this machine can run the MLX image engine.
 
-The probe answers a capability, not a platform string, so a host that needs a
-different engine comes through one function instead of a branch on
-`sys.platform`. Today the answer has one value: every backend, generate and edit,
-runs through mflux, which is MLX.
-`gateways/qwen21/PORTABILITY.md` records what a second engine needs.
+Image backends use mflux, which requires MLX. The LTX video runner uses its
+configured Python environment, but studio startup still checks MLX.
+`gateways/qwen21/PORTABILITY.md` records the unverified CUDA path.
 """
 
 
@@ -13,17 +11,16 @@ class EngineUnavailable(Exception):
 
 
 def mlx_available() -> bool:
-    """Whether this machine can run MLX, answered as a yes or a no.
+    """Whether MLX can use a GPU on this machine.
 
-    A build without the metal submodule answers no rather than raising, so a
-    caller always gets a decision to act on.
+    The generic device check covers Metal and CUDA builds.
     """
     try:
         import mlx.core as mx
     except ImportError:
         return False
-    metal = getattr(mx, "metal", None)
-    return bool(metal is not None and metal.is_available())
+    gpu = mx.Device(mx.DeviceType.gpu)
+    return mx.is_available(gpu)
 
 
 def require_mlx() -> None:
@@ -35,7 +32,7 @@ def require_mlx() -> None:
     """
     if not mlx_available():
         raise EngineUnavailable(
-            "no MLX on this machine, so no backend can run here: every model is an mflux model, and mflux "
-            "is MLX, which runs on Apple Silicon only. "
+            "no MLX GPU is available on this machine, so no backend can run here: every image backend uses mflux, "
+            "and mflux requires an MLX GPU. "
             "See studio/l3_interface_adapters/gateways/qwen21/PORTABILITY.md."
         )

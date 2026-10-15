@@ -1,7 +1,7 @@
 # Porting the engine off Apple Silicon
 
-Status: not started, no host to test on. macOS is the only platform this repo
-has ever run on. The seam is `studio/l4_frameworks_and_drivers/engines.py`.
+Status: the probe recognizes MLX GPU devices. macOS is the only platform this
+repo has run on. The seam is `studio/l4_frameworks_and_drivers/engines.py`.
 
 ## What decides today
 
@@ -11,17 +11,17 @@ The stub passes the refusal, so the page stays workable on a machine that cannot
 run a model at all. The refusal happens before the port is bound, so such a host
 never occupies it.
 
-The probe reads `mx.metal.is_available()`. That namespace has no non-deprecated
-replacement today: `mx.device_info()` reports the device, its memory and its
-limits, but no availability. If a future mlx renames the namespace, the probe
-answers no on a capable Mac and the refusal message is the symptom to read.
+The probe reads `mx.is_available(mx.Device(mx.DeviceType.gpu))`. This checks a
+GPU without naming Metal or CUDA. The pinned mflux release declares an MLX CUDA
+build for Linux, but this repo has not tested its model paths on CUDA.
 
-**There is one blocker now, not two.** Instruction editing used to run on a
+**There is one startup gate now, not two.** Instruction editing used to run on a
 diffusers pipeline in a child process, and a non-Apple host was blocked from it
 separately by that script's MPS device check. mflux 0.21.0 ported the Qwen3-VL
 vision tower, so editing runs on the same MLX engine as generation and the child
-is gone. Both models behind qwen21 and the one behind flux2 are now mflux models,
-and the MLX probe is the only thing that decides.
+is gone. Both models behind qwen21 and the one behind flux2 are now mflux models.
+The MLX GPU probe is the startup gate. Real CUDA generation and editing remain
+unverified.
 
 ## Why a Mac cannot test this
 
@@ -35,7 +35,7 @@ development machine and gives a second chip. It is not portability proof.
 
 | Decision | Today | Why it changes |
 |---|---|---|
-| The engine | MLX only, and a host without it is refused | mflux is MLX by construction. A CUDA build is a different engine for generation and for editing, not a flag on this one. |
+| The engine | MLX only, and a host without an MLX GPU is refused | The pinned mflux release declares an MLX CUDA build for Linux. This repo still needs a real CUDA run for generation and editing. |
 | The memory guard | The two qwen21 models are freed against each other, sized for a 64 GB machine | That is a VRAM fact, not a platform fact. `mx.device_info()` reports `max_recommended_working_set_size` (26800603136 bytes on the M1 Pro here, measured 2026-09-25); CUDA has `torch.cuda.mem_get_info()`. A large card could hold both. |
 | The quantization | mflux quantizes the transformer and the VAE, and the badge the page shows follows it | Another engine quantizes another way, and the badge has to follow that engine. |
 | The weight layout | mflux reads its own layout and downloads `Qwen/Qwen-Image-2.1` itself | Another engine wants another layout. flux2 already takes a hand-placed folder, so the pattern exists. |
@@ -75,15 +75,11 @@ before a port is built on it:
 
 ## Next steps, cheapest first
 
-1. **Get a non-Apple host.** NVIDIA or AMD. Nothing below can be proven without
-   one, which is why this work is not started.
-2. **Pick the second engine.** It has to do generation, img2img and instruction
-   editing, for both qwen21 and flux2.
-3. **Move the refusal from `create_studio` into the backend builders**, so a host
-   picks an engine per backend rather than refusing every one of them.
-4. **Measure a generate and an edit on that host**, and re-fit the constants in
-   `capabilities.py` against it.
+1. **Get a Linux CUDA host.** The current office Mac cannot prove this path.
+2. **Run Qwen generation and editing on that host.** If either path fails, pick
+   an engine that supports both operations.
+3. **Measure a generate and an edit on that host.** Re-fit the constants in
+   `capabilities.py` against those runs.
 
-Do not start step 3 until step 1 is done. Writing the code first ships an
-unverified path, and this repo's own rule is that a green test is a gate, not
-proof.
+The probe change makes the existing MLX CUDA build reachable. The host tests
+remain necessary because this repo has no CUDA generation or edit run.
