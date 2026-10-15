@@ -204,6 +204,153 @@ with sync_playwright() as playwright:
         and page.locator("#backend-toggle").is_disabled(),
         page.locator("#backend-toggle").inner_text().replace("\n", " "),
     )
+    model_settings = page.evaluate(
+        """() => {
+          const capabilities = STUDIO.video.capabilities;
+          const original = {
+            durationPresets: capabilities.duration_presets,
+            defaultFrames: capabilities.default_frames,
+            shapes: capabilities.shapes,
+            defaultShapeRatio: capabilities.default_shape_ratio,
+            maxReferences: capabilities.max_references,
+            minReferenceStrength: capabilities.min_reference_strength,
+            maxReferenceStrength: capabilities.max_reference_strength,
+            referenceStrengthStep: capabilities.reference_strength_step,
+            defaultReferenceStrength: capabilities.default_reference_strength,
+            minSeed: capabilities.min_seed,
+            maxSeed: capabilities.max_seed,
+          };
+          capabilities.duration_presets = [49, 97, 145];
+          capabilities.default_frames = 97;
+          capabilities.shapes = [
+            {ratio: '5:4', width: 640, height: 512},
+            {ratio: '4:5', width: 512, height: 640},
+          ];
+          capabilities.default_shape_ratio = '4:5';
+          capabilities.max_references = 2;
+          capabilities.min_reference_strength = 0.2;
+          capabilities.max_reference_strength = 0.8;
+          capabilities.reference_strength_step = 0.2;
+          capabilities.default_reference_strength = 0.4;
+          capabilities.min_seed = 17;
+          capabilities.max_seed = 99;
+          applyVideoCapabilities();
+          videoStudio.setModelCapabilities(capabilities);
+          const reference = {
+            id: 'model-limit-one',
+            name: 'model-limit.png',
+            src: 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=',
+            base64: 'R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=',
+            frameIndex: 0,
+            strength: 0.4,
+          };
+          videoStudio.addImageReference(reference);
+          videoStudio.addImageReference({...reference, id: 'model-limit-two'});
+          const referenceLimitError = videoStudio.error;
+          const defaultReferenceStrength = document.querySelectorAll(
+            '#video-source-panel .video-reference-settings input[type=range]'
+          )[1].value;
+          videoStudio.removeImageReference(reference.id);
+          videoStudio.clearError();
+          const state = {
+            durationRange: [
+              document.querySelector('#video-duration').min,
+              document.querySelector('#video-duration').max,
+              document.querySelector('#video-duration').step,
+              document.querySelector('#video-duration').value,
+            ],
+            durations: [...document.querySelectorAll('[data-duration-frames]')].map(button => ({
+              frames: button.dataset.durationFrames,
+              label: button.textContent,
+              selected: button.getAttribute('aria-pressed'),
+            })),
+            shapes: [...document.querySelectorAll('.video-ratios button')].map(button => ({
+              ratio: button.dataset.ratio,
+              width: button.dataset.width,
+              height: button.dataset.height,
+              selected: button.getAttribute('aria-pressed'),
+            })),
+            defaultShape: document.querySelector('#video-frame-count').textContent,
+            referenceLimit: videoStudio.maxReferences,
+            referenceLimitError: referenceLimitError,
+            defaultReferenceStrength: defaultReferenceStrength,
+            referenceStrength: (() => {
+              const control = document.querySelector('#video-source-panel .video-reference-settings input[type=range]');
+              return [control.min, control.max, control.step, control.value];
+            })(),
+            seedRange: [
+              document.querySelector('#video-seed').min,
+              document.querySelector('#video-seed').max,
+              document.querySelector('#video-seed').disabled,
+              document.querySelector('#video-seed').closest('.field').hidden,
+            ],
+          };
+          capabilities.duration_presets = original.durationPresets;
+          capabilities.default_frames = original.defaultFrames;
+          capabilities.shapes = original.shapes;
+          capabilities.default_shape_ratio = original.defaultShapeRatio;
+          capabilities.max_references = original.maxReferences;
+          capabilities.min_reference_strength = original.minReferenceStrength;
+          capabilities.max_reference_strength = original.maxReferenceStrength;
+          capabilities.reference_strength_step = original.referenceStrengthStep;
+          capabilities.default_reference_strength = original.defaultReferenceStrength;
+          capabilities.min_seed = original.minSeed;
+          capabilities.max_seed = original.maxSeed;
+          applyVideoCapabilities();
+          videoStudio.setModelCapabilities(capabilities);
+          capabilities.min_seed = null;
+          capabilities.max_seed = null;
+          applyVideoCapabilities();
+          document.querySelector('#video-seed').value = '22';
+          let unsupportedSeedError = '';
+          try {
+            selectedVideoSeed();
+          } catch (error) {
+            unsupportedSeedError = error.message;
+          }
+          document.querySelector('#video-seed').value = '';
+          const unsupportedSeed = [
+            document.querySelector('#video-seed').disabled,
+            document.querySelector('#video-seed').closest('.field').hidden,
+            document.querySelector('#video-seed-summary').textContent,
+            unsupportedSeedError,
+          ];
+          state.unsupportedSeed = unsupportedSeed;
+          capabilities.min_seed = original.minSeed;
+          capabilities.max_seed = original.maxSeed;
+          applyVideoCapabilities();
+          return state;
+        }"""
+    )
+    check(
+        "video settings follow the selected model capability record",
+        model_settings
+        == {
+            "durationRange": ["9", "361", "8", "97"],
+            "durations": [
+                {"frames": "49", "label": "2 s", "selected": "false"},
+                {"frames": "97", "label": "4 s", "selected": "true"},
+                {"frames": "145", "label": "6 s", "selected": "false"},
+            ],
+            "shapes": [
+                {"ratio": "5:4", "width": "640", "height": "512", "selected": "false"},
+                {"ratio": "4:5", "width": "512", "height": "640", "selected": "true"},
+            ],
+            "defaultShape": "4.04 seconds, 512 × 640, 97 frames at 24 fps.",  # noqa: RUF001
+            "referenceLimit": 2,
+            "referenceLimitError": "This video model accepts at most 2 image references.",
+            "defaultReferenceStrength": "0.4",
+            "referenceStrength": ["0.2", "0.8", "0.2", "0.8"],
+            "seedRange": ["17", "99", False, False],
+            "unsupportedSeed": [True, True, "Not supported", "This video model does not support a seed."],
+        },
+        json.dumps(model_settings),
+    )
+    check(
+        "a model without seed support hides its seed control",
+        model_settings["unsupportedSeed"] == [True, True, "Not supported", "This video model does not support a seed."],
+        str(model_settings["unsupportedSeed"]),
+    )
     check(
         "video has no second image mode selector and shows a keyframe track",
         page.locator("#image-controls .modes").is_hidden()
@@ -422,7 +569,7 @@ with sync_playwright() as playwright:
         "duration follows the frame grid and shows derived output settings",
         page.locator("#video-duration").input_value() == "241"
         and "10.04 seconds" in summary
-        and "544 × 960" in summary  # noqa: RUF001
+        and "576 × 1024" in summary  # noqa: RUF001
         and "241 frames" in summary
         and "24 fps" in summary,
         summary,
@@ -465,8 +612,8 @@ with sync_playwright() as playwright:
     check(
         "video generation sends selected settings and shared keyframes",
         request.get("num_frames") == 241
-        and request.get("width") == 544
-        and request.get("height") == 960
+        and request.get("width") == 576
+        and request.get("height") == 1024
         and len(request.get("references", [])) == 3
         and request.get("seed") == 42
         and request["references"][1].get("frame_index")

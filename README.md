@@ -134,7 +134,7 @@ Accept the model terms and run `uv run hf auth login` once before the first vide
 
 The Video source panel sits beside its prompt in the right sidebar. Image references become keyframes. Source clips stay separate from generated video results. The timeline can capture a clip frame as an image keyframe or send it to the Image workspace. The imported clip itself is not a video-conditioning input.
 
-The duration control selects frame counts from the selected model's `VideoCapabilities`. LTX supports 9 to 361 frames in steps of 8 at 24 fps. Its quick choices use 121, 241, and 361 frames, about 5.04, 10.04, and 15.04 seconds. The UI sends an explicit frame count so the timeline and keyframes have a fixed target. The pipeline runs in a child process, which releases its model weights when generation ends.
+The selected video model supplies its frame shapes and default, duration limits and step, duration presets and default, frame rate, seed range, reference limit, and reference strength controls through `VideoCapabilities`. LTX defaults to 16:9 and supports 9 to 361 frames in steps of 8 at 24 fps. Its duration presets use 121, 241, and 361 frames. The UI sends an explicit frame count so the timeline and keyframes have a fixed target. The pipeline runs in a child process, which releases its model weights when generation ends. The two-stage LTX pipeline requires both dimensions to be multiples of 64, so its presets use 1024 × 576, 576 × 1024, and 768 × 768.
 
 **FLUX.2 klein-base-9B.** mflux reads one diffusers-layout folder, and its name must contain `klein-base-9b`. The default is `~/Library/Caches/models/mflux-klein-base-9b-uncensored`; `model_dir` in `studio.toml` moves it. It takes about 33 GB.
 
