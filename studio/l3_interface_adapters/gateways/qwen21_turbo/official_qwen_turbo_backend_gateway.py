@@ -8,7 +8,7 @@ from studio.l3_interface_adapters.gateways.qwen21_turbo.capabilities import qwen
 CHECKPOINT_FILES = (
     "model_index.json",
     "scheduler/scheduler_config.json",
-    "processor/processor_config.json",
+    "processor/preprocessor_config.json",
     "processor/tokenizer.json",
     "vae/config.json",
     "transformer/config.json",

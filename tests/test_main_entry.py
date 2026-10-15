@@ -115,7 +115,7 @@ def test_a_machine_with_no_engine_exits_before_the_port_is_bound(tmp_path, monke
         entry.main()
 
     message = exit_message(exits)
-    assert message.startswith("Cannot run here: no MLX GPU is available")
+    assert message.startswith("Cannot run here: no MLX on this machine")
     assert "PORTABILITY.md" in message  # the message names the remedy
     server_class.assert_not_called()
 
