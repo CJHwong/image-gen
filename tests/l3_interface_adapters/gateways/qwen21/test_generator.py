@@ -147,6 +147,38 @@ def test_the_model_is_built_with_the_memory_saver_and_the_step_hook():
     }
 
 
+def test_a_local_turbo_model_receives_its_path_and_official_scheduler_config(monkeypatch):
+    from studio.l3_interface_adapters.gateways import mflux_runtime
+
+    registered = []
+    expected_config = object()
+
+    class FakeCallbacks:
+        def register(self, callback):
+            registered.append(callback)
+
+    class FakeQwenImage21:
+        def __init__(self, quantize, model_path, model_config):
+            self.quantize = quantize
+            self.model_path = model_path
+            self.model_config = model_config
+            self.callbacks = FakeCallbacks()
+
+    memory_saver = Mock(return_value="the memory saver")
+    monkeypatch.setattr(mflux_runtime, "official_turbo_model_config", lambda: expected_config)
+    with heavy_modules(
+        {
+            "mflux.callbacks.instances.memory_saver": {"MemorySaver": memory_saver},
+            "mflux.models.qwen21.variants.txt2img.qwen_image_21": {"QwenImage21": FakeQwenImage21},
+        }
+    ):
+        model = build_model(quantize=8, hook=StepHook(), model_path="/local/qwen-turbo")
+
+    assert model.model_path == "/local/qwen-turbo"
+    assert model.model_config is expected_config
+    assert registered[0] == "the memory saver"
+
+
 def test_the_model_is_built_once_and_kept_for_the_next_run():
     builder = EngineBuilder([FakeEngine(), FakeEngine()])
     generator = Qwen21Generator(quantize=None, build=builder)
@@ -155,6 +187,23 @@ def test_the_model_is_built_once_and_kept_for_the_next_run():
     generator.run(job(), no_steps, never_stop)
     assert len(builder.built) == 1  # the second engine was never needed
     assert builder.built[0].kwargs is not None
+
+
+def test_generator_passes_a_configured_local_model_path_to_its_builder():
+    class LocalBuilder:
+        def __init__(self):
+            self.model_path = None
+
+        def __call__(self, quantize, hook, lora_path=None, model_path=None):
+            self.model_path = model_path
+            return FakeEngine(hook=hook)
+
+    builder = LocalBuilder()
+    generator = Qwen21Generator(quantize=None, build=builder, model_path="/local/qwen-turbo")
+
+    generator.load()
+
+    assert builder.model_path == "/local/qwen-turbo"
 
 
 def test_a_run_reports_every_step_and_returns_the_image():

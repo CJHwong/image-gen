@@ -3,7 +3,12 @@ from unittest.mock import Mock
 import pytest
 
 from studio.l1_entities.errors import Cancelled
-from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook, lora_kwargs, release_mlx_buffers
+from studio.l3_interface_adapters.gateways.mflux_runtime import (
+    StepHook,
+    lora_kwargs,
+    official_turbo_model_config,
+    release_mlx_buffers,
+)
 from tests.support.heavy import heavy_modules
 
 
@@ -99,3 +104,14 @@ def test_a_lora_is_passed_unmerged_and_a_backend_without_one_passes_nothing():
         "bake_lora": False,
     }
     assert lora_kwargs("/adapters/turbo.safetensors", 0.5)["lora_scales"] == [0.5]
+
+
+def test_official_turbo_uses_a_copy_of_the_model_config_without_dynamic_shift():
+    from mflux.models.common.config.model_config import ModelConfig
+
+    base_config = ModelConfig.qwen_image_21()
+    turbo_config = official_turbo_model_config()
+
+    assert turbo_config is not base_config
+    assert (turbo_config.requires_sigma_shift, turbo_config.sigma_shift_terminal) == (False, None)
+    assert (base_config.requires_sigma_shift, base_config.sigma_shift_terminal) == (True, 0.02)

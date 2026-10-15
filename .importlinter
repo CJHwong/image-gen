@@ -58,5 +58,6 @@ name = Each backend adapter stands alone; shared helpers sit next to them
 type = independence
 modules =
     studio.l3_interface_adapters.gateways.qwen21
+    studio.l3_interface_adapters.gateways.qwen21_turbo
     studio.l3_interface_adapters.gateways.flux2
     studio.l3_interface_adapters.gateways.viggle

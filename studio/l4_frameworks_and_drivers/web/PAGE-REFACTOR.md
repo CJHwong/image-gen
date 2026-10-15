@@ -236,9 +236,10 @@ The progress card is htmx's. It polls `hx-get="/progress"` and swaps `#progress`
 If Lit renders that subtree the two fight and the poll loses. So `progress-card.js`
 renders the shell and **htmx owns the children**.
 
-The run stays an htmx post. The region composition depends on the
-`event.detail.parameters` hook, and moving it to `fetch` would move the mask
-contract as well. That is a separate change, with its own risk.
+Image runs stay htmx posts. Region composition depends on the
+`event.detail.parameters` hook, and moving that route to `fetch` would move
+the mask contract as well. Video generation uses a separate JSON fetch because
+its request carries frame-indexed still references and returns MP4 bytes.
 
 ## The static route
 

@@ -252,6 +252,9 @@ function renderStageBar(entry) {
     menus.menuItem('image-in', 'Use as reference', function () {
       page.referFrom(entry);
     }),
+    menus.menuItem('image-in', 'Use in Video', function () {
+      page.useInVideo(entry);
+    }),
     menus.menuItem('hash', 'Reuse seed ' + entry.seed, function () {
       document.getElementById('seed').value = entry.seed;
       document.getElementById('advanced').open = true;

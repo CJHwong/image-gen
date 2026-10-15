@@ -90,6 +90,8 @@ function spell(seconds) {
 // mirrors on every change. What stays here is the list itself, the zone that
 // fills it, and the three things the page owns: the form's flag, the file
 // input's `multiple`, and the Remove all button.
+let nextReferenceId = 1;
+
 function referenceLimit() {
   return maxReferences();
 }
@@ -108,6 +110,7 @@ function renderReferences() {
   page.el.referenceInput.multiple = editing();
   document.getElementById('clear-reference').hidden = count < 2;
   pushReferences();
+  page.renderMediaActions();
   refreshForm();
   page.region().sync();
   // An empty stage says what to do next, and that depends on the references.
@@ -135,7 +138,14 @@ function addReference(b64, name, source) {
     page.notify('info', 'Edit takes at most ' + maxReferences() + ' images.');
     return;
   }
-  const entry = { b64: b64, name: name, width: 0, height: 0, source: source || null };
+  const entry = {
+    id: 'reference-' + nextReferenceId++,
+    b64: b64,
+    name: name,
+    width: 0,
+    height: 0,
+    source: source || null,
+  };
   page.references().push(entry);
   probeSize(entry);
   renderReferences();

@@ -10,6 +10,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from studio.l1_entities.errors import BackendBusy, StudioError
+from studio.l1_entities.video_job import VideoJob, VideoResult
+from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
 from studio.l3_interface_adapters.gateways.prompt_rewriters import StubPromptRewriter
 from studio.l4_frameworks_and_drivers import http_server
 from studio.l4_frameworks_and_drivers.main import assemble_studio
@@ -23,6 +26,21 @@ def fast(rewriter):
     return rewriter
 
 
+class FakeVideoBackend(VideoBackendGateway):
+    def __init__(self):
+        self.failure = None
+        self.result = None
+        self.jobs = []
+
+    def run(self, job: VideoJob) -> VideoResult:
+        self.jobs.append(job)
+        if self.failure is not None:
+            raise self.failure
+        if self.result is not None:
+            return self.result
+        return VideoResult(b"fake mp4 bytes", job.width, job.height, job.num_frames, job.frame_rate, job.seed)
+
+
 @pytest.fixture
 def served():
     """A real server on a free port over two fake backends, so a route runs for real.
@@ -32,10 +50,11 @@ def served():
     """
     backends = {"fake": FakeBackendGateway(), "other": FakeBackendGateway("other", "Other")}
     rewriters = {name: fast(StubPromptRewriter()) for name in backends}
-    studio = assemble_studio(backends, rewriters, "fake", ("fake", "other"))
+    video_backend = FakeVideoBackend()
+    studio = assemble_studio(backends, rewriters, "fake", ("fake", "other"), video_backend)
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield studio, server
+    yield studio, server, video_backend
     server.shutdown()
     server.server_close()
 
@@ -106,6 +125,155 @@ def test_the_page_directory_does_not_hand_out_its_own_documents(served):
 
 def test_a_page_asset_that_is_not_there_is_a_plain_not_found(served):
     assert call(served[1], "/page/absent.css") == (404, "text/plain", "not found")
+
+
+def video_request(**updates):
+    payload = {
+        "prompt": "A kite rises",
+        "width": 960,
+        "height": 544,
+        "num_frames": 145,
+        "frame_rate": 24,
+        "seed": 42,
+        "references": [],
+    }
+    payload.update(updates)
+    return json.dumps(payload).encode()
+
+
+def post_video(server, body):
+    return call(server, "/video/generate", body, **{"Content-Type": "application/json"})
+
+
+def post_video_with_length(server, body, length):
+    url = f"http://127.0.0.1:{server.server_address[1]}/video/generate"
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json", "Content-Length": str(length)},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as answer:
+            return answer.status, answer.headers["Content-Type"], answer.read().decode()
+    except urllib.error.HTTPError as error:
+        return error.code, error.headers["Content-Type"], error.read().decode()
+
+
+def test_video_route_returns_mp4_bytes_from_the_backend(served):
+    status, content_type, body = post_video(served[1], video_request())
+
+    assert (status, content_type, body) == (200, "video/mp4", "fake mp4 bytes")
+    assert served[2].jobs[0].prompt == "A kite rises"
+
+
+def test_video_stub_route_returns_metadata_only(served):
+    served[2].result = VideoResult(None, 768, 768, 145, 24, None, stub=True)
+
+    status, content_type, body = post_video(served[1], video_request(width=768, height=768, seed=None))
+
+    assert status == 200 and content_type == "application/json; charset=utf-8"
+    assert json.loads(body) == {
+        "stub": True,
+        "width": 768,
+        "height": 768,
+        "num_frames": 145,
+        "frame_rate": 24,
+        "seed": None,
+    }
+
+
+def test_video_route_rejects_invalid_json_and_wrong_content_type(served):
+    invalid_json = call(served[1], "/video/generate", b"not json", **{"Content-Type": "application/json"})
+    wrong_type = call(served[1], "/video/generate", b"{}", **{"Content-Type": "text/plain"})
+
+    assert invalid_json[0] == 400
+    assert json.loads(invalid_json[2])["error"] == "The video request must contain valid JSON"
+    assert wrong_type[0] == 400
+    assert "application/json" in json.loads(wrong_type[2])["error"]
+
+
+@pytest.mark.parametrize(
+    ("body", "headers", "length", "message"),
+    [
+        (b"", {"Content-Type": "application/json"}, None, "between 1 byte and 64 MB"),
+        (b"\xff", {"Content-Type": "application/json"}, None, "valid JSON"),
+        (b"[]", {"Content-Type": "application/json"}, None, "JSON object"),
+        (b"{}", {}, None, "application/json"),
+    ],
+)
+def test_video_route_rejects_invalid_request_shapes(served, body, headers, length, message):
+    if length is None:
+        response = call(served[1], "/video/generate", body, **headers)
+    else:
+        response = post_video_with_length(served[1], body, length)
+
+    assert response[0] == 400 and message in json.loads(response[2])["error"]
+
+
+def test_video_route_rejects_an_oversized_body_before_reading_it(served):
+    response = post_video_with_length(served[1], b"x", 64 * 1024 * 1024 + 1)
+
+    assert response[0] == 400
+    assert "between 1 byte and 64 MB" in json.loads(response[2])["error"]
+
+
+@pytest.mark.parametrize(
+    ("video_body", "message"),
+    [
+        (video_request(prompt=" "), "A video prompt is required."),
+        (
+            video_request(references=[{"name": "broken", "image": "bad", "frame_index": 0, "strength": 1}]),
+            "Could not read that video reference image.",
+        ),
+    ],
+)
+def test_video_route_returns_controller_errors_as_bad_requests(served, video_body, message):
+    response = post_video(served[1], video_body)
+
+    assert response[0] == 400 and json.loads(response[2])["error"] == message
+
+
+@pytest.mark.parametrize(
+    ("failure", "status"),
+    [
+        (BackendBusy("The model is busy"), 409),
+        (StudioError("local weights are missing"), 503),
+        (RuntimeError("pipeline failed"), 500),
+    ],
+)
+def test_video_route_reports_pipeline_errors_as_json(served, failure, status):
+    served[2].failure = failure
+
+    response = post_video(served[1], video_request())
+
+    assert response[0] == status and json.loads(response[2])["error"]
+
+
+def test_video_route_rejects_a_video_result_without_mp4_bytes(served):
+    served[2].result = VideoResult(None, 960, 544, 145, 24, None)
+
+    response = post_video(served[1], video_request(seed=None))
+
+    assert response[0] == 500
+    assert json.loads(response[2])["error"] == "The video backend returned no MP4 file."
+
+
+def test_video_route_is_unavailable_without_a_video_backend():
+    backends = {"fake": FakeBackendGateway()}
+    rewriters = {"fake": fast(StubPromptRewriter())}
+    studio = assemble_studio(backends, rewriters, "fake", ("fake",))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    try:
+        response = post_video(server, video_request())
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert response[0] == 503
+    assert json.loads(response[2])["error"] == "Video generation is not configured."
 
 
 def test_a_generate_route_answers_with_the_image_fragment(served):
