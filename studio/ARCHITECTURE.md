@@ -9,9 +9,9 @@ Each layer imports only the layers inside it. `.importlinter` enforces this, and
 | Layer | Directory | What it holds |
 |---|---|---|
 | 1. Entities | `l1_entities/` | The job, the result, the progress, the errors, and the capabilities record: modes, params, Looks, templates, estimate |
-| 2. Use cases | `l2_use_cases/` | Run an image or video, describe the studio, switch the image backend, prepare, rewrite a prompt, and read image progress. `boundaries/` holds the ports they call. |
-| 3. Interface adapters | `l3_interface_adapters/` | The form and video controllers, the HTML presenter, model gateways, in-memory stores, and the GPU thread for MLX calls |
-| 4. Frameworks and drivers | `l4_frameworks_and_drivers/` | The HTTP server, local LTX process runner, config file, page, and `main.py`, which wires everything |
+| 2. Use cases | `l2_use_cases/` | Run an image, describe the studio, switch the backend, prepare, rewrite a prompt, and cancel or read the progress of either job. `boundaries/` holds the ports they call. |
+| 3. Interface adapters | `l3_interface_adapters/` | The form controller, the HTML presenter, and the gateways: one per backend, the in-memory stores, and the GPU thread that every MLX call must run on |
+| 4. Frameworks and drivers | `l4_frameworks_and_drivers/` | The HTTP server, the config file, the page, and `main.py`, which wires everything |
 
 The entities and use cases import no engine: no mlx, mflux, PIL, http or subprocess. The backend adapters do not import each other; what two of them share sits next to them in `gateways/`.
 
@@ -27,17 +27,6 @@ Names follow the role. A gateway ends in `_gateway.py` and its class in `Gateway
 4. The gateway runs the engine on the GPU thread and returns PNG bytes.
 5. The use case returns a response record. The HTTP server hands it to `HtmlPresenter`, which writes the HTML fragment.
 
-## One video request
-
-1. The page sends the video prompt, output settings, and still keyframes as JSON to `/video/generate`.
-2. `VideoController` checks frame count and dimensions. It decodes each still to PNG bytes.
-3. `RunVideoUseCase` takes the same non-queueing lock as an image run.
-4. `Ltx25BackendGateway` calls the injected runner. The runner is in layer 4 because it starts the official Python pipeline.
-5. The runner checks local component files, writes keyframes to a temporary folder, and starts `ltx_pipelines.distilled`. It never downloads weights.
-6. The page puts MP4 output in the video gallery. The stub returns settings only and creates no fake video bytes.
-
-Image references move to Video as still keyframes. A frame from an imported or generated clip can move to Image or become a Video keyframe. The source clip itself is not a video-conditioning input.
-
 A batch is a chain of requests, one per image. Progress is a poll of `/progress`. A rewrite is one request of its own, and its phase is a poll of `/rewrite/state`: the page offers a cancel only while the model is writing, because a stop cannot land during the load.
 
 ## Add a backend
@@ -48,9 +37,7 @@ A batch is a chain of requests, one per image. Progress is a poll of `/progress`
 4. Add a gateway test at the mirrored path under `tests/`, with a `live` test that loads the real weights. Mock the engine for the unit test, so it runs with no model.
 5. Run it with `uv run studio --backend <name>`.
 
-The image form knows two mode ids, `generate` and `edit`, and the params `size`, `resolution`, `steps`, `guidance`, `cfg`, `strength` and `negative`. The video form has its own prompt, duration, shape, keyframe tray, timeline, and gallery. Image and video references use separate request records.
-
-An image edit may carry a marked region. The page appends it as the last image of the run, and replaces the prompt's `[the region you marked]` with that image's number. Only a mode that declares `region_marking` is offered the tool. A backend declares the modes it supports. A new kind of image parameter needs a control in `web/page.html`.
+The page knows two mode ids, `generate` and `edit`, and the params `size`, `resolution`, `steps`, `guidance`, `cfg`, `strength` and `negative`. An edit may also carry a marked region: the page appends it as the last image of the run, and replaces the prompt's `[the region you marked]` with that image's number. Only a mode that declares `region_marking` is offered the tool. A backend declares the ones it supports. A new kind of param needs a control in `web/page.html`.
 
 ## The page
 

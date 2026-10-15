@@ -64,9 +64,8 @@ with sync_playwright() as playwright:
     check("keeping is on by default", first.get_attribute("#keep-toggle", "aria-checked") == "true")
     first.keyboard.press("Escape")
     first.click("#advanced summary")
-    first.locator("#steps").evaluate(
-        "element => { element.value = element.min; element.dispatchEvent(new Event('input', {bubbles: true})); }"
-    )
+    first.fill("#steps", "2")
+    first.dispatch_event("#steps", "input")
 
     second = context.new_page()
     second.on("dialog", lambda dialog: dialog.accept())
@@ -102,7 +101,7 @@ with sync_playwright() as playwright:
     check(
         "Download all saves each image and the prompts",
         len(images) == 2
-        and all(re.fullmatch(r"\d{2}-[a-z0-9_]+-generate-\d+\.png", name) for name in images)
+        and all(re.fullmatch(r"\d{2}-[a-z0-9]+-generate-\d+\.png", name) for name in images)
         and all((folder / name).read_bytes()[:4] == b"\x89PNG" for name in images)
         and names[-1] == "studio-prompts.json",
         str(names),
