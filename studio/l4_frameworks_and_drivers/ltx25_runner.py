@@ -1,4 +1,4 @@
-"""Run the official LTX-2.5 distilled pipeline from local files only."""
+"""Run the official LTX-2.5 distilled pipeline and fetch its weights on first use."""
 
 import shutil
 import subprocess
@@ -18,6 +18,7 @@ MODEL_PATHS = {
     "spatial_upsampler": "latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors",
 }
 MODEL_FILES = tuple(MODEL_PATHS.values())
+MODEL_REPOSITORY = "Lightricks/LTX-2.5"
 RUN_TIMEOUT_SECONDS = 3600
 
 
@@ -27,10 +28,13 @@ class Ltx25Runner:
         python_path: str,
         model_dir: str | Path,
         process_runner: Callable = subprocess.run,
+        model_downloader: Callable[[Path], None] | None = None,
     ):
         self._python_path = python_path
-        self._model_dir = Path(model_dir).expanduser()
+        self._model_dir_value = str(model_dir).strip() if model_dir is not None else ""
+        self._model_dir = Path(self._model_dir_value).expanduser()
         self._process_runner = process_runner
+        self._model_downloader = model_downloader or self._download_model
 
     def run(self, job: VideoJob) -> VideoResult:
         python = self._python()
@@ -57,12 +61,29 @@ class Ltx25Runner:
         raise StudioError(f"The configured LTX-2.5 Python executable is missing: {self._python_path}")
 
     def _model_paths(self) -> dict[str, Path]:
-        if not self._model_dir.is_dir():
-            raise StudioError(f"The LTX-2.5 local weights are missing from {self._model_dir}.")
+        if not self._model_dir_value or self._model_dir.resolve() == Path.cwd().resolve():
+            raise StudioError("Set a dedicated model_dir under [ltx25] before video generation.")
+        missing = [relative for relative in MODEL_FILES if not (self._model_dir / relative).is_file()]
+        if missing:
+            self._model_downloader(self._model_dir)
         missing = [relative for relative in MODEL_FILES if not (self._model_dir / relative).is_file()]
         if missing:
             raise StudioError(f"The LTX-2.5 local weights are incomplete: {', '.join(missing)}")
         return {name: self._model_dir / relative for name, relative in MODEL_PATHS.items()}
+
+    @staticmethod
+    def _download_model(model_dir: Path) -> None:
+        from huggingface_hub import snapshot_download
+
+        try:
+            model_dir.mkdir(parents=True, exist_ok=True)
+            snapshot_download(repo_id=MODEL_REPOSITORY, allow_patterns=list(MODEL_FILES), local_dir=model_dir)
+        except Exception as error:
+            raise StudioError(
+                f"LTX-2.5 weights download failed ({type(error).__name__}). "
+                "Run `hf auth login`, accept access at "
+                "https://huggingface.co/Lightricks/LTX-2.5, and check the network."
+            ) from None
 
     @staticmethod
     def _write_references(job: VideoJob, scratch: Path) -> list[tuple[Path, int, float]]:

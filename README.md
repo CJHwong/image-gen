@@ -100,7 +100,7 @@ Both images stay in the strip at the bottom, also after a reload.
 | Qwen-Image-2.1 | `gateways/qwen21` | generate, img2img, and instruction edit with up to 10 images, through mflux (MLX) | downloads on first use |
 | Viggle Turbo | `gateways/viggle` | the same modes, in six steps | Qwen base weights, plus a 1.3 GB adapter |
 | FLUX.2 klein-base-9B, uncensored | `gateways/flux2` | generate and img2img, edit with up to 4 images, all through mflux (MLX) | manual setup below |
-| LTX-2.5 | `gateways/ltx25` | text-to-video and still-keyframe video generation | local split weights and CUDA pipeline |
+| LTX-2.5 | `gateways/ltx25` | text-to-video and still-keyframe video generation | six split files download on first video generation, about 71 GB |
 
 **The prompt aids are per model.** A Look option or a template appears only after it passes a test on that model. The official Turbo backend offers no Looks or templates yet. Its 8-step estimates use two runs at three sizes on an M5 Pro with BF16 weights. Generate uses separate fits with and without a starting image. The reference estimate follows mflux's remaining steps at the selected strength. The generated images still need visual review. Qwen-Image-2.1 offers 31 Look options and 15 templates, and its edit form offers 15 more options in six rows. Viggle Turbo offers only the prompt aids its six-step sample kept. FLUX.2 offers the 11 options and 8 templates it was tested with. The tests and limits are in [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md).
 
@@ -124,25 +124,13 @@ Use `hf`, not `huggingface-cli`: huggingface_hub 2.x deprecated the old name, an
 
 The adapter is passed to the model unmerged, which is what its card asks for: mflux merges by default, and merging into bf16 loses about 30 percent of what the adapter changes. Six steps is the only step count it was trained for, so the page offers no other, and it runs without guidance, so there is no negative prompt to set. It offers no Looks, no templates and no region marking yet: those were tested on the 40-step base and not on this schedule.
 
-**LTX-2.5 video.** Video generation runs the official distilled pipeline from local files. The server reads `python_path` and `model_dir` under `[ltx25]`. It does not install the pipeline or download weights.
+**LTX-2.5 video.** The first video generation downloads six required files from the gated official model into `[ltx25].model_dir`. Later runs reuse them. The server reads `python_path` and `model_dir` from `studio.toml`.
 
-The official Python pipeline needs Python 3.12 or later, CUDA 12.7 or later, and PyTorch 2.7. It does not run on an Apple-Silicon-only machine. Follow the [official model card](https://huggingface.co/Lightricks/LTX-2.5) and install the repository:
+Accept the model terms and run `uv run hf auth login` once before the first video generation. The required weights total about 71 GB. The official LTX-2 source supports Apple MPS and CUDA. Install its Python runtime once:
 
        git clone https://github.com/Lightricks/LTX-2.git ~/Workspace/LTX-2
        cd ~/Workspace/LTX-2
        uv sync
-
-Then download the distilled model components:
-
-       D=~/Library/Caches/models/ltx-2.5
-       hf download Lightricks/LTX-2.5 \
-         diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors \
-         text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors \
-         vae/ltx-2.5-video-vae-bf16.safetensors \
-         vae/ltx-2.5-audio-vae-bf16.safetensors \
-         model_patches/ltx-2.5-duration-head-bf16.safetensors \
-         latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors \
-         --local-dir "$D"
 
 The Video source panel sits beside its prompt in the right sidebar. Image references become keyframes. Source clips stay separate from generated video results. The timeline can capture a clip frame as an image keyframe or send it to the Image workspace. The imported clip itself is not a video-conditioning input.
 

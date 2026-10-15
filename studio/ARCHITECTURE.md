@@ -36,7 +36,7 @@ Names follow the role. A gateway ends in `_gateway.py` and its class in `Gateway
 2. `VideoController` reads that backend's `VideoCapabilities`, checks the request, and decodes stills to PNG bytes.
 3. `RunVideoUseCase` takes the shared lock and claims the shared model-memory slot.
 4. The selected `VideoBackendGateway` runs the model. `Ltx25BackendGateway` calls the injected runner, which starts the official Python pipeline.
-5. The LTX runner checks local component files, writes keyframes to a temporary folder, and starts `ltx_pipelines.distilled`. It never downloads weights.
+5. The LTX runner downloads missing official components on first use, writes keyframes to a temporary folder, and starts `ltx_pipelines.distilled`.
 6. The page puts MP4 output in the video gallery. The stub returns settings only and creates no fake video bytes.
 
 The model selector follows the active workspace. Each workspace keeps its own selected backend and capabilities. Video settings come from `VideoCapabilities`, so a backend can declare its supported shapes, frame counts, frame rate, and reference limit. The Video source panel lives beside its prompt in the right sidebar. It keeps imported clips separate from image keyframes. The Video gallery holds generated output only. A frame from an imported or generated clip can move to Image or become a Video keyframe. The source clip itself is not a video-conditioning input.
