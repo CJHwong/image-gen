@@ -33,10 +33,14 @@ class VideoStudio extends LitElement {
   sourcePanel = null;
   selectedReferenceId = null;
   selectedClipId = null;
-  maxReferences = 8;
+  maxReferences = null;
+  minReferenceStrength = null;
+  maxReferenceStrength = null;
+  referenceStrengthStep = null;
+  defaultReferenceStrength = null;
   currentTime = 0;
   duration = 0;
-  frameLimit = 121;
+  frameLimit = null;
   error = '';
   handleSourceClick = (event) => this.onComponentClick(event);
   handleSourceChange = (event) => this.onComponentChange(event);
@@ -97,7 +101,7 @@ class VideoStudio extends LitElement {
 
   addImageReference(reference) {
     if (this.imageReferences.some(function (saved) { return saved.id === reference.id; })) return;
-    if (this.imageReferences.length >= this.maxReferences) {
+    if (this.maxReferences !== null && this.imageReferences.length >= this.maxReferences) {
       this.setError('This video model accepts at most ' + this.maxReferences + ' image references.');
       return;
     }
@@ -108,7 +112,7 @@ class VideoStudio extends LitElement {
       src: reference.src,
       base64: reference.base64,
       frameIndex: Number.isInteger(reference.frameIndex) ? reference.frameIndex : 0,
-      strength: Number.isFinite(reference.strength) ? reference.strength : 1,
+      strength: this.normalizeReferenceStrength(reference.strength),
     });
     if (!this.selectedReferenceId) this.selectedReferenceId = reference.id;
     this.renderImageReferences();
@@ -145,6 +149,25 @@ class VideoStudio extends LitElement {
       control.max = String(frameCount - 1);
     });
     this.renderTimelineView(this.selectedClip());
+  }
+
+  setModelCapabilities(capabilities) {
+    this.maxReferences = capabilities.max_references;
+    this.minReferenceStrength = capabilities.min_reference_strength;
+    this.maxReferenceStrength = capabilities.max_reference_strength;
+    this.referenceStrengthStep = capabilities.reference_strength_step;
+    this.defaultReferenceStrength = capabilities.default_reference_strength;
+    this.imageReferences = this.imageReferences.map((reference) => ({
+      ...reference,
+      strength: this.normalizeReferenceStrength(reference.strength),
+    }));
+    this.renderImageReferences();
+  }
+
+  normalizeReferenceStrength(value) {
+    const strength = Number.isFinite(value) ? value : this.defaultReferenceStrength;
+    if (this.minReferenceStrength === null || this.maxReferenceStrength === null) return strength;
+    return Math.min(this.maxReferenceStrength, Math.max(this.minReferenceStrength, strength));
   }
 
   setReferenceStrength(id, control) {
@@ -201,7 +224,7 @@ class VideoStudio extends LitElement {
       const frameIndex = document.createElement('input');
       frameIndex.type = 'number';
       frameIndex.min = '0';
-      frameIndex.max = String(this.frameLimit - 1);
+      frameIndex.max = String(Math.max(0, (this.frameLimit || 1) - 1));
       frameIndex.step = '1';
       frameIndex.value = String(reference.frameIndex);
       frameIndex.dataset.action = 'reference-frame';
@@ -212,9 +235,9 @@ class VideoStudio extends LitElement {
       strengthLabel.textContent = 'Strength';
       const strength = document.createElement('input');
       strength.type = 'range';
-      strength.min = '0.05';
-      strength.max = '1';
-      strength.step = '0.05';
+      strength.min = String(this.minReferenceStrength);
+      strength.max = String(this.maxReferenceStrength);
+      strength.step = String(this.referenceStrengthStep);
       strength.value = String(reference.strength);
       strength.dataset.action = 'reference-strength';
       strength.dataset.referenceId = reference.id;
@@ -589,7 +612,7 @@ class VideoStudio extends LitElement {
   renderTimeline(clip) {
     const duration = clip ? this.duration || clip.duration || 1 : 0;
     const quarter = duration / 4;
-    const frameSpan = Math.max(1, this.frameLimit - 1);
+    const frameSpan = Math.max(1, (this.frameLimit || 1) - 1);
     return html`
       <section class="video-timeline" id="video-timeline" aria-label="Video timeline">
         <header class="timeline-head">
@@ -616,7 +639,7 @@ class VideoStudio extends LitElement {
         </div>
         <header class="keyframes-head">
           <div><strong>Output keyframes</strong><span class="track-name">K1</span></div>
-          <span>${this.frameLimit} frames</span>
+          <span>${this.frameLimit || 0} frames</span>
         </header>
         <div class="timeline-ruler keyframe-ruler" aria-hidden="true">
           <span>F000</span><span>F${String(Math.round(frameSpan / 4)).padStart(3, '0')}</span>

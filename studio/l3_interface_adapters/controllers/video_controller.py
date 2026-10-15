@@ -44,8 +44,8 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
     _shape(width, height, capabilities)
     num_frames = _frame_count(payload.get("num_frames"), capabilities)
     frame_rate = _frame_rate(payload.get("frame_rate"), capabilities)
-    seed = _seed(payload.get("seed"))
-    references = _references(payload.get("references", []), num_frames, capabilities.max_references)
+    seed = _seed(payload.get("seed"), capabilities)
+    references = _references(payload.get("references", []), num_frames, capabilities)
     return VideoJob(prompt, width, height, num_frames, frame_rate, seed, references)
 
 
@@ -94,23 +94,27 @@ def _frame_rate(value, capabilities: VideoCapabilities) -> int:
     return value
 
 
-def _seed(value) -> int | None:
+def _seed(value, capabilities: VideoCapabilities) -> int | None:
     if value is None or value == "":
         return None
-    if type(value) is not int or not 0 <= value <= 2**32 - 1:
-        raise InvalidJob("seed must be a whole number between 0 and 4294967295")
+    minimum = capabilities.min_seed
+    maximum = capabilities.max_seed
+    if minimum is None or maximum is None:
+        raise InvalidJob("This video model does not support a seed")
+    if type(value) is not int or not minimum <= value <= maximum:
+        raise InvalidJob(f"seed must be a whole number between {minimum} and {maximum}")
     return value
 
 
-def _references(values, num_frames: int, max_references: int) -> tuple[VideoReference, ...]:
+def _references(values, num_frames: int, capabilities: VideoCapabilities) -> tuple[VideoReference, ...]:
     if not isinstance(values, list):
         raise InvalidJob("references must be a list")
-    if len(values) > max_references:
-        raise InvalidJob(f"A video can use at most {max_references} image references")
-    return tuple(_reference(value, num_frames) for value in values)
+    if len(values) > capabilities.max_references:
+        raise InvalidJob(f"A video can use at most {capabilities.max_references} image references")
+    return tuple(_reference(value, num_frames, capabilities) for value in values)
 
 
-def _reference(value, num_frames: int) -> VideoReference:
+def _reference(value, num_frames: int, capabilities: VideoCapabilities) -> VideoReference:
     if not isinstance(value, Mapping):
         raise InvalidJob("Each video reference must be an object")
     name = value.get("name")
@@ -119,14 +123,16 @@ def _reference(value, num_frames: int) -> VideoReference:
     frame_index = value.get("frame_index")
     if type(frame_index) is not int or not 0 <= frame_index < num_frames:
         raise InvalidJob(f"frame_index must be between 0 and {num_frames - 1}")
-    strength = _strength(value.get("strength"))
+    strength = _strength(value.get("strength"), capabilities)
     png, _, _ = _decode_png(value.get("image"))
     return VideoReference(name.strip(), png, frame_index, strength)
 
 
-def _strength(value) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= 1:
-        raise InvalidJob("strength must be greater than 0 and at most 1")
+def _strength(value, capabilities: VideoCapabilities) -> float:
+    minimum = capabilities.min_reference_strength
+    maximum = capabilities.max_reference_strength
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not minimum <= value <= maximum:
+        raise InvalidJob(f"strength must be between {minimum:g} and {maximum:g}")
     return float(value)
 
 

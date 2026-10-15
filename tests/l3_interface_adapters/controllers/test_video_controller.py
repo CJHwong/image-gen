@@ -176,6 +176,35 @@ def test_controller_uses_the_selected_models_frame_rate_and_reference_limit():
         video_controller.run(payload(frame_rate=30, references=[{}, {}]))
 
 
+def test_controller_uses_the_model_seed_and_reference_strength_limits():
+    capabilities = replace(
+        fake_video_capabilities(),
+        min_seed=100,
+        max_seed=200,
+        min_reference_strength=0.25,
+        max_reference_strength=0.75,
+        reference_strength_step=0.1,
+        default_reference_strength=0.5,
+    )
+    video_controller, _ = build_video_controller(run=UnusedVideoRun(), capabilities=capabilities)
+    reference = {"name": "frame", "image": png_data(), "frame_index": 0, "strength": 0.2}
+    valid_reference = {**reference, "strength": 0.5}
+
+    with pytest.raises(InvalidJob, match="seed must be a whole number between 100 and 200"):
+        video_controller.run(payload(seed=99))
+    with pytest.raises(InvalidJob, match=r"strength must be between 0\.25 and 0\.75"):
+        video_controller.run(payload(seed=150, references=[reference]))
+    valid_job = video_job(payload(seed=150, references=[valid_reference]), capabilities)
+    assert valid_job.seed == 150 and valid_job.references[0].strength == 0.5
+
+
+def test_controller_rejects_a_seed_when_the_model_does_not_support_one():
+    capabilities = replace(fake_video_capabilities(), min_seed=None, max_seed=None)
+
+    with pytest.raises(InvalidJob, match="This video model does not support a seed"):
+        video_job(payload(seed=42), capabilities)
+
+
 def test_controller_rejects_unreadable_keyframe_data():
     invalid_reference = {"name": "broken", "image": "not-base64", "frame_index": 0, "strength": 1}
     video_controller, _ = build_video_controller(run=UnusedVideoRun())

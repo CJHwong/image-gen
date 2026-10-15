@@ -599,7 +599,7 @@
   .video-clip-name { padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
   .video-clip-remove { align-self: flex-start; border: 0; background: none; color: var(--text-3); cursor: pointer; font-size: 9px; }
   .video-error { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: 11px; }
-  .video-duration-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 2px;
+  .video-duration-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(48px, 1fr)); gap: 3px; padding: 2px;
     border: 1px solid var(--line); border-radius: 7px; background: var(--chrome-2); }
   .video-duration-presets button { min-height: 25px; border: 0; border-radius: 5px; background: none;
     color: var(--text-3); cursor: pointer; font-size: 11px; }
@@ -684,7 +684,7 @@
   .video-ratios button[aria-pressed=true] {
     background: var(--chrome-3); color: var(--text); }
   .video-ratios button:focus-visible { outline: 1.5px solid var(--accent); }
-  .video-ratios { grid-template-columns: repeat(3, 1fr); }
+  .video-ratios { grid-template-columns: repeat(auto-fit, minmax(52px, 1fr)); }
   .video-output-options { display: grid; grid-template-columns: 1fr 1.2fr; gap: 12px; }
   #video-frame-count { margin: -12px 0 0; line-height: 1.5; }
   .video-controls #video-advanced { margin-top: -8px; }
