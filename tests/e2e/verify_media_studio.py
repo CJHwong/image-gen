@@ -715,6 +715,102 @@ with sync_playwright() as playwright:
         and page.locator("#video-timeline .source-track .track-label").text_content() == "Generated video",
         generated_details,
     )
+    progress_result = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          if (typeof studio.setGenerationProgress !== 'function') return {supported: false};
+          studio.setGenerationProgress({running: true, stage: 'preparing', step: 0, total: 0}, 5.2);
+          const preparing = document.querySelector('#video-timeline .render-progress');
+          const preparingText = preparing && preparing.getAttribute('aria-valuetext');
+          studio.setGenerationProgress({running: true, stage: 'running', step: 4, total: 8}, 6.4);
+          const active = document.querySelector('#video-timeline .render-progress');
+          const result = {
+            supported: true,
+            preparingText,
+            stepText: active && active.getAttribute('aria-valuetext'),
+            percent: active && active.getAttribute('aria-valuenow'),
+            fill: active && active.querySelector('.render-progress-fill').style.width,
+            trackLabel: document.querySelector('#video-timeline .render-track .track-label')?.textContent,
+          };
+          studio.setGenerationProgress(null);
+          return result;
+        }"""
+    )
+    check(
+        "video timeline displays model and step progress",
+        progress_result.get("supported")
+        and progress_result.get("preparingText", "").startswith("Loading model")
+        and "Step 4 of 8" in progress_result.get("stepText", "")
+        and progress_result.get("percent") == "50"
+        and progress_result.get("fill") == "50%"
+        and progress_result.get("trackLabel") == "Render",
+        str(progress_result),
+    )
+    try:
+        page.wait_for_function(
+            """async () => {
+              const request = indexedDB.open('studio');
+              const database = await new Promise((resolve, reject) => {
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+              });
+              if (!database.objectStoreNames.contains('videos')) return false;
+              const transaction = database.transaction('videos', 'readonly');
+              const records = await new Promise((resolve, reject) => {
+                const query = transaction.objectStore('videos').getAll();
+                query.onsuccess = () => resolve(query.result);
+                query.onerror = () => reject(query.error);
+              });
+              return records.length === 1 && records[0].mp4 instanceof Blob
+                && records[0].mp4.size > 0 && records[0].metadata.prompt === 'An amber kite crosses a blue sky';
+            }""",
+            timeout=10000,
+        )
+        video_saved = True
+    except PlaywrightTimeoutError:
+        video_saved = False
+    page.reload()
+    switch_workspace(page, "video")
+    try:
+        page.wait_for_function(
+            "() => document.querySelectorAll('#video-gallery .video-clip').length === 1",
+            timeout=10000,
+        )
+        restored = page.locator("#video-gallery .video-gallery-item").first
+        restored_count = page.locator("#video-gallery .video-clip").count()
+        restored_details = restored.inner_text()
+        restored_thumbnail = restored.locator(".video-clip-thumb img").count() == 1
+        restored_video = page.wait_for_function(
+            """() => {
+              const video = document.querySelector('#video-preview');
+              return video && video.readyState >= 2 && video.videoWidth === 96;
+            }""",
+            timeout=10000,
+        )
+    except PlaywrightTimeoutError:
+        restored_count = page.locator("#video-gallery .video-clip").count()
+        restored_details = ""
+        restored_thumbnail = False
+        restored_video = False
+    check(
+        "generated video and metadata survive a browser reload",
+        video_saved
+        and restored_count == 1
+        and "An amber kite crosses a blue sky" in restored_details
+        and "Took 01:23.2" in restored_details
+        and restored_thumbnail
+        and restored_video,
+        f"saved: {video_saved}, restored clips: {restored_count}, details: {restored_details}",
+    )
+    page.get_by_role("button", name="Remove video LTX-2.5 1s").click()
+    page.wait_for_function("() => document.querySelector('#video-gallery .video-clip') === null", timeout=10000)
+    page.reload()
+    switch_workspace(page, "video")
+    page.wait_for_function("() => document.querySelector('#video-gallery .video-clip') === null", timeout=10000)
+    check(
+        "removing a video also removes its saved copy",
+        page.locator("#video-gallery .video-clip").count() == 0,
+    )
     switch_workspace(page, "image")
     check(
         "the image gallery returns with its generated result",

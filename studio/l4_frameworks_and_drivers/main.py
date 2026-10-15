@@ -257,7 +257,7 @@ def assemble_studio(
     video_controller = None
     if video_catalog is not None:
         video_controller = VideoController(
-            RunVideoUseCase(video_catalog, engine_lock, residency),
+            RunVideoUseCase(video_catalog, progress, engine_lock, residency),
             video_catalog,
             SwitchVideoBackendUseCase(video_catalog, engine_lock, residency),
         )

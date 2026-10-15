@@ -3,11 +3,13 @@ import threading
 import pytest
 
 from studio.l1_entities.errors import BackendBusy, BackendChanged
+from studio.l1_entities.run_progress import RunProgress
 from studio.l1_entities.video_job import VideoJob
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
     InMemoryModelResidencyGateway,
 )
+from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
 from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
     InMemoryVideoBackendCatalogGateway,
 )
@@ -18,7 +20,7 @@ def job():
     return VideoJob("moving clouds", 960, 544, 145, 24, 7)
 
 
-def setup(failure=None):
+def setup(failure=None, progress=None):
     image = FakeBackendGateway()
     video = FakeVideoBackendGateway(failure=failure)
     other_video = FakeVideoBackendGateway("other-video", "Other video")
@@ -27,12 +29,13 @@ def setup(failure=None):
     residency = InMemoryModelResidencyGateway({"fake": image, **video_backends})
     residency.activate("fake")
     engine_lock = threading.Lock()
-    use_case = RunVideoUseCase(catalog, engine_lock, residency)
-    return use_case, catalog, image, video, residency, engine_lock
+    progress = progress or InMemoryProgressGateway()
+    use_case = RunVideoUseCase(catalog, progress, engine_lock, residency)
+    return use_case, catalog, image, video, progress, residency, engine_lock
 
 
 def test_video_run_releases_the_image_model_before_running_video():
-    use_case, _, image, video, residency, engine_lock = setup()
+    use_case, _, image, video, progress, residency, engine_lock = setup()
 
     response = use_case.execute(job(), "video-fake")
 
@@ -40,12 +43,41 @@ def test_video_run_releases_the_image_model_before_running_video():
     assert video.jobs == [job()]
     assert response.mp4 == b"mp4"
     assert residency.active_id() == "video-fake"
+    assert progress.snapshot() == RunProgress()
     assert engine_lock.acquire(blocking=False)
     engine_lock.release()
 
 
+def test_video_run_reports_prepare_and_model_steps():
+    observed = []
+
+    class RecordingProgressGateway(InMemoryProgressGateway):
+        def begin(self, label, kind="image"):
+            super().begin(label, kind)
+            observed.append(self.snapshot())
+
+        def set_step(self, step, total):
+            super().set_step(step, total)
+            observed.append(self.snapshot())
+
+        def finish(self):
+            super().finish()
+            observed.append(self.snapshot())
+
+    progress = RecordingProgressGateway()
+    use_case, _, _, _, _, _, _ = setup(progress=progress)
+
+    use_case.execute(job(), "video-fake")
+
+    assert observed == [
+        RunProgress(running=True, stage="preparing", kind="video"),
+        RunProgress(running=True, stage="running", step=4, total=8, kind="video"),
+        RunProgress(),
+    ]
+
+
 def test_video_run_refuses_to_queue_behind_an_image_run():
-    use_case, _, _, video, residency, engine_lock = setup()
+    use_case, _, _, video, _, residency, engine_lock = setup()
     engine_lock.acquire()
 
     with pytest.raises(BackendBusy, match="busy with a run"):
@@ -57,7 +89,7 @@ def test_video_run_refuses_to_queue_behind_an_image_run():
 
 
 def test_video_run_rejects_a_model_changed_in_another_tab():
-    use_case, catalog, _, video, residency, _ = setup()
+    use_case, catalog, _, video, _, residency, _ = setup()
     catalog.set_active("other-video")
 
     with pytest.raises(BackendChanged, match="video model changed"):
@@ -68,11 +100,12 @@ def test_video_run_rejects_a_model_changed_in_another_tab():
 
 
 def test_video_run_releases_the_lock_when_the_pipeline_fails():
-    use_case, _, _, video, _, engine_lock = setup(RuntimeError("pipeline failed"))
+    use_case, _, _, video, progress, _, engine_lock = setup(RuntimeError("pipeline failed"))
 
     with pytest.raises(RuntimeError, match="pipeline failed"):
         use_case.execute(job(), "video-fake")
 
     assert video.jobs == [job()]
+    assert progress.snapshot() == RunProgress()
     assert engine_lock.acquire(blocking=False)
     engine_lock.release()

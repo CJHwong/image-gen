@@ -80,7 +80,7 @@ async function createVideoThumbnail(sourceUrl) {
         else reject(new Error('The video thumbnail could not be saved.'));
       }, 'image/jpeg', 0.78);
     });
-    return URL.createObjectURL(thumbnail);
+    return thumbnail;
   } finally {
     window.clearTimeout(timeoutId);
     video.pause();
@@ -97,6 +97,9 @@ function releaseClipUrls(clip) {
 class VideoStudio extends LitElement {
   clips = [];
   imageReferences = [];
+  galleryStore = null;
+  keepEnabled = true;
+  generationProgress = null;
   sourcePanel = null;
   selectedReferenceId = null;
   selectedClipId = null;
@@ -162,6 +165,78 @@ class VideoStudio extends LitElement {
     this.renderSourceVideos();
     this.renderSelectedClip();
     this.renderError();
+  }
+
+  async setGalleryStore(store, keeping) {
+    this.galleryStore = store;
+    this.keepEnabled = keeping;
+    if (!keeping) return;
+    await this.updateComplete;
+    const records = await store.loadVideos();
+    records.forEach((record) => {
+      if (this.clips.some((clip) => clip.id === record.id)) return;
+      const clip = {
+        id: record.id,
+        kind: 'generated',
+        name: record.name,
+        url: URL.createObjectURL(record.mp4),
+        objectUrl: true,
+        mp4Blob: record.mp4,
+        thumbnailUrl: record.thumbnail ? URL.createObjectURL(record.thumbnail) : null,
+        thumbnailBlob: record.thumbnail,
+        duration: record.duration,
+        metadata: record.metadata,
+        createdAt: record.createdAt,
+      };
+      this.addClip(clip);
+      if (!clip.thumbnailBlob) this.createThumbnail(clip);
+    });
+  }
+
+  setKeeping(keeping) {
+    this.keepEnabled = keeping;
+    if (keeping) return this.persistGeneratedVideos();
+    return Promise.resolve();
+  }
+
+  persistGeneratedVideos() {
+    const saves = this.clips.filter((clip) => clip.kind === 'generated' && !clip.stub)
+      .map((clip) => this.persistVideo(clip));
+    return Promise.all(saves);
+  }
+
+  persistVideo(clip) {
+    if (!this.keepEnabled || !this.galleryStore) return Promise.resolve(false);
+    return this.galleryStore.keepVideo(clip, clip.mp4Blob, clip.thumbnailBlob);
+  }
+
+  createThumbnail(clip) {
+    createVideoThumbnail(clip.url).then((thumbnail) => {
+      if (!this.isConnected || !this.clips.includes(clip)) return;
+      clip.thumbnailBlob = thumbnail;
+      clip.thumbnailUrl = URL.createObjectURL(thumbnail);
+      this.renderVideoGallery();
+      if (this.keepEnabled && this.galleryStore) {
+        this.galleryStore.keepVideoThumbnail(clip.id, thumbnail);
+      }
+    }).catch((error) => {
+      clip.thumbnailError = error.message;
+      this.renderVideoGallery();
+    });
+  }
+
+  setGenerationProgress(state, elapsedSeconds) {
+    if (!state) {
+      this.generationProgress = null;
+    } else if (state.running) {
+      this.generationProgress = {
+        stage: state.stage,
+        step: state.step,
+        total: state.total,
+        elapsedSeconds: elapsedSeconds,
+      };
+    }
+    this.renderTimelineView(this.selectedClip());
   }
 
   addImageReference(reference) {
@@ -400,29 +475,24 @@ class VideoStudio extends LitElement {
     this.renderError();
   }
 
-  addGeneratedClip(blob, settings) {
+  async addGeneratedClip(blob, settings) {
     const metadata = videoMetadata(settings);
     const clip = {
-      id: 'clip-' + nextClipId++,
+      id: 'video-' + crypto.randomUUID(),
       kind: 'generated',
       name: metadata.modelName + ' ' + Math.round(settings.duration) + 's',
       url: URL.createObjectURL(blob),
       objectUrl: true,
+      mp4Blob: blob,
+      thumbnailBlob: null,
       duration: metadata.numFrames / metadata.frameRate,
       metadata: metadata,
+      createdAt: Date.now(),
     };
     this.addClip(clip);
-    createVideoThumbnail(clip.url).then((thumbnailUrl) => {
-      if (!this.isConnected || !this.clips.includes(clip)) {
-        URL.revokeObjectURL(thumbnailUrl);
-        return;
-      }
-      clip.thumbnailUrl = thumbnailUrl;
-      this.renderVideoGallery();
-    }).catch((error) => {
-      clip.thumbnailError = error.message;
-      this.renderVideoGallery();
-    });
+    const saved = await this.persistVideo(clip);
+    this.createThumbnail(clip);
+    return saved;
   }
 
   addStubClip(result, settings) {
@@ -605,8 +675,13 @@ class VideoStudio extends LitElement {
     this.renderSelectedClip();
   }
 
-  removeClip(id) {
+  async removeClip(id) {
     const removed = this.clips.find(function (clip) { return clip.id === id; });
+    if (!removed) return;
+    if (removed.kind === 'generated' && !removed.stub && this.galleryStore && this.keepEnabled) {
+      const deleted = await this.galleryStore.removeVideo(id);
+      if (!deleted) return;
+    }
     if (removed) releaseClipUrls(removed);
     this.clips = this.clips.filter(function (clip) { return clip.id !== id; });
     if (this.selectedClipId === id) {
@@ -700,6 +775,15 @@ class VideoStudio extends LitElement {
     const duration = clip ? this.duration || clip.duration || 1 : 0;
     const quarter = duration / 4;
     const frameSpan = Math.max(1, (this.frameLimit || 1) - 1);
+    const progress = this.generationProgress;
+    const progressPercent = progress && progress.total > 0
+      ? Math.round(Math.min(1, progress.step / progress.total) * 100) : 0;
+    const progressLabel = progress && progress.stage === 'preparing'
+      ? 'Loading model'
+      : progress && progress.step > 0
+        ? 'Step ' + progress.step + ' of ' + progress.total
+        : 'Preparing video';
+    const progressText = progressLabel + ', ' + formatTime(progress ? progress.elapsedSeconds : 0) + ' elapsed';
     return html`
       <section class="video-timeline" id="video-timeline" aria-label="Video timeline">
         <header class="timeline-head">
@@ -724,6 +808,19 @@ class VideoStudio extends LitElement {
               .value=${String(Math.min(this.currentTime, duration))} aria-label="Timeline playhead">` : ''}
           </div>
         </div>
+        ${progress ? html`
+          <div class="timeline-track render-track">
+            <span class="track-label">Render</span>
+            <div class="timeline-rail render-rail">
+              <div class="render-progress" role="progressbar" aria-label="Video generation progress"
+                aria-valuemin="0" aria-valuemax="100" aria-valuenow=${progressPercent}
+                aria-valuetext=${progressText}>
+                <span class="render-progress-fill" style=${'width: ' + progressPercent + '%'}></span>
+              </div>
+              <span class="render-progress-copy">${progressText}</span>
+              <span class="render-progress-percent">${progressPercent}%</span>
+            </div>
+          </div>` : ''}
         <header class="keyframes-head">
           <div><strong>Image references</strong></div>
           <span>${this.imageReferences.length} images, ${this.frameLimit || 0} output frames</span>

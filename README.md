@@ -47,7 +47,7 @@ Both images stay in the strip at the bottom, also after a reload.
 - **Edit several pictures at once:** put each one in **Images to edit**, and set the choice under the list to one result each. Each image is edited on its own, and every result lands beside the picture it came from, with its own before and after. Left as one picture, several images are composed into a single new image instead. The words in the prompt box lead every image, and the row beside a thumbnail adds what that one needs. A press of **Rewrite** writes a row from its own picture, and you can correct it. A batch whose every row carries words runs with the prompt box empty, the way a marked region already does.
 - **Reuse a seed or a prompt:** open the **⋯** menu under the image. It also offers the image as a reference for the next run.
 - **Keep an image outside the browser:** use the download button under the image.
-- **Work in private:** open the theme menu (the aperture button, top right) and turn off **Keep in this browser**. The kept images leave the browser, and new ones stay in the tab until a reload.
+- **Work in private:** open the theme menu (the aperture button, top right) and turn off **Keep in this browser**. This clears saved images and videos. New outputs stay in the tab until a reload.
 - **Change the theme:** pick one in the theme menu. The page remembers it.
 
   ![The four themes: Darkroom, Leica M, Kodak Instamatic and Polaroid SX-70](docs/images/themes.jpg)

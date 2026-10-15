@@ -16,3 +16,4 @@ class RunProgress:
     total: int = 0
     label: str = ""
     stopping: bool = False
+    kind: str = ""

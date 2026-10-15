@@ -669,6 +669,7 @@
     button.textContent = 'Generating video…';
     status.textContent = 'Sending prompt and image references.';
     videoStudio.clearError();
+    let progressTimer = null;
     try {
       const seed = selectedVideoSeed();
       const prompt = document.getElementById('video-prompt').value;
@@ -697,6 +698,27 @@
         throw new Error('Image reference frames must be between 0 and ' + (numFrames - 1) + '.');
       }
       const requestStarted = performance.now();
+      videoStudio.setGenerationProgress({running: true, stage: 'preparing', step: 0, total: 0}, 0);
+      let progressRequestPending = false;
+      progressTimer = window.setInterval(async function () {
+        if (progressRequestPending) return;
+        progressRequestPending = true;
+        try {
+          const progressResponse = await fetch('/video/progress', {cache: 'no-store'});
+          if (!progressResponse.ok) throw new Error('The progress request failed.');
+          const progressState = await progressResponse.json();
+          if (progressState.kind === 'video') {
+            videoStudio.setGenerationProgress(progressState, (performance.now() - requestStarted) / 1000);
+          }
+        } catch (error) {
+          videoStudio.setGenerationProgress(
+            {running: true, stage: 'preparing', step: 0, total: 0},
+            (performance.now() - requestStarted) / 1000,
+          );
+        } finally {
+          progressRequestPending = false;
+        }
+      }, 500);
       const response = await fetch('/video/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -718,7 +740,7 @@
       if (contentType.indexOf('video/mp4') !== -1) {
         const video = await response.blob();
         settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
-        videoStudio.addGeneratedClip(video, settings);
+        await videoStudio.addGeneratedClip(video, settings);
         status.textContent = 'Video added to the gallery.';
       } else {
         const output = await response.json();
@@ -735,6 +757,8 @@
       videoStudio.setError(error.message);
       status.textContent = 'Video generation failed.';
     } finally {
+      if (progressTimer !== null) window.clearInterval(progressTimer);
+      videoStudio.setGenerationProgress(null, 0);
       button.disabled = false;
       button.textContent = 'Generate video';
     }
@@ -1120,8 +1144,11 @@
   // Off empties the store at once; the images stay in the open tabs until a
   // reload. On keeps what this tab shows now, oldest first.
   function setKeep(on) {
-    if (!on && gallery.length
-      && !confirm('Stop keeping images? The kept images leave this browser. Open tabs show them until a reload.')) {
+    const hasVideoResults = videoStudio.clips.some(function (clip) {
+      return clip.kind === 'generated' && !clip.stub;
+    });
+    if (!on && (gallery.length || hasVideoResults)
+      && !confirm('Stop keeping media? Saved images and videos leave this browser. Open tabs show them until a reload.')) {
       return;
     }
     keeping = on;
@@ -1131,6 +1158,7 @@
       showToast('error', 'The keep setting applies to this tab only: ' + error.message);
     }
     kept.announce(on);
+    videoStudio.setKeeping(on);
     markKeep();
     renderStrip();
     if (on) gallery.slice().reverse().forEach(kept.keep);
@@ -1162,6 +1190,7 @@
         if (message.kind === 'clear') strip.dropAll();
         if (message.kind === 'keep') {
           keeping = message.on;
+          videoStudio.setKeeping(keeping);
           markKeep();
           renderStrip();
         }
@@ -1170,6 +1199,9 @@
       notify: showToast,
     });
     kept.load();
+    customElements.whenDefined('video-studio').then(function () {
+      return videoStudio.setGalleryStore(kept, keeping);
+    });
   });
 
   // ---- Toasts -----------------------------------------------------------------

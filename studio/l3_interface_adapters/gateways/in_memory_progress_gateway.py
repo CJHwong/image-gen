@@ -16,14 +16,21 @@ class InMemoryProgressGateway(ProgressGateway):
         self._state = RunProgress()
         self._cancel = False
 
-    def begin(self, label):
+    def begin(self, label, kind="image"):
         with self._lock:
-            self._state = RunProgress(running=True, stage="preparing", label=label)
+            self._state = RunProgress(running=True, stage="preparing", label=label, kind=kind)
 
     def set_step(self, step, total):
         with self._lock:
             state = self._state
-            self._state = RunProgress(running=state.running, stage="running", step=step, total=total, label=state.label)
+            self._state = RunProgress(
+                running=state.running,
+                stage="running",
+                step=step,
+                total=total,
+                label=state.label,
+                kind=state.kind,
+            )
 
     def finish(self):
         with self._lock:
@@ -56,4 +63,5 @@ class InMemoryProgressGateway(ProgressGateway):
                 total=state.total,
                 label=state.label,
                 stopping=self._cancel,
+                kind=state.kind,
             )

@@ -197,9 +197,12 @@ def test_failures_become_one_line(error, text):
 
 def test_progress_carries_numbers_and_the_next_poll():
     body = presenter().progress(
-        RunProgress(running=True, stage="running", step=3, total=8, label="1 of 2", stopping=True)
+        RunProgress(running=True, stage="running", step=3, total=8, label="1 of 2", stopping=True, kind="image")
     )
-    assert 'data-stage="running" data-step="3" data-total="8" data-label="1 of 2" data-stopping="1"' in body
+    assert (
+        'data-stage="running" data-step="3" data-total="8" data-label="1 of 2" data-kind="image" data-stopping="1"'
+        in body
+    )
     assert body.endswith('hx-target="#progress" hx-swap="innerHTML"></div>')
     assert presenter().progress(RunProgress()).startswith("<div hx-get")
 

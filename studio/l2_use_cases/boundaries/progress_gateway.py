@@ -12,7 +12,7 @@ class ProgressGateway(ABC):
     """
 
     @abstractmethod
-    def begin(self, label: str) -> None:
+    def begin(self, label: str, kind: str = "image") -> None:
         """The run has started but no step has come in yet."""
 
     @abstractmethod

@@ -511,6 +511,15 @@
     font-size: 11px; overflow: hidden; }
   .timeline-clip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .timeline-clip-empty { border-style: dashed; border-color: var(--line-strong); background: transparent; color: var(--text-3); }
+  .render-track { min-height: 44px; margin-top: 8px; }
+  .render-rail { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: center;
+    align-items: center; gap: 4px 10px; height: auto; min-height: 40px; padding: 5px 8px; }
+  .render-progress { grid-column: 1; position: relative; height: 5px; overflow: hidden;
+    border-radius: 3px; background: var(--chrome-3); }
+  .render-progress-fill { display: block; height: 100%; border-radius: inherit; background: var(--accent-fill);
+    transition: width .2s ease; }
+  .render-progress-copy { grid-column: 1; color: var(--text-2); font: 9px var(--mono); }
+  .render-progress-percent { grid-column: 2; grid-row: 1 / span 2; color: var(--text-2); font: 10px var(--mono); }
   .timeline-rail input[type=range] { position: absolute; z-index: 2; inset: 0; width: 100%;
     height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
   .timeline-track input[type=range]:focus-visible { opacity: .08; outline: 1px solid var(--accent-fill); }

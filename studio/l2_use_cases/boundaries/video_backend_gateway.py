@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 from studio.l1_entities.video_capabilities import VideoCapabilities
 from studio.l1_entities.video_job import VideoJob, VideoResult
@@ -13,5 +14,5 @@ class VideoBackendGateway(ModelLifecycleGateway, ABC):
         """Return the settings this model accepts."""
 
     @abstractmethod
-    def run(self, job: VideoJob) -> VideoResult:
+    def run(self, job: VideoJob, progress: Callable[[int, int], None] | None = None) -> VideoResult:
         """Return the encoded video and its output settings."""

@@ -35,6 +35,8 @@ def make_handler(
                 self._send(presenter.page(controller.page()))
             elif self.path == "/progress":
                 self._send(presenter.progress(controller.progress()))
+            elif self.path == "/video/progress":
+                self._send(presenter.video_progress(controller.progress()), content_type="application/json")
             elif self.path == "/rewrite/state":
                 # The page polls this while a rewrite is in flight, so it is data
                 # the page reads, not a fragment it appends.

@@ -1,10 +1,15 @@
 """Run the official LTX-2.5 distilled pipeline and fetch its weights on first use."""
 
+import os
+import re
+import selectors
 import shutil
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import BinaryIO, cast
 
 from studio.l1_entities.errors import StudioError
 from studio.l1_entities.video_job import VideoJob, VideoResult
@@ -20,6 +25,22 @@ MODEL_PATHS = {
 MODEL_FILES = tuple(MODEL_PATHS.values())
 MODEL_REPOSITORY = "Lightricks/LTX-2.5"
 RUN_TIMEOUT_SECONDS = 3600
+PROGRESS_WRAPPER = """import sys
+import ltx_pipelines.utils.samplers as samplers
+
+def report_steps(iterable, *args, **kwargs):
+    total = kwargs.get("total")
+    if total is None:
+        total = len(iterable)
+    for step, value in enumerate(iterable, 1):
+        yield value
+        print(f"STUDIO_STEP {step} {total}", file=sys.stderr, flush=True)
+
+samplers.tqdm = report_steps
+from ltx_pipelines.distilled import main
+main()
+"""
+PROGRESS_RECORD = re.compile(r"STUDIO_STEP (\d+) (\d+)")
 
 
 class Ltx25Runner:
@@ -36,14 +57,22 @@ class Ltx25Runner:
         self._process_runner = process_runner
         self._model_downloader = model_downloader or self._download_model
 
-    def run(self, job: VideoJob) -> VideoResult:
+    def run(
+        self,
+        job: VideoJob,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> VideoResult:
         python = self._python()
         model_paths = self._model_paths()
         with tempfile.TemporaryDirectory(prefix="studio-ltx25-") as scratch:
             output_path = Path(scratch) / "output.mp4"
             image_arguments = self._write_references(job, Path(scratch))
             command = self._command(python, model_paths, job, output_path, image_arguments)
-            self._execute(command)
+            if progress:
+                script_path = Path(scratch) / "ltx25_progress.py"
+                script_path.write_text(PROGRESS_WRAPPER, encoding="utf-8")
+                command = [python, str(script_path), *command[3:]]
+            self._execute(command, progress)
             if not output_path.is_file() or output_path.stat().st_size == 0:
                 raise StudioError("The LTX-2.5 pipeline did not write an MP4 file.")
             mp4 = output_path.read_bytes()
@@ -132,8 +161,11 @@ class Ltx25Runner:
             command.extend(("--image", str(image_path), str(frame_index), str(strength)))
         return command
 
-    def _execute(self, command: list[str]) -> None:
+    def _execute(self, command: list[str], progress: Callable[[int, int], None] | None = None) -> None:
         try:
+            if progress:
+                self._execute_with_progress(command, progress)
+                return
             self._process_runner(
                 command,
                 check=True,
@@ -147,3 +179,45 @@ class Ltx25Runner:
             raise StudioError(f"The LTX-2.5 pipeline failed with exit status {error.returncode}.") from None
         except subprocess.TimeoutExpired:
             raise StudioError("The LTX-2.5 pipeline timed out after one hour.") from None
+
+    @staticmethod
+    def _execute_with_progress(command: list[str], progress: Callable[[int, int], None]) -> None:
+        with subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, bufsize=0) as process:
+            stderr = cast(BinaryIO, process.stderr)
+            started = time.monotonic()
+            pending = ""
+            with selectors.DefaultSelector() as selector:
+                selector.register(stderr, selectors.EVENT_READ)
+                while selector.get_map():
+                    remaining = RUN_TIMEOUT_SECONDS - (time.monotonic() - started)
+                    if remaining <= 0:
+                        process.kill()
+                        process.wait()
+                        raise subprocess.TimeoutExpired(command, RUN_TIMEOUT_SECONDS)
+                    events = selector.select(min(0.25, remaining))
+                    if not events:
+                        continue
+                    chunk = os.read(stderr.fileno(), 4096)
+                    if not chunk:
+                        selector.unregister(stderr)
+                        continue
+                    pending += chunk.decode(errors="replace")
+                    pending = _report_progress_lines(pending, progress)
+            return_code = process.wait(timeout=max(0.01, RUN_TIMEOUT_SECONDS - (time.monotonic() - started)))
+            if pending:
+                _report_progress_line(pending, progress)
+            if return_code:
+                raise subprocess.CalledProcessError(return_code, command)
+
+
+def _report_progress_lines(pending: str, progress: Callable[[int, int], None]) -> str:
+    lines = pending.split("\n")
+    for line in lines[:-1]:
+        _report_progress_line(line, progress)
+    return lines[-1]
+
+
+def _report_progress_line(line: str, progress: Callable[[int, int], None]) -> None:
+    match = PROGRESS_RECORD.fullmatch(line.strip())
+    if match:
+        progress(int(match.group(1)), int(match.group(2)))
