@@ -39,6 +39,21 @@ def test_the_stub_still_builds_where_mlx_is_missing(no_mlx, config):
     assert create_studio(config, stub=True).active_capabilities().backend_id == "qwen21"
 
 
+def test_the_turbo_and_video_stubs_build_without_weights_or_mlx(tmp_path, no_mlx):
+    path = tmp_path / "studio.toml"
+    path.write_text(
+        'default_backend = "qwen21_turbo"\n'
+        'visible_backends = ["qwen21_turbo"]\n'
+        '[qwen21_turbo]\nquantize = 0\nmodel_dir = "missing-qwen-weights"\n'
+        '[ltx25]\npython_path = "missing-python"\nmodel_dir = "missing-ltx-weights"\n'
+    )
+
+    studio = create_studio(load_config(path), stub=True)
+
+    assert studio.active_capabilities().backend_id == "qwen21_turbo"
+    assert studio.handler.__name__ == "StudioHandler"
+
+
 def test_the_real_studio_builds_where_mlx_runs(needs_mlx, config):
     assert create_studio(config).active_capabilities().name == "Qwen-Image-2.1"
 

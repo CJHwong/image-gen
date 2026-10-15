@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
+from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
 from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase
@@ -13,8 +14,10 @@ from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
 from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
 from studio.l2_use_cases.rewrite_prompt_use_case import RewritePromptUseCase
 from studio.l2_use_cases.run_image_use_case import RunImageUseCase
+from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l2_use_cases.switch_backend_use_case import SwitchBackendUseCase
 from studio.l3_interface_adapters.controllers.form_controller import FormController
+from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.gateways.flux2.flux2_backend_gateway import Flux2BackendGateway
 from studio.l3_interface_adapters.gateways.flux2.klein_models import KleinModels
 from studio.l3_interface_adapters.gateways.gpu_thread import GpuThread
@@ -24,6 +27,7 @@ from studio.l3_interface_adapters.gateways.in_memory_reference_store_gateway imp
 from studio.l3_interface_adapters.gateways.in_memory_rewrite_progress_gateway import (
     InMemoryRewriteProgressGateway,
 )
+from studio.l3_interface_adapters.gateways.ltx25.ltx25_backend_gateway import Ltx25BackendGateway
 from studio.l3_interface_adapters.gateways.prompt_rewriters import (
     CatalogPromptRewriter,
     NoPromptRewriter,
@@ -33,7 +37,11 @@ from studio.l3_interface_adapters.gateways.qwen21.edit import Qwen21Edit
 from studio.l3_interface_adapters.gateways.qwen21.generator import Qwen21Generator
 from studio.l3_interface_adapters.gateways.qwen21.qwen21_backend_gateway import Qwen21BackendGateway
 from studio.l3_interface_adapters.gateways.qwen21.rewriter import Qwen21Rewriter
+from studio.l3_interface_adapters.gateways.qwen21_turbo.official_qwen_turbo_backend_gateway import (
+    OfficialQwenTurboBackendGateway,
+)
 from studio.l3_interface_adapters.gateways.stub_backend_gateway import StubBackendGateway
+from studio.l3_interface_adapters.gateways.stub_video_backend_gateway import StubVideoBackendGateway
 from studio.l3_interface_adapters.gateways.thread_confined_backend_gateway import ThreadConfinedBackendGateway
 from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter import ThreadConfinedPromptRewriter
 from studio.l3_interface_adapters.gateways.viggle.qwen21_turbo_backend_gateway import (
@@ -43,6 +51,7 @@ from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
+from studio.l4_frameworks_and_drivers.ltx25_runner import Ltx25Runner
 
 PAGE = Path(__file__).with_name("web") / "page.html"
 
@@ -80,6 +89,18 @@ def qwen21_backend(config: Config) -> Qwen21BackendGateway:
     return Qwen21BackendGateway(Qwen21Generator(quantize), Qwen21Edit(quantize), badge=badge(quantize))
 
 
+def qwen21_turbo_backend(config: Config) -> OfficialQwenTurboBackendGateway:
+    settings = config.backend("qwen21_turbo")
+    model_dir = config.required("qwen21_turbo", "model_dir")
+    quantize = settings.get("quantize")
+    return OfficialQwenTurboBackendGateway(
+        Qwen21Generator(quantize, model_path=model_dir),
+        Qwen21Edit(quantize, model_path=model_dir),
+        badge=badge(quantize),
+        model_dir=model_dir,
+    )
+
+
 def flux2_backend(config: Config) -> Flux2BackendGateway:
     quantize = config.backend("flux2").get("quantize")
     return Flux2BackendGateway(KleinModels(config.required("flux2", "model_dir"), quantize), badge=badge(quantize))
@@ -106,14 +127,19 @@ def viggle_turbo_backend(config: Config) -> Qwen21TurboBackendGateway:
     )
 
 
-BACKENDS = {"qwen21": qwen21_backend, "flux2": flux2_backend, "viggle_turbo": viggle_turbo_backend}
+BACKENDS = {
+    "qwen21": qwen21_backend,
+    "qwen21_turbo": qwen21_turbo_backend,
+    "flux2": flux2_backend,
+    "viggle_turbo": viggle_turbo_backend,
+}
 
 # Which backends offer a prompt rewriter, and where their weights come from. The
 # rewriter is a model of its own and does not read the image engine at all, so
 # every backend driving this model family offers the same two. A backend left out
 # here reports no modes and the page hides its toggle rather than offering a button
 # that always refuses.
-REWRITERS = {"qwen21": Qwen21Rewriter, "viggle_turbo": Qwen21Rewriter}
+REWRITERS = {"qwen21": Qwen21Rewriter, "qwen21_turbo": Qwen21Rewriter, "viggle_turbo": Qwen21Rewriter}
 
 
 def qwen21_rewrite_models(config: Config, backend_id: str) -> dict | None:
@@ -154,15 +180,26 @@ def create_studio(config: Config, stub: bool = False) -> Studio:
     """With `stub`, each backend keeps its form and fakes its engine: for work on the page."""
     backends = build_backends(config)
     rewriters = build_rewriters(config)
+    video_settings = config.backend("ltx25")
+    video_backend = Ltx25BackendGateway(
+        Ltx25Runner(video_settings.get("python_path", ""), video_settings.get("model_dir", ""))
+    )
     if stub:
         backends = {backend_id: StubBackendGateway(backend.capabilities()) for backend_id, backend in backends.items()}
         rewriters = {backend_id: StubPromptRewriter() for backend_id in rewriters}
+        video_backend = StubVideoBackendGateway()
     else:
         require_mlx()
-    return assemble_studio(backends, rewriters, config.default_backend, config.visible_backends)
+    return assemble_studio(backends, rewriters, config.default_backend, config.visible_backends, video_backend)
 
 
-def assemble_studio(backends: dict, rewriters: dict, default_id: str, visible_ids: tuple[str, ...]) -> Studio:
+def assemble_studio(
+    backends: dict,
+    rewriters: dict,
+    default_id: str,
+    visible_ids: tuple[str, ...],
+    video_backend: VideoBackendGateway | None = None,
+) -> Studio:
     """Wire the page to any set of backends. Every model call runs on one GPU thread."""
     gpu = GpuThread()
     engine_lock = threading.Lock()  # held by a run and by a switch, so neither frees the other's engine
@@ -191,8 +228,11 @@ def assemble_studio(backends: dict, rewriters: dict, default_id: str, visible_id
         cancel_rewrite=CancelRewriteUseCase(rewrite_progress),
     )
     presenter = HtmlPresenter(PAGE.read_text(encoding="utf-8"))
+    video_controller = (
+        VideoController(RunVideoUseCase(video_backend, engine_lock)) if video_backend is not None else None
+    )
     return Studio(
-        handler=make_handler(controller, presenter),
+        handler=make_handler(controller, presenter, video_controller),
         prepare=PrepareBackendUseCase(catalog),
         catalog=catalog,
         cancel=cancel,

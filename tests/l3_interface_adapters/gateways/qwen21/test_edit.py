@@ -136,6 +136,35 @@ def test_the_model_is_built_with_the_step_hook():
     assert model.quantize == 8 and registered == [hook]
 
 
+def test_a_local_turbo_edit_model_receives_its_path_and_official_scheduler_config(monkeypatch):
+    from studio.l3_interface_adapters.gateways import mflux_runtime
+
+    registered = []
+    expected_config = object()
+
+    class FakeCallbacks:
+        def register(self, callback):
+            registered.append(callback)
+
+    class FakeQwenImage21Edit:
+        def __init__(self, quantize, model_path, model_config):
+            self.quantize = quantize
+            self.model_path = model_path
+            self.model_config = model_config
+            self.callbacks = FakeCallbacks()
+
+    monkeypatch.setattr(mflux_runtime, "official_turbo_model_config", lambda: expected_config)
+    with heavy_modules(
+        {"mflux.models.qwen21.variants.edit.qwen_image_21_edit": {"QwenImage21Edit": FakeQwenImage21Edit}}
+    ):
+        hook = StepHook()
+        model = build_model(quantize=8, hook=hook, model_path="/local/qwen-turbo")
+
+    assert model.model_path == "/local/qwen-turbo"
+    assert model.model_config is expected_config
+    assert registered == [hook]
+
+
 class FakeEngine:
     """An mflux edit model stand-in. It records the kwargs and reads every path it is
     given, so a test can tell that the references were on disk for the call."""
@@ -176,6 +205,23 @@ def test_the_model_is_built_once_and_kept_for_the_next_run():
     edit.load()
     edit.run(job(references=(png(32, 32),)), no_steps, never_stop)
     assert len(builder.built) == 1  # the second engine was never needed
+
+
+def test_edit_passes_a_configured_local_model_path_to_its_builder():
+    class LocalBuilder:
+        def __init__(self):
+            self.model_path = None
+
+        def __call__(self, quantize, hook, lora_path=None, model_path=None):
+            self.model_path = model_path
+            return FakeEngine(hook=hook)
+
+    builder = LocalBuilder()
+    edit = Qwen21Edit(quantize=None, build=builder, model_path="/local/qwen-turbo")
+
+    edit.load()
+
+    assert builder.model_path == "/local/qwen-turbo"
 
 
 def test_a_run_writes_the_references_for_the_call_and_removes_them_after():

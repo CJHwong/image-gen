@@ -20,6 +20,13 @@ def test_the_file_names_the_backend_the_page_opens_with(tmp_path: Path):
     assert config.default_backend == "qwen21" and config.visible_backends == ("qwen21",)
 
 
+def test_the_shipping_config_uses_official_turbo_by_default():
+    config = load_config(Path(__file__).parents[2] / "studio.toml")
+
+    assert config.default_backend == "qwen21_turbo"
+    assert config.visible_backends == ("qwen21_turbo", "qwen21", "viggle_turbo")
+
+
 def test_a_quantize_of_zero_means_the_full_precision_weights(tmp_path: Path):
     """studio.toml says 0 for bf16, and the engines take it as a quantize of none."""
     assert load_config(write(tmp_path, SETTINGS)).backend("qwen21")["quantize"] is None
