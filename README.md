@@ -8,14 +8,14 @@ A local multimedia studio for Apple Silicon image generation and video pipelines
 
 This walk-through makes the image above: first a beach outside an elevator, then the same elevator in a snowstorm. It needs a Mac with Apple Silicon and [uv](https://docs.astral.sh/uv/). It was built on a machine with 64 GB of memory.
 
-1. Download the official Qwen Turbo checkpoint from [Models](#models). Then clone the repo and start the page.
+1. Clone the repo and start the page. The first start downloads the official Qwen Turbo checkpoint, about 32.5 GB.
 
        git clone git@github.com:CJHwong/image-gen.git
        cd image-gen
        uv run studio
 
-   The server reads the checkpoint from `model_dir` in `studio.toml`. It does not download these weights.
-   When the terminal says "Ready", open http://127.0.0.1:8765.
+   The server saves the checkpoint to `model_dir` in `studio.toml`.
+   The first download can take time. When the terminal says "Ready", open http://127.0.0.1:8765.
 
 2. Paste this prompt into **Prompt**, pick **16:9** under **Size**, and press **Generate**.
 
@@ -93,7 +93,7 @@ Both images stay in the strip at the bottom, also after a reload.
 
 | Model | Adapter | Modes | Weights |
 |---|---|---|---|
-| Qwen-Image-2.1-Turbo (default) | `gateways/qwen21_turbo` | generate and edit, fixed at 8 steps, through mflux (MLX) | local 32.5 GB checkpoint |
+| Qwen-Image-2.1-Turbo (default) | `gateways/qwen21_turbo` | generate and edit, fixed at 8 steps, through mflux (MLX) | downloads on first server start, about 32.5 GB |
 | Qwen-Image-2.1 | `gateways/qwen21` | generate, img2img, and instruction edit with up to 10 images, through mflux (MLX) | downloads on first use |
 | Viggle Turbo | `gateways/viggle` | the same modes, in six steps | Qwen base weights, plus a 1.3 GB adapter |
 | FLUX.2 klein-base-9B, uncensored | `gateways/flux2` | generate and img2img, edit with up to 4 images, all through mflux (MLX) | manual setup below |
@@ -107,12 +107,7 @@ Both images stay in the strip at the bottom, also after a reload.
 
 The image adapters generate through MLX, so image generation runs on Apple Silicon. A real studio refuses to start where MLX is missing. The `--stub` option still works there. Porting image generation to another vendor is not built. See [PORTABILITY.md](studio/l3_interface_adapters/gateways/qwen21/PORTABILITY.md).
 
-**Qwen-Image-2.1-Turbo.** The default uses the official full checkpoint, not Viggle's LoRA. Download it into the folder named by `[qwen21_turbo].model_dir`:
-
-       D=~/Library/Caches/models/qwen-image-2.1-turbo
-       hf download Qwen/Qwen-Image-2.1-Turbo --local-dir "$D"
-
-The gateway checks for local files before it loads. It does not fetch missing weights. The UI fixes sampling at 8 steps and hides untested prompt aids. The scheduler mapping uses an unshifted linear sigma table for the official scheduler's `shift=1`. The real model path and image-edit path still need validation on the target machine.
+**Qwen-Image-2.1-Turbo.** The default uses the official full checkpoint, not Viggle's LoRA. On the first server start, it downloads `Qwen/Qwen-Image-2.1-Turbo` into `[qwen21_turbo].model_dir`. Set that path to use another disk or a preloaded checkpoint. The UI fixes sampling at 8 steps and hides untested prompt aids. The scheduler mapping uses an unshifted linear sigma table for the official scheduler's `shift=1`.
 
 **Qwen-Image-2.1.** The weights are `Qwen/Qwen-Image-2.1` on HuggingFace. They are not gated, about 33 GB in bf16. They download into `~/.cache/huggingface` on the first run (`HF_HOME` moves the cache).
 

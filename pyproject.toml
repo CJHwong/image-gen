@@ -9,7 +9,9 @@ dependencies = [
     # scheduler, and LoRA loading. The edit variant is why there is no diffusers
     # child any more: see gateways/qwen21/PORTABILITY.md.
     "mflux @ git+https://github.com/mflux-community/mflux@f63b4f0f00c8dba5de94f478c9e4be62dbc70ddc",
+    "huggingface-hub",
     "pillow",
+    "safetensors",
     # The prompt rewriters, a second model per mode. MLX like mflux, so it shares
     # this process and needs no child; the import is deferred to the first
     # rewrite, so a studio that never rewrites never pays for it.
