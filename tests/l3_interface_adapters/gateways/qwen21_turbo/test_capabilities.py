@@ -18,7 +18,37 @@ def test_official_turbo_does_not_inherit_untested_prompt_aids_or_guidance():
         param_ids = {param.id for param in mode.params}
         assert not mode.looks and not mode.templates
         assert not param_ids & {"guidance", "negative", "cfg"}
-        assert mode.estimate is None
+
+
+def test_official_turbo_has_measured_generate_and_edit_estimates():
+    capabilities = qwen21_turbo_capabilities()
+    generate = capabilities.mode("generate").estimate
+    generate_reference = capabilities.mode("generate").reference_estimate
+    edit = capabilities.mode("edit").estimate
+
+    assert generate is not None
+    assert (generate.step_cost, generate.exponent, generate.overhead, generate.overhead_per_image) == (
+        4.083,
+        0.84,
+        0,
+        True,
+    )
+    assert generate_reference is not None
+    assert (
+        generate_reference.step_cost,
+        generate_reference.exponent,
+        generate_reference.overhead,
+        generate_reference.overhead_per_image,
+        generate_reference.strength_scales_steps,
+    ) == (4.030, 2.066, 2.030, True, True)
+    assert edit is not None
+    assert (edit.step_cost, edit.exponent, edit.overhead, edit.overhead_per_image, edit.match_cap) == (
+        6.514,
+        1.22,
+        0,
+        True,
+        1344,
+    )
 
 
 def test_official_turbo_keeps_reference_edit_support():

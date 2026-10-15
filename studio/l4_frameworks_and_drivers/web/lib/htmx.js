@@ -150,7 +150,7 @@ function startWork(element) {
     page.el.go.dataset.started = String(Date.now());
     runKey = page.costKey();
     runPixels = page.targetPixels();
-    runEstimate = page.currentMode().estimate;
+    runEstimate = page.estimateModel();
     page.setRunRatio(page.targetRatio());
     runStepSeconds = page.stepSeconds();
     page.setView('progress');

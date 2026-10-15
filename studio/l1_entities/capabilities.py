@@ -104,7 +104,8 @@ class Estimate:
     runs two passes per step. The page halves or doubles it from there.
     `per_reference` is how much one more reference multiplies the step cost: each
     one is encoded and attended to, so a mode that takes several needs it. A
-    marked region rides as one more reference.
+    marked region rides as one more reference. `strength_scales_steps` says a
+    starting image shortens the schedule according to the selected strength.
     """
 
     step_cost: float
@@ -114,6 +115,7 @@ class Estimate:
     match_cap: int | None = None
     two_pass: bool = False
     per_reference: float = 0.0
+    strength_scales_steps: bool = False
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,8 @@ class ModeSpec:
     says so: composed into one picture, which is the default, or edited one at a time,
     each reference getting its own result from the same prompt. A mode that edits one
     picture at a time, or that reads several as one scene, leaves this off."""
+
+    reference_estimate: Estimate | None = None
 
     def __post_init__(self) -> None:
         # The mask is one more reference, so a mode that offers the tool has to be

@@ -18,7 +18,7 @@ PORT = sys.argv[1]
 URL = f"http://127.0.0.1:{PORT}/"
 SCRATCH = Path(tempfile.mkdtemp(prefix="verify-media-studio-"))
 REFERENCE = SCRATCH / "reference.png"
-Image.new("RGB", (96, 64), (194, 89, 42)).save(REFERENCE)
+Image.new("RGB", (1024, 1024), (194, 89, 42)).save(REFERENCE)
 results = []
 
 
@@ -92,8 +92,31 @@ with sync_playwright() as playwright:
         and page.locator("#image-controls .modes").is_visible(),
     )
 
+    page.fill("#prompt", "A copper cup on a wooden table")
+    page.dispatch_event("#prompt", "input")
+    check(
+        "Turbo text generation shows its measured time estimate",
+        page.locator("#go-sub").inner_text() == "about 35s",
+        page.locator("#go-sub").inner_text(),
+    )
     page.set_input_files("#reference", str(REFERENCE))
     page.get_by_role("img", name="reference.png").wait_for(state="visible", timeout=10000)
+    check(
+        "Turbo reference generation shows its measured time estimate",
+        page.locator("#go-sub").inner_text() == "about 25s",
+        page.locator("#go-sub").inner_text(),
+    )
+    page.locator("#strength").evaluate(
+        "element => { element.value = '0.8'; element.dispatchEvent(new Event('input', {bubbles: true})); }"
+    )
+    check(
+        "Turbo reference estimate follows image strength",
+        page.locator("#go-sub").inner_text() == "about 10s",
+        page.locator("#go-sub").inner_text(),
+    )
+    page.locator("#strength").evaluate(
+        "element => { element.value = '0.4'; element.dispatchEvent(new Event('input', {bubbles: true})); }"
+    )
     page.get_by_role("button", name="Share references with Video").click()
     page.locator("#video-keyframe-track").wait_for(state="visible")
     check(
@@ -107,6 +130,20 @@ with sync_playwright() as playwright:
         and page.locator("#video-controls .modes").count() == 0
         and page.locator("#video-keyframe-track [data-action='select-reference']").count() == 1,
     )
+    page.locator("#media-image-mode").click()
+    page.locator("label[for=mode-edit]").click()
+    page.set_input_files("#reference", str(REFERENCE))
+    page.get_by_role("img", name="reference.png").wait_for(state="visible", timeout=10000)
+    page.fill("#prompt", "Replace the copper cup with a glass vase")
+    page.dispatch_event("#prompt", "input")
+    page.wait_for_function("() => document.querySelector('#go-sub').textContent.includes('about')")
+    check(
+        "Turbo edit shows its measured time estimate",
+        page.locator("#go-sub").inner_text() == "about 55s",
+        page.locator("#go-sub").inner_text(),
+    )
+    page.locator("label[for=mode-generate]").click()
+    page.locator("#media-video-mode").click()
     page.locator("#video-image-upload").set_input_files(
         {"name": "notes.txt", "mimeType": "text/plain", "buffer": b"not an image"}
     )
