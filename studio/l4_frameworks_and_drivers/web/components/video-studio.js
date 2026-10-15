@@ -22,6 +22,7 @@ function readDataUrl(file) {
 class VideoStudio extends LitElement {
   clips = [];
   imageReferences = [];
+  selectedReferenceId = null;
   selectedClipId = null;
   currentTime = 0;
   duration = 0;
@@ -67,17 +68,33 @@ class VideoStudio extends LitElement {
       frameIndex: Number.isInteger(reference.frameIndex) ? reference.frameIndex : 0,
       strength: Number.isFinite(reference.strength) ? reference.strength : 1,
     });
+    if (!this.selectedReferenceId) this.selectedReferenceId = reference.id;
     this.renderImageReferences();
+    this.renderTimelineView(this.selectedClip());
   }
 
   removeImageReference(id) {
     this.imageReferences = this.imageReferences.filter(function (reference) { return reference.id !== id; });
+    if (this.selectedReferenceId === id) {
+      this.selectedReferenceId = this.imageReferences.length ? this.imageReferences[0].id : null;
+    }
     this.renderImageReferences();
+    this.renderTimelineView(this.selectedClip());
+  }
+
+  selectReference(id) {
+    if (!this.imageReferences.some(function (reference) { return reference.id === id; })) return;
+    this.selectedReferenceId = id;
+    this.renderImageReferences();
+    this.renderTimelineView(this.selectedClip());
   }
 
   setReferenceFrame(id, value) {
     const reference = this.imageReferences.find((item) => item.id === id);
-    if (reference) reference.frameIndex = Number(value);
+    if (!reference) return;
+    reference.frameIndex = Number(value);
+    this.renderImageReferences();
+    this.renderTimelineView(this.selectedClip());
   }
 
   setFrameLimit(frameCount) {
@@ -85,6 +102,7 @@ class VideoStudio extends LitElement {
     this.querySelectorAll('[data-action="reference-frame"]').forEach((control) => {
       control.max = String(frameCount - 1);
     });
+    this.renderTimelineView(this.selectedClip());
   }
 
   setReferenceStrength(id, control) {
@@ -110,11 +128,21 @@ class VideoStudio extends LitElement {
     this.imageReferences.forEach((reference) => {
       const card = document.createElement('div');
       card.className = 'video-reference';
+      if (reference.id === this.selectedReferenceId) card.classList.add('selected');
       card.title = reference.name;
       const image = document.createElement('img');
       image.src = reference.src;
       image.alt = reference.name;
+      const select = document.createElement('button');
+      select.type = 'button';
+      select.className = 'video-reference-select';
+      select.dataset.action = 'select-reference';
+      select.dataset.referenceId = reference.id;
+      select.setAttribute('aria-label', 'Select reference ' + reference.name);
+      select.setAttribute('aria-pressed', String(reference.id === this.selectedReferenceId));
+      select.append(image);
       const remove = document.createElement('button');
+      remove.className = 'video-reference-remove';
       remove.type = 'button';
       remove.dataset.action = 'remove-reference';
       remove.dataset.referenceId = reference.id;
@@ -122,6 +150,9 @@ class VideoStudio extends LitElement {
       remove.textContent = '×';
       const settings = document.createElement('div');
       settings.className = 'video-reference-settings';
+      const name = document.createElement('span');
+      name.className = 'video-reference-name';
+      name.textContent = reference.name;
       const frameLabel = document.createElement('label');
       frameLabel.textContent = 'Frame';
       const frameIndex = document.createElement('input');
@@ -149,7 +180,7 @@ class VideoStudio extends LitElement {
       strengthValue.textContent = Number(reference.strength).toFixed(2);
       strengthLabel.append(strength, strengthValue);
       settings.append(frameLabel, strengthLabel);
-      card.append(image, remove, settings);
+      card.append(select, name, remove, settings);
       list.append(card);
     });
   }
@@ -161,6 +192,7 @@ class VideoStudio extends LitElement {
       height: settings.height,
       num_frames: settings.numFrames,
       frame_rate: settings.frameRate,
+      seed: settings.seed,
       references: this.imageReferences.map(function (reference) {
         return {
           name: reference.name,
@@ -223,6 +255,7 @@ class VideoStudio extends LitElement {
     if (action === 'add-video') this.querySelector('#video-upload').click();
     if (action === 'add-image') this.querySelector('#video-image-upload').click();
     if (action === 'remove-reference') this.removeImageReference(control.dataset.referenceId);
+    if (action === 'select-reference') this.selectReference(control.dataset.referenceId);
     if (action === 'remove-clip') this.removeClip(control.dataset.clipId);
     if (action === 'select-clip') this.selectClip(control.dataset.clipId);
     if (action === 'capture-video-frame') this.captureFrameForVideo();
@@ -341,7 +374,7 @@ class VideoStudio extends LitElement {
   }
 
   drawPlayhead() {
-    const track = this.querySelector('.timeline-track');
+    const track = this.querySelector('.source-track');
     if (!track || !this.duration) return;
     const position = Math.min(100, Math.max(0, this.currentTime / this.duration * 100));
     track.style.setProperty('--playhead', position + '%');
@@ -399,28 +432,59 @@ class VideoStudio extends LitElement {
   }
 
   renderTimeline(clip) {
-    if (!clip) return html`<div class="timeline-empty">Add a clip to open its timeline.</div>`;
-    const duration = this.duration || clip.duration || 1;
+    const duration = clip ? this.duration || clip.duration || 1 : 0;
     const quarter = duration / 4;
+    const frameSpan = Math.max(1, this.frameLimit - 1);
     return html`
       <section class="video-timeline" id="video-timeline" aria-label="Video timeline">
         <header class="timeline-head">
           <div><strong>Timeline</strong><span class="track-name">V1</span></div>
           <output id="video-timecode"><span id="video-timecode-value"></span></output>
           <div class="timeline-actions">
-            <button class="text-btn" type="button" data-action="capture-video-frame" ?disabled=${clip.stub}>Add frame to Video</button>
-            <button class="text-btn" type="button" data-action="capture-image-frame" ?disabled=${clip.stub}>Use this frame in Image</button>
+            <button class="text-btn" type="button" data-action="capture-video-frame" ?disabled=${!clip || clip.stub}>Add frame to Video</button>
+            <button class="text-btn" type="button" data-action="capture-image-frame" ?disabled=${!clip || clip.stub}>Use this frame in Image</button>
           </div>
         </header>
-        <div class="timeline-ruler" aria-hidden="true">
-          <span>00:00</span><span>${formatTime(quarter)}</span>
-          <span>${formatTime(quarter * 2)}</span><span>${formatTime(quarter * 3)}</span>
-          <span>${formatTime(duration)}</span>
+        ${clip ? html`
+          <div class="timeline-ruler" aria-hidden="true">
+            <span>00:00</span><span>${formatTime(quarter)}</span>
+            <span>${formatTime(quarter * 2)}</span><span>${formatTime(quarter * 3)}</span>
+            <span>${formatTime(duration)}</span>
+          </div>` : html`<p class="source-empty">Import a clip to scrub it and capture a frame.</p>`}
+        <div class="timeline-track source-track" style=${'--playhead: ' + (clip ? Math.min(100, this.currentTime / duration * 100) : 0) + '%'}>
+          <span class="track-name">V1</span>
+          <div class="timeline-rail">
+            <div class="timeline-clip${clip ? '' : ' timeline-clip-empty'}"><span>${clip ? clip.name : 'Source video'}</span></div>
+            ${clip ? html`<input id="video-playhead" type="range" min="0" max=${duration} step="0.01"
+              .value=${String(Math.min(this.currentTime, duration))} aria-label="Timeline playhead">` : ''}
+          </div>
         </div>
-        <div class="timeline-track" style=${'--playhead: ' + Math.min(100, this.currentTime / duration * 100) + '%'}>
-          <div class="timeline-clip"><span>${clip.name}</span></div>
-          <input id="video-playhead" type="range" min="0" max=${duration} step="0.01"
-            .value=${String(Math.min(this.currentTime, duration))} aria-label="Timeline playhead">
+        <header class="keyframes-head">
+          <div><strong>Output keyframes</strong><span class="track-name">K1</span></div>
+          <span>${this.frameLimit} frames</span>
+        </header>
+        <div class="timeline-ruler keyframe-ruler" aria-hidden="true">
+          <span>F000</span><span>F${String(Math.round(frameSpan / 4)).padStart(3, '0')}</span>
+          <span>F${String(Math.round(frameSpan / 2)).padStart(3, '0')}</span>
+          <span>F${String(Math.round(frameSpan * 3 / 4)).padStart(3, '0')}</span>
+          <span>F${String(frameSpan).padStart(3, '0')}</span>
+        </div>
+        <div class="timeline-track keyframe-track" id="video-keyframe-track">
+          <span class="track-name">K1</span>
+          <div class="keyframe-rail">
+            ${this.imageReferences.length ? this.imageReferences.map((reference) => {
+              const frameIndex = Number.isFinite(reference.frameIndex) ? reference.frameIndex : 0;
+              const position = Math.min(100, Math.max(0, frameIndex / frameSpan * 100));
+              const selected = reference.id === this.selectedReferenceId;
+              return html`<button class="keyframe-marker" type="button"
+                style=${'left: ' + position + '%'} data-action="select-reference" data-reference-id=${reference.id}
+                aria-label=${'Select ' + reference.name + ' at output frame ' + frameIndex}
+                aria-pressed=${selected}>
+                <img src=${reference.src} alt="">
+                <span>F${String(frameIndex).padStart(3, '0')}</span>
+              </button>`;
+            }) : html`<span class="keyframe-empty">Share or add an image to place its keyframe.</span>`}
+          </div>
         </div>
       </section>
     `;
@@ -443,6 +507,10 @@ class VideoStudio extends LitElement {
   renderTimecode() {
     const value = this.querySelector('#video-timecode-value');
     if (!value) return;
+    if (!this.selectedClip()) {
+      value.textContent = '';
+      return;
+    }
     const duration = this.duration || (this.selectedClip() && this.selectedClip().duration) || 0;
     renderTemplate(html`${formatTime(this.currentTime)} / ${formatTime(duration)}`, value);
   }

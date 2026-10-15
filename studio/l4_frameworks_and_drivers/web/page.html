@@ -73,6 +73,10 @@
         </div>
         <span class="badge" title="The weights loaded">__BADGE__</span>
       </div>
+      <nav class="workspace-tabs" id="workspace-tabs" role="group" aria-label="Workspace">
+        <button type="button" id="media-image-mode" aria-pressed="true">Image</button>
+        <button type="button" id="media-video-mode" aria-pressed="false">Video</button>
+      </nav>
       <div class="readout">
         <span class="status" id="status" role="status" aria-live="polite" hidden><span class="dot"></span><span id="status-text"></span></span>
         <button type="button" id="guide-toggle" class="icon-btn" aria-expanded="false"
@@ -120,11 +124,6 @@
     <form id="form" class="mode-generate" data-media-mode="image" hx-post="/generate" hx-target="#incoming" hx-swap="beforeend">
       <input type="hidden" name="backend" value="__BACKEND__">
       <div class="controls">
-        <div class="media-modes" role="group" aria-label="Workspace">
-          <button type="button" id="media-image-mode" aria-pressed="true">Image</button>
-          <button type="button" id="media-video-mode" aria-pressed="false">Video</button>
-        </div>
-
         <div id="image-controls" class="mode-controls">
         <div class="modes" role="radiogroup" aria-label="Image mode">
           <input type="radio" name="mode" id="mode-generate" value="generate" checked>
@@ -271,23 +270,35 @@
             <div class="field-head"><label for="video-prompt">Video prompt</label></div>
             <textarea id="video-prompt" rows="4" placeholder="Describe the motion and the scene."></textarea>
           </div>
-          <div class="field">
-            <div class="field-head"><label for="video-duration">Duration</label></div>
-            <select id="video-duration">
-              <option value="6">6 seconds</option>
-              <option value="10">10 seconds</option>
-              <option value="15">15 seconds</option>
-            </select>
-          </div>
-          <div class="field">
-            <span class="label">Frame shape</span>
-            <div class="video-ratios" role="group" aria-label="Video frame shape">
-              <button type="button" data-ratio="16:9" aria-pressed="true">16:9</button>
-              <button type="button" data-ratio="9:16" aria-pressed="false">9:16</button>
-              <button type="button" data-ratio="1:1" aria-pressed="false">1:1</button>
+          <div class="video-output-options">
+            <div class="field">
+              <div class="field-head"><label for="video-duration">Duration</label></div>
+              <select id="video-duration">
+                <option value="6">6 seconds</option>
+                <option value="10">10 seconds</option>
+                <option value="15">15 seconds</option>
+              </select>
+            </div>
+            <div class="field">
+              <span class="label">Frame shape</span>
+              <div class="video-ratios" role="group" aria-label="Video frame shape">
+                <button type="button" data-ratio="16:9" aria-pressed="true">16:9</button>
+                <button type="button" data-ratio="9:16" aria-pressed="false">9:16</button>
+                <button type="button" data-ratio="1:1" aria-pressed="false">1:1</button>
+              </div>
             </div>
           </div>
           <p class="caption" id="video-frame-count">6 seconds, 145 frames at 24 fps.</p>
+          <details id="video-advanced">
+            <summary>Advanced <span class="values num" id="video-seed-summary">Random seed</span></summary>
+            <div class="advanced">
+              <div class="field">
+                <div class="field-head"><label for="video-seed">Seed</label></div>
+                <input id="video-seed" type="number" min="0" max="4294967295" step="1" inputmode="numeric" placeholder="Random">
+                <span class="caption">Leave blank for a random seed.</span>
+              </div>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -475,17 +486,36 @@
   function syncVideoFrameCount() {
     const duration = Number(document.getElementById('video-duration').value);
     const frames = Math.round(duration * 24 / 8) * 8 + 1;
+    const [width, height] = selectedVideoShape();
     document.getElementById('video-frame-count').textContent =
-      duration + ' seconds, ' + frames + ' frames at 24 fps.';
+      duration + ' seconds, ' + width + ' × ' + height + ', ' + frames + ' frames at 24 fps.';
     videoStudio.setFrameLimit(frames);
   }
 
+  function selectedVideoSeed() {
+    const value = document.getElementById('video-seed').value.trim();
+    if (!value) return null;
+    const seed = Number(value);
+    if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295) {
+      throw new Error('Seed must be a whole number from 0 to 4294967295.');
+    }
+    return seed;
+  }
+
+  function syncVideoSeedSummary() {
+    const seed = document.getElementById('video-seed').value.trim();
+    document.getElementById('video-seed-summary').textContent = seed ? 'Seed ' + seed : 'Random seed';
+  }
+
   document.getElementById('video-duration').addEventListener('change', syncVideoFrameCount);
+  customElements.whenDefined('video-studio').then(syncVideoFrameCount);
+  document.getElementById('video-seed').addEventListener('input', syncVideoSeedSummary);
   document.querySelectorAll('.video-ratios button').forEach(function (button) {
     button.addEventListener('click', function () {
       document.querySelectorAll('.video-ratios button').forEach(function (option) {
         option.setAttribute('aria-pressed', String(option === button));
       });
+      syncVideoFrameCount();
     });
   });
 
@@ -495,12 +525,20 @@
     const duration = Number(document.getElementById('video-duration').value);
     const numFrames = Math.round(duration * 24 / 8) * 8 + 1;
     const [width, height] = selectedVideoShape();
-    const settings = { width: width, height: height, numFrames: numFrames, frameRate: 24, duration: duration };
     button.disabled = true;
     button.textContent = 'Generating video…';
     status.textContent = 'Sending prompt and keyframes.';
     videoStudio.clearError();
     try {
+      const seed = selectedVideoSeed();
+      const settings = {
+        width: width,
+        height: height,
+        numFrames: numFrames,
+        frameRate: 24,
+        duration: duration,
+        seed: seed,
+      };
       const invalidKeyframe = videoStudio.imageReferences.find(function (reference) {
         return reference.frameIndex < 0 || reference.frameIndex >= numFrames;
       });
@@ -516,6 +554,7 @@
           height: height,
           numFrames: numFrames,
           frameRate: 24,
+          seed: seed,
         })),
       });
       const contentType = response.headers.get('content-type') || '';
