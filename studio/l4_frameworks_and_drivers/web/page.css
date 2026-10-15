@@ -125,6 +125,12 @@
      the right. The readout is the one place that says how a run is going. */
   .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 52px; min-width: 0;
     padding: 0 16px 0 22px; background-color: var(--chrome); border-bottom: 1px solid var(--line); }
+  .workspace-tabs { display: flex; align-items: center; gap: 2px; padding: 3px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--chrome-2); }
+  .workspace-tabs button { min-width: 76px; height: 30px; padding: 0 12px; border: 0; border-radius: 5px;
+    background: none; color: var(--text-3); cursor: pointer; font-size: 12px; }
+  .workspace-tabs button[aria-pressed=true] { background: var(--chrome); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+  .workspace-tabs button:focus-visible { outline: 1.5px solid var(--accent); }
   .dial { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .dial .menu-anchor, .dial h1 { min-width: 0; }
   #backend-toggle .name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -488,44 +494,69 @@
     padding: 12px 18px 14px; border-top: 1px solid var(--line); }
   #video-timeline-root, #video-error-root, #video-gallery-root { display: contents; }
   .video-timeline { grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; min-width: 0; }
-  .timeline-head, .video-reference-head, .video-gallery-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .timeline-head { min-height: 28px; color: var(--text-2); font-size: 12px; }
-  .timeline-head > div { display: flex; align-items: center; gap: 12px; }
+  .timeline-head, .keyframes-head, .video-reference-head, .video-gallery-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .timeline-head, .keyframes-head { min-height: 28px; color: var(--text-2); font-size: 12px; }
+  .timeline-head > div, .keyframes-head > div { display: flex; align-items: center; gap: 12px; }
   .timeline-head output { color: var(--text-3); font: 11px var(--mono); }
   .timeline-actions { display: flex; align-items: center; gap: 10px; }
   .timeline-actions .text-btn { white-space: nowrap; font-size: 10px; }
   .track-name { padding: 2px 5px; border: 1px solid var(--line-strong); border-radius: 3px; font: 10px var(--mono); }
-  .timeline-ruler { display: grid; grid-template-columns: repeat(5, 1fr); margin: 10px 0 4px 30px;
+  .timeline-ruler { display: grid; grid-template-columns: repeat(5, 1fr); margin: 8px 0 4px 30px;
     color: var(--text-3); font: 9px var(--mono); }
   .timeline-ruler span:last-child { text-align: right; }
-  .timeline-track { position: relative; display: flex; align-items: center; min-height: 42px; padding-left: 30px;
+  .timeline-track { position: relative; display: flex; align-items: center; min-height: 48px; padding: 3px 0;
     border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--chrome-2); }
-  .timeline-track::after { content: ""; position: absolute; z-index: 1; top: -5px; bottom: -5px;
-    left: calc(30px + (100% - 30px) * var(--playhead, 0)); width: 2px; background: var(--accent-fill); pointer-events: none; }
+  .timeline-track > .track-name { display: grid; place-items: center; width: 30px; flex: none; color: var(--text-3); }
+  .timeline-rail, .keyframe-rail { position: relative; flex: 1; min-width: 0; height: 40px; }
+  .timeline-rail::after { content: ""; position: absolute; z-index: 1; top: -4px; bottom: -4px;
+    left: var(--playhead, 0%); width: 2px; background: var(--accent-fill); pointer-events: none; }
   .timeline-clip { display: flex; align-items: center; width: 100%; min-width: 0; height: 30px; padding: 0 10px;
     border: 1px solid var(--accent-fill); border-radius: 4px; background: var(--accent-soft); color: var(--text);
     font-size: 11px; overflow: hidden; }
   .timeline-clip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .timeline-track input[type=range] { position: absolute; z-index: 2; inset: 0 0 0 30px; width: calc(100% - 30px);
+  .timeline-clip-empty { border-style: dashed; border-color: var(--line-strong); background: transparent; color: var(--text-3); }
+  .timeline-rail input[type=range] { position: absolute; z-index: 2; inset: 0; width: 100%;
     height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
   .timeline-track input[type=range]:focus-visible { opacity: .08; outline: 1px solid var(--accent-fill); }
-  .timeline-empty { display: grid; place-items: center; min-height: 72px; color: var(--text-3); font-size: 12px; }
+  .timeline-empty { display: grid; place-items: center; min-height: 52px; color: var(--text-3); font-size: 11px; }
+  .keyframes-head { margin-top: 12px; }
+  .keyframes-head span { color: var(--text-3); font: 10px var(--mono); }
+  .keyframe-ruler { margin-top: 4px; }
+  .keyframe-track { min-height: 60px; }
+  .keyframe-rail { height: 54px; }
+  .keyframe-marker { position: absolute; top: 9px; width: 38px; height: 36px; padding: 2px;
+    transform: translateX(-50%); border: 1px solid var(--line-strong); border-radius: 5px;
+    background: var(--chrome); cursor: pointer; }
+  .keyframe-marker:hover, .keyframe-marker[aria-pressed=true] { z-index: 2; border-color: var(--accent-fill); }
+  .keyframe-marker[aria-pressed=true] { box-shadow: 0 0 0 2px var(--accent-soft); }
+  .keyframe-marker img { display: block; width: 100%; height: 100%; border-radius: 2px; object-fit: cover; }
+  .keyframe-marker span { position: absolute; right: 2px; bottom: 2px; padding: 1px 3px;
+    border-radius: 2px; background: rgba(0, 0, 0, .72); color: #fff; font: 8px var(--mono); }
+  .keyframe-empty { display: flex; align-items: center; height: 100%; color: var(--text-3); font-size: 10px; }
   .video-reference-tray, .video-gallery { min-width: 0; overflow: hidden; }
   .video-reference-tray { grid-column: 2; grid-row: 1; }
   .video-reference-head, .video-gallery-head { min-height: 22px; color: var(--text-2); font-size: 11px; }
   .video-reference-head > div { display: flex; gap: 8px; align-items: baseline; }
   .video-reference-head span, .video-gallery-head span { color: var(--text-3); }
-  .video-references { display: flex; gap: 8px; overflow-x: auto; padding: 6px 0; min-height: 52px; }
-  .video-reference { position: relative; display: flex; flex: none; flex-direction: column; gap: 4px;
-    width: 106px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 5px; }
-  .video-reference img { width: 100%; height: 46px; object-fit: cover; border-radius: 4px; }
-  .video-reference button { position: absolute; top: 1px; right: 1px; width: 18px; height: 18px; padding: 0;
+  .video-references { display: flex; flex-direction: column; gap: 6px; max-height: 168px;
+    overflow-y: auto; padding: 6px 0; min-height: 52px; }
+  .video-reference { position: relative; display: grid; grid-template-columns: 74px minmax(0, 1fr) 20px;
+    align-items: center; gap: 8px; width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 6px; }
+  .video-reference.selected { border-color: var(--accent-fill); background: var(--accent-soft); }
+  .video-reference-select { width: 74px; height: 48px; padding: 2px; border: 1px solid transparent;
+    border-radius: 4px; background: none; cursor: pointer; }
+  .video-reference-select[aria-pressed=true] { border-color: var(--accent-fill); }
+  .video-reference-select img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 2px; }
+  .video-reference-name { min-width: 0; overflow: hidden; color: var(--text-2); font-size: 10px;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .video-reference-remove { align-self: start; width: 18px; height: 18px; padding: 0;
     border: 0; border-radius: 4px; background: rgba(0, 0, 0, .7); color: #fff; cursor: pointer; }
-  .video-reference-settings { display: grid; gap: 4px; color: var(--text-3); font-size: 9px; }
-  .video-reference-settings label { display: grid; grid-template-columns: 35px minmax(0, 1fr); align-items: center; gap: 4px; }
-  .video-reference-settings input[type=number] { width: 100%; min-width: 0; height: 20px; padding: 1px 3px;
-    border: 1px solid var(--line); border-radius: 3px; background: var(--chrome-2); color: var(--text); font: 10px var(--mono); }
-  .video-reference-settings label:has(input[type=range]) { grid-template-columns: 35px minmax(0, 1fr) 28px; }
+  .video-reference-settings { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1.3fr;
+    gap: 10px; padding: 2px 4px 0; color: var(--text-3); font-size: 10px; }
+  .video-reference-settings label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px; }
+  .video-reference-settings input[type=number] { width: 64px; min-width: 0; height: 24px; padding: 2px 5px;
+    border: 1px solid var(--line); border-radius: 4px; background: var(--chrome-2); color: var(--text); font: 10px var(--mono); }
+  .video-reference-settings label:has(input[type=range]) { grid-template-columns: auto minmax(0, 1fr) 30px; }
   .video-reference-settings input[type=range] { min-width: 0; width: 100%; accent-color: var(--accent-fill); }
   .video-reference-settings output { color: var(--text-2); font: 9px var(--mono); }
   .video-ref-empty { align-self: center; color: var(--text-3); font-size: 11px; }
@@ -613,15 +644,17 @@
   .modes input:focus-visible + label { outline: 1.5px solid var(--accent); }
   .mode-controls { display: flex; flex-direction: column; gap: 22px; }
   .mode-controls[hidden] { display: none; }
-  .media-modes, .video-ratios { display: grid; gap: 2px; padding: 2px; background: var(--chrome-2);
+  .video-ratios { display: grid; gap: 2px; padding: 2px; background: var(--chrome-2);
     border: 1px solid var(--line); border-radius: 8px; }
-  .media-modes { grid-template-columns: 1fr 1fr; }
-  .media-modes button, .video-ratios button { min-height: 34px; border: 0; border-radius: 6px;
+  .video-ratios button { min-height: 34px; border: 0; border-radius: 6px;
     background: none; color: var(--text-3); cursor: pointer; }
-  .media-modes button[aria-pressed=true], .video-ratios button[aria-pressed=true] {
+  .video-ratios button[aria-pressed=true] {
     background: var(--chrome-3); color: var(--text); }
-  .media-modes button:focus-visible, .video-ratios button:focus-visible { outline: 1.5px solid var(--accent); }
+  .video-ratios button:focus-visible { outline: 1.5px solid var(--accent); }
   .video-ratios { grid-template-columns: repeat(3, 1fr); }
+  .video-output-options { display: grid; grid-template-columns: 1fr 1.2fr; gap: 12px; }
+  #video-frame-count { margin: -12px 0 0; line-height: 1.5; }
+  .video-controls #video-advanced { margin-top: -8px; }
   .share-video { align-self: flex-start; }
   .video-footer { align-items: stretch; flex-direction: column; gap: 5px; }
   .video-footer button { width: 100%; min-height: 50px; border: 1px solid var(--line); border-radius: 9px;
@@ -781,6 +814,8 @@
   /* On a phone the image leads, and the run button sits at the bottom of the
      screen so it is reachable from anywhere in the form. */
   @media (max-width: 900px) {
+    .topbar { flex-wrap: wrap; height: auto; min-height: 52px; padding: 8px 14px; }
+    .workspace-tabs { order: 3; flex-basis: 100%; justify-content: center; }
     .app { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
     .work { grid-template-rows: auto 62vh auto; }
     #video-studio { grid-row: 2 / span 2; min-height: 720px; }
