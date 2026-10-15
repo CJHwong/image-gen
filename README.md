@@ -8,14 +8,13 @@ A local multimedia studio for Apple Silicon image generation and video pipelines
 
 This walk-through makes the image above: first a beach outside an elevator, then the same elevator in a snowstorm. It needs a Mac with Apple Silicon and [uv](https://docs.astral.sh/uv/). It was built on a machine with 64 GB of memory.
 
-1. Clone the repo and start the page. The first start downloads the official Qwen Turbo checkpoint, about 32.5 GB.
+1. Clone the repo and start the page. The server does not load model weights at startup.
 
        git clone git@github.com:CJHwong/image-gen.git
        cd image-gen
        uv run studio
 
-   The server saves the checkpoint to `model_dir` in `studio.toml`.
-   The first download can take time. When the terminal says "Ready", open http://127.0.0.1:8765.
+   When the terminal says "Ready", open http://127.0.0.1:8765. The first image run downloads the official Qwen Turbo checkpoint, about 32.5 GB.
 
 2. Paste this prompt into **Prompt**, pick **16:9** under **Size**, and press **Generate**.
 
@@ -41,7 +40,8 @@ Both images stay in the strip at the bottom, also after a reload.
 - **Use full Qwen-Image-2.1:** `uv run studio --backend qwen21`.
 - **Use Viggle Turbo:** `uv run studio --backend viggle_turbo`.
 - **Save memory on qwen21:** `uv run studio -q 8` loads the weights as int8.
-- **Use FLUX.2:** set up its weights (see [Models](#models)), then `uv run studio --backend flux2`. The title of the page becomes a menu that switches between the models. To offer both every time, add `"flux2"` to `visible_backends` in [studio.toml](studio.toml).
+- **Use FLUX.2:** set up its weights (see [Models](#models)), then `uv run studio --backend flux2`. The title of the page becomes an image-model menu. Add `"flux2"` to `visible_backends` in [studio.toml](studio.toml) to offer it every time.
+- **Choose a video model:** open the Video workspace. Its model selector uses `default_video_backend` and `visible_video_backends`, separate from image models.
 - **Write a prompt the model follows:** start from the **Templates** menu, and add a style from the **Look** section. Each model offers only the Look options that passed a test on it. [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) has the tests.
 - **Finish an image:** in **Edit**, the **Look** section holds the finishing rows: exposure, white balance, grade, lens, a film finish, and retouch. A Retouch pick wants an area, so draw the mark first and the page names it in the sentence. The mark says where to look, not what may change: the change can still reach past it, which [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) measures. The other rows are whole-frame, with or without a mark.
 - **Edit several pictures at once:** put each one in **Images to edit**, and set the choice under the list to one result each. Each image is edited on its own, and every result lands beside the picture it came from, with its own before and after. Left as one picture, several images are composed into a single new image instead. The words in the prompt box lead every image, and the row beside a thumbnail adds what that one needs. A press of **Rewrite** writes a row from its own picture, and you can correct it. A batch whose every row carries words runs with the prompt box empty, the way a marked region already does.
@@ -54,6 +54,7 @@ Both images stay in the strip at the bottom, also after a reload.
 
 - **Work on the page without a model:** `uv run studio --stub`. Image runs return placeholder images. Video requests return metadata only, with no fake video file. The stub uses no GPU.
 - **Share media between workspaces:** use image references as Video keyframes. Capture a timeline frame for Image or set it as a Video keyframe with a target frame and strength.
+- **Add video sources:** use the Video controls in the right sidebar. Paste images with ⌘V, or use **Add video** and drop files. Image keyframes and generated clips stay in separate galleries.
 
 ## Reference
 
@@ -63,7 +64,7 @@ Both images stay in the strip at the bottom, also after a reload.
 |---|---|---|
 | `--port` | `8765` | The port of the page. |
 | `--host` | `127.0.0.1` | The address the server binds. |
-| `--backend` | `default_backend` | Open on this model, and add it to the models the page offers. |
+| `--backend` | `default_backend` | Open on this image model, and add it to the image models the page offers. |
 | `-q`, `--quantize` | the `studio.toml` value | Quantize the weights of the opening model: 3, 4, 5, 6 or 8 bits. |
 | `--config` | `studio.toml` | The settings file. |
 | `--stub` | off | Fake every engine: timed steps and placeholder images, no weights. |
@@ -74,6 +75,8 @@ Both images stay in the strip at the bottom, also after a reload.
 |---|---|
 | `default_backend` | The model the page opens with. |
 | `visible_backends` | The models the page offers. With more than one, the title becomes a menu. |
+| `default_video_backend` | The video model selected when the page opens. |
+| `visible_video_backends` | The video models the Video workspace offers. |
 | `[qwen21] quantize` | 0 for bf16, or the bits for quantized weights. |
 | `[flux2] quantize` | The bits for the FLUX.2 weights. |
 | `[flux2] model_dir` | The folder of the FLUX.2 weights. |
@@ -93,11 +96,11 @@ Both images stay in the strip at the bottom, also after a reload.
 
 | Model | Adapter | Modes | Weights |
 |---|---|---|---|
-| Qwen-Image-2.1-Turbo (default) | `gateways/qwen21_turbo` | generate and edit, fixed at 8 steps, through mflux (MLX) | downloads on first server start, about 32.5 GB |
+| Qwen-Image-2.1-Turbo (default) | `gateways/qwen21_turbo` | generate and edit, fixed at 8 steps, through mflux (MLX) | downloads on first image run, about 32.5 GB |
 | Qwen-Image-2.1 | `gateways/qwen21` | generate, img2img, and instruction edit with up to 10 images, through mflux (MLX) | downloads on first use |
 | Viggle Turbo | `gateways/viggle` | the same modes, in six steps | Qwen base weights, plus a 1.3 GB adapter |
 | FLUX.2 klein-base-9B, uncensored | `gateways/flux2` | generate and img2img, edit with up to 4 images, all through mflux (MLX) | manual setup below |
-| LTX-2.5 | `ltx25_runner.py` | text-to-video and still-keyframe video generation | local split weights and CUDA pipeline |
+| LTX-2.5 | `gateways/ltx25` | text-to-video and still-keyframe video generation | local split weights and CUDA pipeline |
 
 **The prompt aids are per model.** A Look option or a template appears only after it passes a test on that model. The official Turbo backend offers no Looks or templates yet. Its 8-step estimates use two runs at three sizes on an M5 Pro with BF16 weights. Generate uses separate fits with and without a starting image. The reference estimate follows mflux's remaining steps at the selected strength. The generated images still need visual review. Qwen-Image-2.1 offers 31 Look options and 15 templates, and its edit form offers 15 more options in six rows. Viggle Turbo offers only the prompt aids its six-step sample kept. FLUX.2 offers the 11 options and 8 templates it was tested with. The tests and limits are in [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md).
 
@@ -107,7 +110,7 @@ Both images stay in the strip at the bottom, also after a reload.
 
 The image adapters generate through MLX, so image generation runs on Apple Silicon. A real studio refuses to start where MLX is missing. The `--stub` option still works there. Porting image generation to another vendor is not built. See [PORTABILITY.md](studio/l3_interface_adapters/gateways/qwen21/PORTABILITY.md).
 
-**Qwen-Image-2.1-Turbo.** The default uses the official full checkpoint, not Viggle's LoRA. On the first server start, it downloads `Qwen/Qwen-Image-2.1-Turbo` into `[qwen21_turbo].model_dir`. Set that path to use another disk or a preloaded checkpoint. The UI fixes sampling at 8 steps and hides untested prompt aids. Its time estimates were measured on an M5 Pro with BF16 weights. The scheduler mapping uses an unshifted linear sigma table for the official scheduler's `shift=1`.
+**Qwen-Image-2.1-Turbo.** The default uses the official full checkpoint, not Viggle's LoRA. On the first image run, it downloads `Qwen/Qwen-Image-2.1-Turbo` into `[qwen21_turbo].model_dir`. Set that path to use another disk or a preloaded checkpoint. The server starts before it loads model weights. The UI fixes sampling at 8 steps and hides untested prompt aids. Its time estimates were measured on an M5 Pro with BF16 weights. The scheduler mapping uses an unshifted linear sigma table for the official scheduler's `shift=1`.
 
 **Qwen-Image-2.1.** The weights are `Qwen/Qwen-Image-2.1` on HuggingFace. They are not gated, about 33 GB in bf16. They download into `~/.cache/huggingface` on the first run (`HF_HOME` moves the cache).
 
@@ -141,7 +144,9 @@ Then download the distilled model components:
          latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors \
          --local-dir "$D"
 
-The Video workspace sends still references as keyframes. Each keyframe has an output frame and strength. Captured clip frames work as keyframes. The imported video itself is not a video-conditioning input.
+The Video source panel sits beside its prompt in the right sidebar. Image references become keyframes. Source clips stay separate from generated video results. The timeline can capture a clip frame as an image keyframe or send it to the Image workspace. The imported clip itself is not a video-conditioning input.
+
+The duration control selects frame counts from the selected model's `VideoCapabilities`. LTX supports 9 to 361 frames in steps of 8 at 24 fps. Its quick choices use 121, 241, and 361 frames, about 5.04, 10.04, and 15.04 seconds. The UI sends an explicit frame count so the timeline and keyframes have a fixed target. The pipeline runs in a child process, which releases its model weights when generation ends.
 
 **FLUX.2 klein-base-9B.** mflux reads one diffusers-layout folder, and its name must contain `klein-base-9b`. The default is `~/Library/Caches/models/mflux-klein-base-9b-uncensored`; `model_dir` in `studio.toml` moves it. It takes about 33 GB.
 
@@ -176,6 +181,7 @@ The Video workspace sends still references as keyframes. Each keyframe has an ou
 - **Viggle Turbo runs six steps and no more, after spiking its nine-step mode.** Its card offers a second mode: seven steps on the adapter, then the adapter off and two steps on the base model, on a wider sigma table. Both halves are reachable from here, mflux's scheduler registry takes a nine-node table by name and a runtime adapter switches off when each layer's scale is set to zero, and both were proved working on real weights. It still does not win. On one scene and one seed, nine steps scored 21.1x containment against six's 21.2x, so it buys nothing where six steps is weak, and it took 38.2s against 27.3s. The only visible change was on a plain generate, where nine steps kept more glaze detail and added background grain. A spike that does not win is still worth the run: it is the difference between a mode that was measured and one that was assumed.
 - **A batch is images in a row, not a real batch.** On this machine a batched flux2 run was 2 to 8% slower per image than one at a time, and it used more memory. One at a time also shows each image as soon as it is done.
 - **One run at a time.** The GPU is full with one run, and two only slow each other. A run from a second tab gets a message to wait, not a place in a queue.
+- **One model family in memory.** Image and video workspaces keep separate model choices, but they share one memory slot. The server loads weights only when a run needs them. A workspace switch releases the inactive model. Prompt rewriting uses the same lock and releases its weights when the rewrite ends.
 - **The server keeps nothing, and it binds 127.0.0.1.** It holds neither the prompt nor the image. An edit does write its reference images into a temporary directory for the length of that one run and removes it afterward, because mflux's edit call takes paths rather than images. That is the only thing this server puts on disk. The browser keeps the images in its own storage, which belongs to the address and port, so a server on another port shows an empty strip.
 
 ## Licenses

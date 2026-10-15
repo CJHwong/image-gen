@@ -19,7 +19,7 @@ from studio.l2_use_cases.describe_studio_use_case import StudioView
 from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
 from studio.l2_use_cases.run_image_use_case import NextRun, RunImageResponse
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
-from tests.support.fakes import fake_capabilities
+from tests.support.fakes import fake_capabilities, fake_video_capabilities
 
 PAGE = "<title>__NAME__</title><input value=__BACKEND__><b>__BADGE__</b><script>const STUDIO = __STUDIO__;</script>"
 
@@ -79,6 +79,21 @@ def test_the_page_is_told_which_modes_a_rewriter_serves():
     # An empty list leaves the page's rewrite toggle out, so the list has to arrive.
     view = StudioView(active=fake_capabilities(), backends=(), rewrite_modes=("generate", "edit"))
     assert studio_data(presenter().page(view))["rewrite_modes"] == ["generate", "edit"]
+
+
+def test_the_page_receives_video_capabilities_and_a_separate_model_list():
+    view = StudioView(
+        active=fake_capabilities(),
+        backends=(("fake", "Fake", "Image model"),),
+        active_video=fake_video_capabilities("video-one", "Video One"),
+        video_backends=(("video-one", "Video One", "Video model"),),
+    )
+
+    data = studio_data(presenter().page(view))
+
+    assert data["video"]["backend"] == {"id": "video-one", "name": "Video One", "badge": "24 fps"}
+    assert data["video"]["backends"] == [["video-one", "Video One", "Video model"]]
+    assert data["video"]["capabilities"]["shapes"][0] == {"ratio": "16:9", "width": 960, "height": 544}
 
 
 def test_an_image_becomes_an_item():

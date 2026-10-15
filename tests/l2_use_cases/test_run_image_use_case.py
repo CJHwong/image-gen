@@ -16,9 +16,12 @@ from studio.l1_entities.image_job import ReferenceImage
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.run_image_use_case import RunImageRequest, RunImageUseCase
 from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
+from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
+    InMemoryModelResidencyGateway,
+)
 from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
 from studio.l3_interface_adapters.gateways.in_memory_reference_store_gateway import InMemoryReferenceStoreGateway
-from tests.support.fakes import FakeBackendGateway
+from tests.support.fakes import FakeBackendGateway, FakeModelResidencyGateway, FakeVideoBackendGateway
 
 PHOTO = ReferenceImage(png=b"ref", width=4, height=3)
 SECOND = ReferenceImage(png=b"ref2", width=4, height=3)
@@ -40,7 +43,14 @@ def studio():
     store = InMemoryReferenceStoreGateway()
     catalog = InMemoryBackendCatalogGateway({"fake": backend}, default_id="fake", visible_ids=("fake",))
     clock = iter(range(100, 200, 5))
-    use_case = RunImageUseCase(catalog, progress, store, seed_source=lambda: 7, clock=lambda: next(clock))
+    use_case = RunImageUseCase(
+        catalog,
+        progress,
+        store,
+        seed_source=lambda: 7,
+        clock=lambda: next(clock),
+        residency=FakeModelResidencyGateway(),
+    )
     return use_case, backend, progress, store
 
 
@@ -53,6 +63,25 @@ def test_one_image(studio):
     job = backend.jobs[0]
     assert job.prompt == "a red apple" and job.options == {"steps": 2, "guidance": 1.0}
     assert progress.snapshot().running is False
+
+
+def test_an_image_run_releases_an_inactive_video_model():
+    image = FakeBackendGateway()
+    video = FakeVideoBackendGateway()
+    residency = InMemoryModelResidencyGateway({"fake": image, "video-fake": video})
+    residency.activate("video-fake")
+    catalog = InMemoryBackendCatalogGateway({"fake": image}, "fake", ("fake",))
+    run = RunImageUseCase(
+        catalog,
+        InMemoryProgressGateway(),
+        InMemoryReferenceStoreGateway(),
+        residency=residency,
+    )
+
+    run.execute(request())
+
+    assert video.releases == 1
+    assert residency.active_id() == "fake"
 
 
 def test_a_blank_seed_is_drawn(studio):
@@ -214,7 +243,13 @@ def test_a_second_run_is_refused_while_one_is_in_flight():
     progress = InMemoryProgressGateway()
     catalog = InMemoryBackendCatalogGateway({"fake": backend}, default_id="fake", visible_ids=("fake",))
     engine_lock = threading.Lock()
-    use_case = RunImageUseCase(catalog, progress, InMemoryReferenceStoreGateway(), engine_lock=engine_lock)
+    use_case = RunImageUseCase(
+        catalog,
+        progress,
+        InMemoryReferenceStoreGateway(),
+        engine_lock=engine_lock,
+        residency=FakeModelResidencyGateway(),
+    )
     progress.request_cancel()  # the first run's own cancel, which the refused run must not clear
     with engine_lock, pytest.raises(BackendBusy, match="another tab"):
         use_case.execute(request())
@@ -252,6 +287,7 @@ def test_the_rewriter_is_freed_before_the_engine_runs():
         InMemoryProgressGateway(),
         InMemoryReferenceStoreGateway(),
         rewriter=RecordingRewriter(log),
+        residency=FakeModelResidencyGateway(),
     )
     use_case.execute(request(options={"steps": "1"}))
     assert log == ["rewriter release", "engine step 1"]

@@ -1,14 +1,20 @@
+import threading
+
 import pytest
 
 from studio.l1_entities.capabilities import Capabilities, Choice, ModeSpec, ParamSpec
-from studio.l1_entities.errors import Cancelled, InvalidJob, StudioError
+from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, StudioError
 from studio.l1_entities.image_job import ImageJob, ImageResult, ReferenceImage
 from studio.l1_entities.prompt_rewrite import PromptRewrite
 from studio.l2_use_cases.boundaries.backend_catalog_gateway import BackendCatalogGateway
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
+from studio.l2_use_cases.boundaries.model_residency_gateway import ModelResidencyGateway
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.boundaries.rewrite_progress_gateway import RewriteProgressGateway
 from studio.l2_use_cases.rewrite_prompt_use_case import RewritePromptUseCase, RewriteRequest
+from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
+    InMemoryModelResidencyGateway,
+)
 
 SIZE = ParamSpec(
     id="size",
@@ -135,12 +141,19 @@ class Rewriter(PromptRewriterGateway):
         self.releases += 1
 
 
-def use_case(catalog, rewriter, progress=None):
+def use_case(catalog, rewriter, progress=None, residency=None):
+    if residency is None:
+        residency = InMemoryModelResidencyGateway(
+            {backend_id: catalog.get(backend_id) for backend_id in catalog.visible_ids()}
+        )
+        residency.activate(catalog.active_id())
     return RewritePromptUseCase(
         rewriter,
         catalog,
         progress if progress is not None else Progress(),
         clock=iter([10.0, 12.5]).__next__,
+        engine_lock=threading.Lock(),
+        residency=residency,
     )
 
 
@@ -204,10 +217,9 @@ def test_a_rewriter_that_follows_the_reference_sets_no_size():
 
 def test_the_elapsed_time_is_reported():
     catalog = Catalog()
-    response = use_case(catalog, Rewriter(PromptRewrite(prompt="longer"))).execute(
-        RewriteRequest(prompt="a cat", mode="generate")
-    )
-    assert response.elapsed == 2.5
+    rewriter = Rewriter(PromptRewrite(prompt="longer"))
+    response = use_case(catalog, rewriter).execute(RewriteRequest(prompt="a cat", mode="generate"))
+    assert response.elapsed == 2.5 and rewriter.releases == 1
 
 
 def test_an_empty_prompt_is_refused_before_anything_loads():
@@ -277,3 +289,35 @@ def test_a_rewriter_that_fails_leaves_no_rewrite_in_flight():
             RewriteRequest(prompt="a cat", mode="generate")
         )
     assert progress.stages == ["preparing", "writing", "finished"]
+
+
+def test_a_rewrite_does_not_queue_behind_an_image_run():
+    catalog = Catalog()
+    runner = use_case(catalog, Rewriter(PromptRewrite(prompt="longer")))
+    runner._engine_lock.acquire()
+
+    with pytest.raises(BackendBusy, match="busy with a run"):
+        runner.execute(RewriteRequest(prompt="a cat", mode="generate"))
+
+    assert runner._rewriter.releases == 0
+    runner._engine_lock.release()
+
+
+def test_a_rewrite_releases_its_lock_if_it_cannot_release_the_previous_model():
+    class FailedResidency(ModelResidencyGateway):
+        def activate(self, backend_id):
+            raise AssertionError("rewrite does not activate a generator")
+
+        def release(self):
+            raise StudioError("old model did not release")
+
+    progress = Progress()
+    rewriter = Rewriter(PromptRewrite(prompt="longer"))
+    runner = use_case(Catalog(), rewriter, progress, FailedResidency())
+
+    with pytest.raises(StudioError, match="old model did not release"):
+        runner.execute(RewriteRequest(prompt="a cat", mode="generate"))
+
+    assert progress.stages == [] and rewriter.releases == 1
+    assert runner._engine_lock.acquire(blocking=False)
+    runner._engine_lock.release()

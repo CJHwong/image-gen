@@ -3,9 +3,10 @@ from collections.abc import Callable
 
 from studio.l1_entities.capabilities import Capabilities
 from studio.l1_entities.image_job import ImageJob, ImageResult
+from studio.l2_use_cases.boundaries.model_lifecycle_gateway import ModelLifecycleGateway
 
 
-class ImageBackendGateway(ABC):
+class ImageBackendGateway(ModelLifecycleGateway, ABC):
     """One model backend. The core runs it; the adapter knows the engine."""
 
     @abstractmethod

@@ -16,7 +16,10 @@ def test_ltx25_gateway_passes_the_job_to_the_pipeline_runner():
     runner = FakeRunner()
     job = VideoJob("moving clouds", 960, 544, 145, 24, 7)
 
-    result = Ltx25BackendGateway(runner).run(job)
+    gateway = Ltx25BackendGateway(runner)
+    result = gateway.run(job)
 
     assert runner.job == job
     assert result is expected
+    assert gateway.capabilities().backend_id == "ltx25"
+    gateway.release()

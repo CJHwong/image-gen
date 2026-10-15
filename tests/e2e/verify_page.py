@@ -59,7 +59,7 @@ RUN_STOPPING = "#go[data-state='stopping']"
 # A kept frame names itself, and the mode it was made in, in its aria-label.
 FRAME = re.compile(r"^(generate|edit), seed ")
 # The badge that carries the weights, found by the title the contract keeps.
-BADGE = "[title='The weights loaded']"
+BADGE = "[title='Model details']"
 # The drawing tools, each of which names itself.
 BRUSH = re.compile(r"^Brush width")
 # How long a prompt rewrite may take. The qwen21 rewriter is a fine-tuned 9B model

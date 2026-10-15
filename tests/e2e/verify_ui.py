@@ -172,7 +172,10 @@ def toggle_reads(name):
     and the second model's name carries the first one inside it, so a role query
     would find the old title and pass before the page had reloaded at all.
     """
-    return "() => document.querySelector('#backend-toggle .name').textContent === " + json.dumps(name)
+    return (
+        "() => { const label = document.querySelector('#backend-toggle .name'); "
+        "return label && label.textContent === " + json.dumps(name) + "; }"
+    )
 
 
 def set_steps(page, steps):
@@ -320,8 +323,8 @@ with sync_playwright() as playwright:
     check(
         "the header names the model and its badge",
         page.get_by_role("button", name="Qwen-Image-2.1").is_visible()
-        and page.locator("[title='The weights loaded']").inner_text().strip() == "bf16",
-        page.locator("[title='The weights loaded']").inner_text().strip(),
+        and page.locator("[title='Model details']").inner_text().strip() == "bf16",
+        page.locator("[title='Model details']").inner_text().strip(),
     )
     check("Generate is the mode the page opens on", page.get_by_role("radio", name="Generate").is_checked())
 

@@ -47,6 +47,19 @@ class HtmlPresenter:
                 "max_batch": active.max_batch,
             },
             "backends": [list(backend) for backend in view.backends],
+            "video": {
+                "backend": (
+                    {
+                        "id": view.active_video.backend_id,
+                        "name": view.active_video.name,
+                        "badge": view.active_video.badge,
+                    }
+                    if view.active_video
+                    else None
+                ),
+                "backends": [list(backend) for backend in view.video_backends],
+                "capabilities": asdict(view.active_video) if view.active_video else None,
+            },
             "modes": [asdict(mode) for mode in active.modes],
             # Which modes a prompt rewriter serves. Empty leaves the page's
             # toggle out, so a backend without one offers no dead button.

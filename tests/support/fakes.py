@@ -3,7 +3,11 @@
 from studio.l1_entities.capabilities import Capabilities, ModeSpec, ParamSpec
 from studio.l1_entities.errors import Cancelled
 from studio.l1_entities.image_job import ImageResult
+from studio.l1_entities.video_capabilities import VideoCapabilities, VideoShape
+from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
+from studio.l2_use_cases.boundaries.model_residency_gateway import ModelResidencyGateway
+from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
 
 STEPS = ParamSpec(id="steps", kind="number", default=3, minimum=1, maximum=50, integer=True)
 GUIDANCE = ParamSpec(id="guidance", kind="number", default=1.0, minimum=0)
@@ -60,3 +64,61 @@ class FakeBackendGateway(ImageBackendGateway):
 
     def release(self):
         self.events.append("release")
+
+
+class FakeModelResidencyGateway(ModelResidencyGateway):
+    def __init__(self):
+        self.current: str | None = None
+        self.events: list[str] = []
+
+    def activate(self, backend_id: str) -> None:
+        if self.current != backend_id:
+            if self.current is not None:
+                self.events.append("release " + self.current)
+            self.current = backend_id
+        self.events.append("activate " + backend_id)
+
+    def release(self) -> None:
+        if self.current is None:
+            return
+        self.events.append("release " + self.current)
+        self.current = None
+
+
+def fake_video_capabilities(backend_id="video-fake", name="Fake video"):
+    return VideoCapabilities(
+        backend_id=backend_id,
+        name=name,
+        badge="24 fps",
+        description="A fake video model.",
+        shapes=(VideoShape("16:9", 960, 544), VideoShape("1:1", 768, 768)),
+        min_frames=9,
+        max_frames=361,
+        frame_step=8,
+        default_frames=121,
+        frame_rate=24,
+        max_references=8,
+        min_dimension=256,
+        max_dimension=1280,
+        dimension_step=32,
+    )
+
+
+class FakeVideoBackendGateway(VideoBackendGateway):
+    def __init__(self, backend_id="video-fake", name="Fake video", failure=None, capabilities=None):
+        self._capabilities = capabilities or fake_video_capabilities(backend_id, name)
+        self.failure = failure
+        self.jobs: list[VideoJob] = []
+        self.releases = 0
+
+    def capabilities(self) -> VideoCapabilities:
+        return self._capabilities
+
+    def run(self, job: VideoJob) -> VideoResult:
+        self.jobs.append(job)
+        if self.failure:
+            raise self.failure
+        return VideoResult(b"mp4", job.width, job.height, job.num_frames, job.frame_rate, job.seed)
+
+    def release(self) -> None:
+        self.releases += 1

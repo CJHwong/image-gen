@@ -1,5 +1,7 @@
 import base64
 import io
+import threading
+from dataclasses import replace
 
 import pytest
 from PIL import Image
@@ -7,14 +9,22 @@ from PIL import Image
 from studio.l1_entities.errors import InvalidJob, UnreadableImage
 from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
-from studio.l3_interface_adapters.controllers.video_controller import VideoController
+from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
+from studio.l3_interface_adapters.controllers.video_controller import VideoController, video_job
+from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
+    InMemoryModelResidencyGateway,
+)
+from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
+    InMemoryVideoBackendCatalogGateway,
+)
+from tests.support.fakes import FakeVideoBackendGateway, fake_video_capabilities
 
 
 class UnusedVideoRun(RunVideoUseCase):
     def __init__(self):
         pass
 
-    def execute(self, job: VideoJob) -> VideoResult:
+    def execute(self, job: VideoJob, backend_id: str) -> VideoResult:
         pytest.fail("invalid request reached the use case")
 
 
@@ -44,20 +54,34 @@ def payload(**overrides):
     return values
 
 
+def build_video_controller(run=None, capabilities=None):
+    first = FakeVideoBackendGateway("video-fake", "Fake video", capabilities=capabilities)
+    second = FakeVideoBackendGateway("video-other", "Other video")
+    backends = {"video-fake": first, "video-other": second}
+    catalog = InMemoryVideoBackendCatalogGateway(backends, "video-fake", tuple(backends))
+    residency = InMemoryModelResidencyGateway(backends)
+    lock = threading.Lock()
+    selected_run = run or RunVideoUseCase(catalog, lock, residency)
+    switch = SwitchVideoBackendUseCase(catalog, lock, residency)
+    return VideoController(selected_run, catalog, switch), catalog
+
+
 def test_controller_maps_shared_images_to_ltx_keyframes():
     class FakeRun(RunVideoUseCase):
         def __init__(self):
-            self.job: VideoJob | None = None
+            pass
 
-        def execute(self, job: VideoJob) -> VideoResult:
+        def execute(self, job: VideoJob, backend_id: str) -> VideoResult:
             self.job = job
+            self.backend_id = backend_id
             return VideoResult(None, job.width, job.height, job.num_frames, job.frame_rate, job.seed, True)
 
     runner = FakeRun()
-    controller = VideoController(runner)
+    video_controller, _ = build_video_controller(run=runner)
 
-    response = controller.run(
+    response = video_controller.run(
         payload(
+            backend="video-fake",
             references=[
                 {
                     "name": "portrait.png",
@@ -65,11 +89,12 @@ def test_controller_maps_shared_images_to_ltx_keyframes():
                     "frame_index": 24,
                     "strength": 0.75,
                 }
-            ]
+            ],
         )
     )
 
     assert response.stub is True
+    assert runner.backend_id == "video-fake"
     assert runner.job is not None
     submitted_job = runner.job
     assert submitted_job.prompt == "A kite rises above the beach"
@@ -79,9 +104,7 @@ def test_controller_maps_shared_images_to_ltx_keyframes():
 
 
 def test_controller_normalizes_transparent_keyframes_to_png():
-    from studio.l3_interface_adapters.controllers.video_controller import video_job as parse_video_job
-
-    submitted_job = parse_video_job(
+    submitted_job = video_job(
         payload(
             seed="",
             references=[
@@ -92,7 +115,8 @@ def test_controller_normalizes_transparent_keyframes_to_png():
                     "strength": 1,
                 }
             ],
-        )
+        ),
+        fake_video_capabilities(),
     )
 
     with Image.open(io.BytesIO(submitted_job.references[0].png)) as image:
@@ -108,6 +132,7 @@ def test_controller_normalizes_transparent_keyframes_to_png():
         {"width": 961},
         {"height": 543},
         {"height": 1281},
+        {"width": 640, "height": 640},
         {"num_frames": 8},
         {"num_frames": 145.0},
         {"num_frames": 146},
@@ -134,22 +159,36 @@ def test_controller_normalizes_transparent_keyframes_to_png():
     ],
 )
 def test_controller_rejects_invalid_video_requests(values):
-    request = payload(**values)
+    video_controller, _ = build_video_controller(run=UnusedVideoRun())
 
     with pytest.raises(InvalidJob):
-        VideoController(UnusedVideoRun()).run(request)
+        video_controller.run(payload(**values))
+
+
+def test_controller_uses_the_selected_models_frame_rate_and_reference_limit():
+    capabilities = replace(fake_video_capabilities(), frame_rate=30, max_references=1)
+    video_controller, _ = build_video_controller(run=UnusedVideoRun(), capabilities=capabilities)
+
+    with pytest.raises(InvalidJob, match="frame_rate must be 30"):
+        video_controller.run(payload(frame_rate=24))
+
+    with pytest.raises(InvalidJob, match="at most 1 image references"):
+        video_controller.run(payload(frame_rate=30, references=[{}, {}]))
 
 
 def test_controller_rejects_unreadable_keyframe_data():
     invalid_reference = {"name": "broken", "image": "not-base64", "frame_index": 0, "strength": 1}
+    video_controller, _ = build_video_controller(run=UnusedVideoRun())
 
     with pytest.raises(UnreadableImage):
-        VideoController(UnusedVideoRun()).run(payload(references=[invalid_reference]))
+        video_controller.run(payload(references=[invalid_reference]))
 
 
 def test_controller_rejects_a_missing_keyframe_image():
+    video_controller, _ = build_video_controller(run=UnusedVideoRun())
+
     with pytest.raises(UnreadableImage):
-        VideoController(UnusedVideoRun()).run(
+        video_controller.run(
             payload(
                 references=[
                     {
@@ -160,3 +199,18 @@ def test_controller_rejects_a_missing_keyframe_image():
                 ]
             )
         )
+
+
+def test_controller_switches_only_the_video_catalog():
+    video_controller, catalog = build_video_controller()
+
+    video_controller.switch({"backend": "video-other"})
+
+    assert catalog.active_id() == "video-other"
+
+
+def test_controller_rejects_a_non_text_video_backend_id():
+    video_controller, _ = build_video_controller(run=UnusedVideoRun())
+
+    with pytest.raises(InvalidJob, match="backend must be a video model id"):
+        video_controller.run(payload(backend=17))

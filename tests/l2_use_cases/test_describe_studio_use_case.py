@@ -12,7 +12,10 @@ from studio.l1_entities.prompt_rewrite import PromptRewrite
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase
 from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
-from tests.support.fakes import FakeBackendGateway
+from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
+    InMemoryVideoBackendCatalogGateway,
+)
+from tests.support.fakes import FakeBackendGateway, FakeVideoBackendGateway
 
 
 class Rewriter(PromptRewriterGateway):
@@ -72,3 +75,22 @@ def test_a_backend_the_page_cannot_offer_is_left_off_the_list():
 def test_a_backend_with_no_rewriter_offers_no_rewrite_modes():
     view = DescribeStudioUseCase(catalog(), Rewriter(())).execute()
     assert view.rewrite_modes == ()
+
+
+def test_the_video_model_list_is_separate_from_the_image_model_list():
+    first_video = FakeVideoBackendGateway("first-video", "First video")
+    second_video = FakeVideoBackendGateway("second-video", "Second video")
+    video_catalog = InMemoryVideoBackendCatalogGateway(
+        {"first-video": first_video, "second-video": second_video},
+        default_id="second-video",
+        visible_ids=("first-video", "second-video"),
+    )
+
+    view = DescribeStudioUseCase(catalog(), Rewriter(()), video_catalog).execute()
+
+    assert view.active_video is not None
+    assert view.active_video.backend_id == "second-video"
+    assert view.video_backends == (
+        ("first-video", "First video", "A fake video model."),
+        ("second-video", "Second video", "A fake video model."),
+    )

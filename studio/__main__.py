@@ -28,7 +28,7 @@ DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Serve a local image generation page. The server logs and saves nothing."
+        description="Serve a local multimedia generation studio. The server logs and saves nothing."
     )
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8765, help="port (default 8765)")
@@ -80,14 +80,11 @@ def main():
     rewriters = rewriter_cache_line(config)
     if rewriters:
         print(rewriters, flush=True)
-    capabilities = studio.active_capabilities()
-    print(f"Loading {capabilities.name} ({capabilities.badge}).", flush=True)
-    try:
-        studio.prepare.execute()
-    except Exception as error:
-        sys.exit(f"Could not load the model: {error}")
     print(f"\nReady on http://{args.host}:{args.port}", flush=True)
-    print("Nothing is kept: edit and video files use temporary folders for each run. Ctrl-C to stop.\n", flush=True)
+    print(
+        "Models load on first use. Switching workspaces releases inactive model memory. Ctrl-C to stop.\n",
+        flush=True,
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

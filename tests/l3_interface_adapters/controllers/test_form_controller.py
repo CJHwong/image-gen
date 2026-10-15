@@ -43,6 +43,7 @@ def uses():
             "rewrite",
             "read_rewrite_progress",
             "cancel_rewrite",
+            "release_model",
         )
     }
 
@@ -102,6 +103,11 @@ def test_the_progress_is_the_one_the_use_case_reports(controller, uses):
 def test_a_cancel_stops_the_run_in_flight(controller, uses):
     controller.cancel()
     assert uses["cancel"].execute.call_count == 1
+
+
+def test_a_workspace_switch_releases_the_resident_model(controller, uses):
+    controller.release_model()
+    assert uses["release_model"].execute.call_count == 1
 
 
 def test_the_rewrite_state_is_the_one_the_use_case_reports(controller, uses):

@@ -1,10 +1,16 @@
 from abc import ABC, abstractmethod
 
+from studio.l1_entities.video_capabilities import VideoCapabilities
 from studio.l1_entities.video_job import VideoJob, VideoResult
+from studio.l2_use_cases.boundaries.model_lifecycle_gateway import ModelLifecycleGateway
 
 
-class VideoBackendGateway(ABC):
+class VideoBackendGateway(ModelLifecycleGateway, ABC):
     """The port used to create one video."""
+
+    @abstractmethod
+    def capabilities(self) -> VideoCapabilities:
+        """Return the settings this model accepts."""
 
     @abstractmethod
     def run(self, job: VideoJob) -> VideoResult:

@@ -13,6 +13,8 @@ class ConfigError(Exception):
 class Config:
     default_backend: str
     visible_backends: tuple[str, ...]
+    default_video_backend: str
+    visible_video_backends: tuple[str, ...]
     sections: dict
 
     def backend(self, backend_id: str) -> dict:
@@ -34,10 +36,20 @@ def load_config(path: Path, backend: str | None = None, quantize: int | None = N
     visible = tuple(raw.get("visible_backends", [default]))
     if default not in visible:
         visible = (default, *visible)
+    default_video = raw.get("default_video_backend", "ltx25")
+    visible_video = tuple(raw.get("visible_video_backends", [default_video]))
+    if default_video not in visible_video:
+        visible_video = (default_video, *visible_video)
     sections = {name: _settings(value, path.parent) for name, value in raw.items() if isinstance(value, dict)}
     if quantize is not None:
         sections.setdefault(default, {})["quantize"] = quantize or None
-    return Config(default_backend=default, visible_backends=visible, sections=sections)
+    return Config(
+        default_backend=default,
+        visible_backends=visible,
+        default_video_backend=default_video,
+        visible_video_backends=visible_video,
+        sections=sections,
+    )
 
 
 def _settings(section: dict, base: Path) -> dict:

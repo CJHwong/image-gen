@@ -1360,10 +1360,14 @@ function wire() {
     addFiles(event.dataTransfer.files);
   });
   document.addEventListener('paste', function (event) {
+    if (document.getElementById('form').dataset.mediaMode === 'video') return;
     const files = event.clipboardData ? event.clipboardData.files : [];
-    if (!files.length) return;  // a text paste goes to the field as usual
+    const images = Array.from(files || []).filter(function (file) {
+      return file.type.startsWith('image/');
+    });
+    if (!images.length) return;  // a text paste goes to the field as usual
     event.preventDefault();
-    addFiles(files);
+    addFiles(images);
   });
   document.getElementById('clear-reference').addEventListener('click', function () {
     page.setReferences([]);

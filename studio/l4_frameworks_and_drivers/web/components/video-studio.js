@@ -19,25 +19,52 @@ function readDataUrl(file) {
   });
 }
 
+function isImageFile(file) {
+  return file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|tiff?)$/i.test(file.name);
+}
+
+function isVideoFile(file) {
+  return file.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|ogv)$/i.test(file.name);
+}
+
 class VideoStudio extends LitElement {
   clips = [];
   imageReferences = [];
+  sourcePanel = null;
   selectedReferenceId = null;
   selectedClipId = null;
+  maxReferences = 8;
   currentTime = 0;
   duration = 0;
-  frameLimit = 145;
+  frameLimit = 121;
   error = '';
+  handleSourceClick = (event) => this.onComponentClick(event);
+  handleSourceChange = (event) => this.onComponentChange(event);
+  handleSourceInput = (event) => this.onComponentInput(event);
+  handleSourceDragOver = (event) => this.onSourceDragOver(event);
+  handleSourceDragLeave = (event) => this.onSourceDragLeave(event);
+  handleSourceDrop = (event) => this.onSourceDrop(event);
+  handleDocumentPaste = (event) => this.onPaste(event);
 
   createRenderRoot() { return this; }
 
   connectedCallback() {
     super.connectedCallback();
+    this.sourcePanel = document.getElementById('video-source-panel');
     this.addEventListener('click', this.onComponentClick);
     this.addEventListener('change', this.onComponentChange);
     this.addEventListener('input', this.onComponentInput);
     this.addEventListener('loadedmetadata', this.onMetadata, true);
     this.addEventListener('timeupdate', this.onTimeUpdate, true);
+    document.addEventListener('paste', this.handleDocumentPaste);
+    if (this.sourcePanel) {
+      this.sourcePanel.addEventListener('click', this.handleSourceClick);
+      this.sourcePanel.addEventListener('change', this.handleSourceChange);
+      this.sourcePanel.addEventListener('input', this.handleSourceInput);
+      this.sourcePanel.addEventListener('dragover', this.handleSourceDragOver);
+      this.sourcePanel.addEventListener('dragleave', this.handleSourceDragLeave);
+      this.sourcePanel.addEventListener('drop', this.handleSourceDrop);
+    }
   }
 
   disconnectedCallback() {
@@ -46,6 +73,15 @@ class VideoStudio extends LitElement {
     this.removeEventListener('input', this.onComponentInput);
     this.removeEventListener('loadedmetadata', this.onMetadata, true);
     this.removeEventListener('timeupdate', this.onTimeUpdate, true);
+    document.removeEventListener('paste', this.handleDocumentPaste);
+    if (this.sourcePanel) {
+      this.sourcePanel.removeEventListener('click', this.handleSourceClick);
+      this.sourcePanel.removeEventListener('change', this.handleSourceChange);
+      this.sourcePanel.removeEventListener('input', this.handleSourceInput);
+      this.sourcePanel.removeEventListener('dragover', this.handleSourceDragOver);
+      this.sourcePanel.removeEventListener('dragleave', this.handleSourceDragLeave);
+      this.sourcePanel.removeEventListener('drop', this.handleSourceDrop);
+    }
     super.disconnectedCallback();
     this.clips.forEach(function (clip) {
       if (clip.objectUrl) URL.revokeObjectURL(clip.url);
@@ -54,12 +90,18 @@ class VideoStudio extends LitElement {
 
   firstUpdated() {
     this.renderImageReferences();
+    this.renderSourceVideos();
     this.renderSelectedClip();
     this.renderError();
   }
 
   addImageReference(reference) {
     if (this.imageReferences.some(function (saved) { return saved.id === reference.id; })) return;
+    if (this.imageReferences.length >= this.maxReferences) {
+      this.setError('This video model accepts at most ' + this.maxReferences + ' image references.');
+      return;
+    }
+    this.clearError();
     this.imageReferences = this.imageReferences.concat({
       id: reference.id,
       name: reference.name,
@@ -99,7 +141,7 @@ class VideoStudio extends LitElement {
 
   setFrameLimit(frameCount) {
     this.frameLimit = frameCount;
-    this.querySelectorAll('[data-action="reference-frame"]').forEach((control) => {
+    document.querySelectorAll('#video-source-panel [data-action="reference-frame"]').forEach((control) => {
       control.max = String(frameCount - 1);
     });
     this.renderTimelineView(this.selectedClip());
@@ -113,15 +155,16 @@ class VideoStudio extends LitElement {
   }
 
   renderImageReferences() {
-    const list = this.querySelector('#video-references');
-    const count = this.querySelector('#video-reference-count');
+    const list = document.getElementById('video-references');
+    const count = document.getElementById('video-reference-count');
     if (!list || !count) return;
-    count.textContent = this.imageReferences.length + ' shared';
+    count.textContent = this.imageReferences.length
+      + (this.imageReferences.length === 1 ? ' keyframe' : ' keyframes');
     list.replaceChildren();
     if (!this.imageReferences.length) {
       const empty = document.createElement('span');
       empty.className = 'video-ref-empty';
-      empty.textContent = 'Share an image result or add a still.';
+      empty.textContent = 'Add an image or paste with ⌘V. Each still becomes a keyframe.';
       list.append(empty);
       return;
     }
@@ -185,9 +228,57 @@ class VideoStudio extends LitElement {
     });
   }
 
+  renderSourceVideos() {
+    const list = document.getElementById('video-source-list');
+    const count = document.getElementById('video-source-count');
+    if (!list || !count) return;
+    const sources = this.clips.filter((clip) => clip.kind === 'source');
+    count.textContent = sources.length + (sources.length === 1 ? ' clip' : ' clips');
+    list.replaceChildren();
+    if (!sources.length) {
+      const empty = document.createElement('span');
+      empty.className = 'video-source-empty';
+      empty.textContent = 'Add a clip to scrub frames from it.';
+      list.append(empty);
+      return;
+    }
+    sources.forEach((clip) => {
+      const item = document.createElement('div');
+      item.className = 'video-source-item';
+      const select = document.createElement('button');
+      select.type = 'button';
+      select.className = 'video-source';
+      if (clip.id === this.selectedClipId) select.classList.add('selected');
+      select.dataset.action = 'select-clip';
+      select.dataset.clipId = clip.id;
+      select.setAttribute('aria-label', 'Select source video ' + clip.name);
+      select.setAttribute('aria-pressed', String(clip.id === this.selectedClipId));
+      const thumbnail = document.createElement('span');
+      thumbnail.className = 'video-source-thumb';
+      thumbnail.textContent = 'VIDEO';
+      const name = document.createElement('span');
+      name.className = 'video-source-name';
+      name.textContent = clip.name;
+      const duration = document.createElement('span');
+      duration.className = 'video-source-duration';
+      duration.textContent = clip.duration ? formatTime(clip.duration) : 'Loading';
+      select.append(thumbnail, name, duration);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'video-source-remove';
+      remove.dataset.action = 'remove-clip';
+      remove.dataset.clipId = clip.id;
+      remove.setAttribute('aria-label', 'Remove source video ' + clip.name);
+      remove.textContent = '×';
+      item.append(select, remove);
+      list.append(item);
+    });
+  }
+
   requestPayload(settings) {
     return {
       prompt: settings.prompt,
+      backend: settings.backend,
       width: settings.width,
       height: settings.height,
       num_frames: settings.numFrames,
@@ -218,7 +309,8 @@ class VideoStudio extends LitElement {
     const duration = settings.numFrames / settings.frameRate;
     this.addClip({
       id: 'clip-' + nextClipId++,
-      name: 'LTX-2.5 ' + Math.round(settings.duration) + 's',
+      kind: 'generated',
+      name: (settings.modelName || 'Video') + ' ' + Math.round(settings.duration) + 's',
       url: URL.createObjectURL(blob),
       objectUrl: true,
       duration: duration,
@@ -229,6 +321,7 @@ class VideoStudio extends LitElement {
     const duration = result.num_frames / result.frame_rate;
     this.addClip({
       id: 'clip-' + nextClipId++,
+      kind: 'generated',
       name: 'LTX-2.5 stub ' + Math.round(duration) + 's',
       url: null,
       objectUrl: false,
@@ -244,6 +337,7 @@ class VideoStudio extends LitElement {
     this.duration = clip.duration || 0;
     this.error = '';
     this.renderError();
+    this.renderSourceVideos();
     this.renderSelectedClip();
   }
 
@@ -252,8 +346,8 @@ class VideoStudio extends LitElement {
     const control = event.target.closest('[data-action]');
     if (!control) return;
     const action = control.dataset.action;
-    if (action === 'add-video') this.querySelector('#video-upload').click();
-    if (action === 'add-image') this.querySelector('#video-image-upload').click();
+    if (action === 'add-video') document.getElementById('video-upload').click();
+    if (action === 'add-image') document.getElementById('video-image-upload').click();
     if (action === 'remove-reference') this.removeImageReference(control.dataset.referenceId);
     if (action === 'select-reference') this.selectReference(control.dataset.referenceId);
     if (action === 'remove-clip') this.removeClip(control.dataset.clipId);
@@ -283,34 +377,46 @@ class VideoStudio extends LitElement {
 
   onVideoFiles(event) {
     const input = event.target;
-    let addedClip = false;
-    Array.from(input.files || []).forEach((file) => {
-      if (!file.type.startsWith('video/')) {
-        this.setError('Choose a video file.');
-        return;
-      }
+    const files = Array.from(input.files || []);
+    input.value = '';
+    this.addVideoFiles(files);
+  }
+
+  addVideoFiles(files) {
+    const videos = Array.from(files).filter(isVideoFile);
+    const hasUnsupported = videos.length !== files.length;
+    if (!videos.length) {
+      this.setError('Choose a video file.');
+      return;
+    }
+    videos.forEach((file, index) => {
       const clip = {
         id: 'clip-' + nextClipId++,
+        kind: 'source',
         name: file.name,
         url: URL.createObjectURL(file),
         objectUrl: true,
         duration: 0,
       };
       this.clips = this.clips.concat(clip);
-      if (!this.selectedClipId) this.selectedClipId = clip.id;
-      addedClip = true;
+      if (index === 0) this.selectedClipId = clip.id;
     });
-    input.value = '';
-    if (addedClip) this.renderSelectedClip();
-    this.renderVideoGallery();
+    if (hasUnsupported) this.setError('Choose a video file.');
+    else this.clearError();
+    this.renderSourceVideos();
+    this.renderSelectedClip();
   }
 
   async onImageFiles(event) {
     const input = event.target;
     const files = Array.from(input.files || []);
     input.value = '';
+    await this.addImageFiles(files);
+  }
+
+  async addImageFiles(files) {
     for (const file of files) {
-      if (!file.type.startsWith('image/')) {
+      if (!isImageFile(file)) {
         this.setError('Choose an image file.');
         continue;
       }
@@ -328,6 +434,52 @@ class VideoStudio extends LitElement {
     }
   }
 
+  async addMediaFiles(files) {
+    const images = Array.from(files).filter(isImageFile);
+    const videos = Array.from(files).filter(isVideoFile);
+    const unsupported = Array.from(files).filter((file) => !isImageFile(file) && !isVideoFile(file));
+    if (images.length) await this.addImageFiles(images);
+    if (videos.length) this.addVideoFiles(videos);
+    if (unsupported.length) this.setError('Choose image or video files.');
+    else if (images.length || videos.length) this.clearError();
+  }
+
+  clipboardFiles(event) {
+    const clipboard = event.clipboardData;
+    if (!clipboard) return [];
+    const files = Array.from(clipboard.files || []);
+    if (files.length) return files;
+    return Array.from(clipboard.items || []).filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile()).filter(Boolean);
+  }
+
+  onPaste(event) {
+    if (this.hidden) return;
+    const files = this.clipboardFiles(event);
+    const media = files.filter((file) => isImageFile(file) || isVideoFile(file));
+    if (!media.length) return;
+    event.preventDefault();
+    this.addMediaFiles(media);
+  }
+
+  onSourceDragOver(event) {
+    if (!Array.from(event.dataTransfer?.types || []).includes('Files')) return;
+    event.preventDefault();
+    this.sourcePanel.classList.add('drop-over');
+  }
+
+  onSourceDragLeave(event) {
+    if (event.relatedTarget instanceof Node && this.sourcePanel.contains(event.relatedTarget)) return;
+    this.sourcePanel.classList.remove('drop-over');
+  }
+
+  onSourceDrop(event) {
+    event.preventDefault();
+    this.sourcePanel.classList.remove('drop-over');
+    const files = Array.from(event.dataTransfer?.files || []);
+    if (files.length) this.addMediaFiles(files);
+  }
+
   selectedClip() {
     return this.clips.find((clip) => clip.id === this.selectedClipId) || null;
   }
@@ -339,6 +491,7 @@ class VideoStudio extends LitElement {
     this.duration = clip ? clip.duration || 0 : 0;
     this.error = '';
     this.renderError();
+    this.renderSourceVideos();
     this.renderSelectedClip();
   }
 
@@ -353,6 +506,7 @@ class VideoStudio extends LitElement {
       this.duration = selected ? selected.duration || 0 : 0;
       this.renderSelectedClip();
     }
+    this.renderSourceVideos();
     this.renderVideoGallery();
   }
 
@@ -364,6 +518,7 @@ class VideoStudio extends LitElement {
     this.duration = clip.duration;
     this.currentTime = video.currentTime || 0;
     this.renderTimelineView(clip);
+    this.renderSourceVideos();
     this.renderVideoGallery();
   }
 
@@ -450,7 +605,7 @@ class VideoStudio extends LitElement {
             <span>00:00</span><span>${formatTime(quarter)}</span>
             <span>${formatTime(quarter * 2)}</span><span>${formatTime(quarter * 3)}</span>
             <span>${formatTime(duration)}</span>
-          </div>` : html`<p class="source-empty">Import a clip to scrub it and capture a frame.</p>`}
+          </div>` : html`<p class="source-empty">Choose a source video in the sidebar to scrub it and capture a frame.</p>`}
         <div class="timeline-track source-track" style=${'--playhead: ' + (clip ? Math.min(100, this.currentTime / duration * 100) : 0) + '%'}>
           <span class="track-name">V1</span>
           <div class="timeline-rail">
@@ -512,7 +667,7 @@ class VideoStudio extends LitElement {
       return;
     }
     const duration = this.duration || (this.selectedClip() && this.selectedClip().duration) || 0;
-    renderTemplate(html`${formatTime(this.currentTime)} / ${formatTime(duration)}`, value);
+    value.textContent = formatTime(this.currentTime) + ' / ' + formatTime(duration);
   }
 
   renderVideoGallery() {
@@ -526,12 +681,12 @@ class VideoStudio extends LitElement {
   }
 
   renderGallery() {
-    const duration = this.duration || (this.selectedClip() && this.selectedClip().duration) || 0;
+    const outputs = this.clips.filter((clip) => clip.kind === 'generated');
     return html`
       <section class="video-gallery" id="video-gallery" aria-label="Video gallery">
-        <div class="video-gallery-head"><strong>Video gallery</strong><span>${this.clips.length} clips</span></div>
+        <div class="video-gallery-head"><strong>Video gallery</strong><span>${outputs.length}${outputs.length === 1 ? ' clip' : ' clips'}</span></div>
         <div class="video-clips">
-          ${this.clips.map((clip) => html`
+          ${outputs.length ? outputs.map((clip) => html`
             <div class="video-gallery-item">
               <button class="video-clip${clip.id === this.selectedClipId ? ' selected' : ''}"
                 type="button" aria-label=${'Select video ' + clip.name} aria-pressed=${clip.id === this.selectedClipId}
@@ -541,7 +696,7 @@ class VideoStudio extends LitElement {
               </button>
               <button class="video-clip-remove" type="button" aria-label=${'Remove video ' + clip.name}
                 data-action="remove-clip" data-clip-id=${clip.id}>Remove</button>
-            </div>`)}
+            </div>`) : html`<span class="video-gallery-empty">Generated clips appear here.</span>`}
         </div>
       </section>`;
   }
@@ -551,8 +706,7 @@ class VideoStudio extends LitElement {
       return html`<div class="video-empty">
         <div class="video-empty-mark">VIDEO</div>
         <strong>Build a video sequence</strong>
-        <span>Import a clip to scrub its timeline and send a frame to Image.</span>
-        <button class="btn" type="button" data-action="add-video">Add video</button>
+        <span>Add a source clip in the right panel to scrub frames and send a still to Image.</span>
       </div>`;
     }
     return html`<div class="video-preview-pane">
@@ -572,23 +726,13 @@ class VideoStudio extends LitElement {
       <div class="video-studio-shell">
         <header class="video-studio-head">
           <div><span class="eyebrow">VIDEO WORKSPACE</span><strong>Sequence</strong></div>
-          <button class="pill" type="button" data-action="add-video">Add clip</button>
         </header>
         <div class="video-preview-area" id="video-preview-root"></div>
         <div class="video-editing-area">
           <div id="video-timeline-root"></div>
-          <section class="video-reference-tray" aria-label="Image references for video">
-            <div class="video-reference-head">
-              <div><strong>Image references</strong><span id="video-reference-count">0 shared</span></div>
-              <button class="text-btn" type="button" data-action="add-image">Add image</button>
-            </div>
-            <div class="video-references" id="video-references"></div>
-          </section>
           <div id="video-error-root"></div>
           <div id="video-gallery-root"></div>
         </div>
-        <input id="video-upload" type="file" accept="video/*" multiple hidden>
-        <input id="video-image-upload" type="file" accept="image/*" multiple hidden>
       </div>
     `;
   }
