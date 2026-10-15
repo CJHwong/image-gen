@@ -54,7 +54,8 @@ class Ltx25Runner:
             raise StudioError("Set python_path under [ltx25] to the LTX-2.5 Python environment.")
         configured_path = Path(self._python_path).expanduser()
         if configured_path.is_file():
-            return str(configured_path.resolve())
+            # Keep venv symlinks intact; resolving one bypasses its site-packages.
+            return str(configured_path.absolute())
         command_path = shutil.which(self._python_path)
         if command_path:
             return command_path

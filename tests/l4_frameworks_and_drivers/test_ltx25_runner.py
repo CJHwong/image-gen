@@ -168,10 +168,27 @@ def test_runner_accepts_a_python_executable_path(tmp_path):
     weights(model_dir)
 
     def fake_process(command, **options):
-        assert command[0] == str(Path(sys.executable).resolve())
+        assert command[0] == str(Path(sys.executable).absolute())
         Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4")
 
     result = Ltx25Runner(sys.executable, model_dir, process_runner=fake_process).run(job())
+
+    assert result.mp4 == b"mp4"
+
+
+def test_runner_preserves_a_virtual_environment_python_symlink(tmp_path):
+    model_dir = tmp_path / "ltx-models"
+    model_dir.mkdir()
+    weights(model_dir)
+    python_link = tmp_path / "venv" / "bin" / "python"
+    python_link.parent.mkdir(parents=True)
+    python_link.symlink_to(sys.executable)
+
+    def fake_process(command, **options):
+        assert command[0] == str(python_link)
+        Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4")
+
+    result = Ltx25Runner(str(python_link), model_dir, process_runner=fake_process).run(job())
 
     assert result.mp4 == b"mp4"
 
