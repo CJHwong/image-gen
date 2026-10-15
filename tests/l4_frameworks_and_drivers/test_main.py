@@ -10,7 +10,12 @@ import pytest
 
 from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
 from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
-from studio.l4_frameworks_and_drivers.main import assemble_studio, build_backends, build_rewriters
+from studio.l4_frameworks_and_drivers.main import (
+    assemble_studio,
+    build_backends,
+    build_rewriters,
+    build_video_backends,
+)
 from tests.support.fakes import FakeBackendGateway
 
 
@@ -23,6 +28,42 @@ def settings(tmp_path: Path, text: str, **flags):
 def test_only_the_offered_backends_are_built(tmp_path: Path):
     config = settings(tmp_path, 'default_backend = "qwen21"\n[qwen21]\nquantize = 0\n')
     assert list(build_backends(config)) == ["qwen21"]
+
+
+def test_video_models_have_an_independent_default_and_visible_list(tmp_path: Path):
+    config = settings(
+        tmp_path,
+        'default_backend = "qwen21"\n'
+        'default_video_backend = "ltx25"\n'
+        'visible_video_backends = ["ltx25"]\n'
+        "[qwen21]\nquantize = 0\n",
+    )
+
+    assert config.default_video_backend == "ltx25"
+    assert config.visible_video_backends == ("ltx25",)
+    assert list(build_video_backends(config)) == ["ltx25"]
+
+
+def test_video_default_is_added_when_the_visible_list_omits_it(tmp_path: Path):
+    config = settings(
+        tmp_path,
+        'default_backend = "qwen21"\n'
+        'default_video_backend = "ltx25"\n'
+        'visible_video_backends = ["future-model"]\n'
+        "[qwen21]\nquantize = 0\n",
+    )
+
+    assert config.visible_video_backends == ("ltx25", "future-model")
+
+
+def test_a_video_backend_the_app_does_not_know_is_named(tmp_path: Path):
+    config = settings(
+        tmp_path,
+        'default_backend = "qwen21"\ndefault_video_backend = "mystery"\n[qwen21]\nquantize = 0\n',
+    )
+
+    with pytest.raises(ConfigError, match="no video backend called mystery"):
+        build_video_backends(config)
 
 
 def test_a_missing_setting_is_named(tmp_path: Path):
@@ -144,10 +185,8 @@ def test_shutdown_stops_the_run_before_it_frees_the_backend(served):
     assert "Cancelled" in answers[0][1] and backend.events == ["release"]
 
 
-def test_shutdown_without_a_rewriter_still_frees_the_backends(served):
-    """The rewriter is optional: a settings file that names no rewrite model leaves it
-    None, and the page hides the toggle. Shutdown must free the backends and skip the
-    rewriter rather than trip over it."""
+def test_shutdown_without_a_rewriter_skips_unused_model_adapters(served):
+    """The rewriter is optional, and an unused backend has no model memory to release."""
     studio, _, backend, _ = served
     replace(studio, rewriter=None).shutdown()
-    assert backend.events == ["release"]
+    assert backend.events == []

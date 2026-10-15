@@ -74,6 +74,44 @@ def test_gateway_downloads_official_checkpoint_before_loading_any_model(tmp_path
     assert generator.events == ["load"]
 
 
+def test_gateway_downloads_official_checkpoint_on_first_generate_run(tmp_path, monkeypatch):
+    generator, edit = FakeModel(), FakeModel()
+    model_dir = tmp_path / "missing"
+    downloads = []
+
+    def download_checkpoint(destination):
+        downloads.append(destination)
+        checkpoint(destination)
+
+    monkeypatch.setattr(gateway_module, "download_official_checkpoint", download_checkpoint)
+    gateway = OfficialQwenTurboBackendGateway(generator, edit, "bf16", str(model_dir))
+
+    gateway.run(image_job("generate"), lambda *_: None, lambda: False)
+    gateway.run(image_job("generate"), lambda *_: None, lambda: False)
+
+    assert downloads == [model_dir]
+    assert generator.events == [("run", "generate"), ("run", "generate")]
+
+
+def test_gateway_downloads_official_checkpoint_on_first_edit_run(tmp_path, monkeypatch):
+    generator, edit = FakeModel(), FakeModel()
+    model_dir = tmp_path / "missing"
+    downloads = []
+
+    def download_checkpoint(destination):
+        downloads.append(destination)
+        checkpoint(destination)
+
+    monkeypatch.setattr(gateway_module, "download_official_checkpoint", download_checkpoint)
+    gateway = OfficialQwenTurboBackendGateway(generator, edit, "bf16", str(model_dir))
+
+    gateway.run(image_job("edit"), lambda *_: None, lambda: False)
+
+    assert downloads == [model_dir]
+    assert generator.events == ["release"]
+    assert edit.events == [("run", "edit")]
+
+
 def test_gateway_reports_download_failure_without_loading_a_model(tmp_path, monkeypatch):
     generator, edit = FakeModel(), FakeModel()
     monkeypatch.setattr(

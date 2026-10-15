@@ -25,6 +25,7 @@ from studio.l1_entities.errors import (
 from studio.l1_entities.image_job import ImageJob, ImageResult, ReferenceImage
 from studio.l2_use_cases.boundaries.backend_catalog_gateway import BackendCatalogGateway
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
+from studio.l2_use_cases.boundaries.model_residency_gateway import ModelResidencyGateway
 from studio.l2_use_cases.boundaries.progress_gateway import ProgressGateway
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.boundaries.reference_store_gateway import ReferenceStoreGateway
@@ -84,6 +85,8 @@ class RunImageUseCase:
         clock: Callable[[], float] = time.time,
         engine_lock: "threading.Lock | None" = None,
         rewriter: PromptRewriterGateway | None = None,
+        *,
+        residency: ModelResidencyGateway,
     ):
         self._catalog = catalog
         self._progress = progress
@@ -91,6 +94,7 @@ class RunImageUseCase:
         self._seed_source = seed_source
         self._clock = clock
         self._rewriter = rewriter
+        self._residency = residency
         # One run at a time: the GPU is saturated by one, and two only slow each other.
         # A switch takes the same lock, so the backend cannot change under a run.
         self._engine_lock = engine_lock or threading.Lock()
@@ -142,7 +146,7 @@ class RunImageUseCase:
             raise MissingPrompt(mode.prompt_required)
         label = f"{request.index} of {request.total}" if request.total > 1 else ""
         try:
-            image = self._run(backend, job, label)
+            image = self._run(backend, backend_id, job, label)
         except Exception:
             self._drop(token)  # either way the batch ends here
             raise
@@ -179,7 +183,7 @@ class RunImageUseCase:
             raise InvalidJob("seed must be a whole number")
         return int(text)
 
-    def _run(self, backend: ImageBackendGateway, job: ImageJob, label: str) -> ImageResult:
+    def _run(self, backend: ImageBackendGateway, backend_id: str, job: ImageJob, label: str) -> ImageResult:
         if self._progress.consume_cancel():
             raise Cancelled("stopped before this image started")
         # The rewriter is a second model and does not fit beside an engine on a
@@ -187,6 +191,7 @@ class RunImageUseCase:
         # rebuild after a rewrite, 3.8s for mflux.
         if self._rewriter is not None:
             self._rewriter.release()
+        self._residency.activate(backend_id)
         self._progress.begin(label)
         try:
             return backend.run(job, self._progress.set_step, self._progress.cancel_requested)

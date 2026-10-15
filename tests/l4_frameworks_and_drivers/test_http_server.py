@@ -12,11 +12,10 @@ import pytest
 
 from studio.l1_entities.errors import BackendBusy, StudioError
 from studio.l1_entities.video_job import VideoJob, VideoResult
-from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
 from studio.l3_interface_adapters.gateways.prompt_rewriters import StubPromptRewriter
 from studio.l4_frameworks_and_drivers import http_server
 from studio.l4_frameworks_and_drivers.main import assemble_studio
-from tests.support.fakes import FakeBackendGateway
+from tests.support.fakes import FakeBackendGateway, FakeVideoBackendGateway
 
 
 def fast(rewriter):
@@ -26,11 +25,11 @@ def fast(rewriter):
     return rewriter
 
 
-class FakeVideoBackend(VideoBackendGateway):
+class FakeVideoBackend(FakeVideoBackendGateway):
     def __init__(self):
+        super().__init__("video-fake", "Fake video")
         self.failure = None
         self.result = None
-        self.jobs = []
 
     def run(self, job: VideoJob) -> VideoResult:
         self.jobs.append(job)
@@ -51,10 +50,19 @@ def served():
     backends = {"fake": FakeBackendGateway(), "other": FakeBackendGateway("other", "Other")}
     rewriters = {name: fast(StubPromptRewriter()) for name in backends}
     video_backend = FakeVideoBackend()
-    studio = assemble_studio(backends, rewriters, "fake", ("fake", "other"), video_backend)
+    other_video = FakeVideoBackendGateway("video-other", "Other video")
+    studio = assemble_studio(
+        backends,
+        rewriters,
+        "fake",
+        ("fake", "other"),
+        video_backends={"video-fake": video_backend, "video-other": other_video},
+        default_video_id="video-fake",
+        visible_video_ids=("video-fake", "video-other"),
+    )
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield studio, server, video_backend
+    yield studio, server, video_backend, other_video
     server.shutdown()
     server.server_close()
 
@@ -74,6 +82,13 @@ def test_the_root_route_serves_the_page(served):
     status, content_type, body = call(served[1], "/")
     assert status == 200 and content_type == "text/html; charset=utf-8"
     assert "<title>Fake</title>" in body and '<input type="hidden" name="backend" value="fake">' in body
+
+
+def test_the_root_route_keeps_the_selected_workspace_in_the_url(served):
+    status, content_type, body = call(served[1], "/?workspace=video")
+
+    assert status == 200 and content_type == "text/html; charset=utf-8"
+    assert '"video": {"backend": {"id": "video-fake"' in body
 
 
 def test_the_progress_route_hands_back_the_next_poll(served):
@@ -259,6 +274,26 @@ def test_video_route_rejects_a_video_result_without_mp4_bytes(served):
     assert json.loads(response[2])["error"] == "The video backend returned no MP4 file."
 
 
+def test_video_model_route_changes_only_the_video_selection(served):
+    status, _, body = call(served[1], "/video/backend", b"backend=video-other")
+    page_status, _, page = call(served[1], "/")
+
+    assert status == 200 and body == ""
+    assert page_status == 200 and '"id": "video-other"' in page
+    assert served[0].catalog.active_id() == "fake"
+    assert served[0].video_catalog.active_id() == "video-other"
+    assert served[3].jobs == []
+
+
+def test_workspace_route_releases_the_resident_model(served):
+    image_status, _, _ = call(served[1], "/generate", b"prompt=a cat&steps=1")
+    release_status, _, release_body = call(served[1], "/workspace", b"workspace=video")
+
+    assert image_status == 200 and release_status == 200 and release_body == ""
+    assert served[0].residency.active_id() is None
+    assert served[0].catalog.get("fake")._backend.events == ["release"]
+
+
 def test_video_route_is_unavailable_without_a_video_backend():
     backends = {"fake": FakeBackendGateway()}
     rewriters = {"fake": fast(StubPromptRewriter())}
@@ -268,6 +303,23 @@ def test_video_route_is_unavailable_without_a_video_backend():
 
     try:
         response = post_video(server, video_request())
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert response[0] == 503
+    assert json.loads(response[2])["error"] == "Video generation is not configured."
+
+
+def test_video_model_switch_is_unavailable_without_a_video_backend():
+    backends = {"fake": FakeBackendGateway()}
+    rewriters = {"fake": fast(StubPromptRewriter())}
+    studio = assemble_studio(backends, rewriters, "fake", ("fake",))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    try:
+        response = call(server, "/video/backend", b"backend=ltx25")
     finally:
         server.shutdown()
         server.server_close()

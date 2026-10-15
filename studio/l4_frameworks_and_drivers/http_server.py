@@ -3,7 +3,7 @@
 import json
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 from studio.l1_entities.errors import BackendBusy, InvalidJob, StudioError, UnreadableImage
 from studio.l3_interface_adapters.controllers.form_controller import FormController
@@ -31,7 +31,7 @@ def make_handler(
             this is wanted on disk or on the terminal."""
 
         def do_GET(self):
-            if self.path == "/":
+            if urlsplit(self.path).path == "/":
                 self._send(presenter.page(controller.page()))
             elif self.path == "/progress":
                 self._send(presenter.progress(controller.progress()))
@@ -59,6 +59,13 @@ def make_handler(
                 self._send("", status=204, content_type="text/plain")
             elif self.path == "/backend":
                 self._send(self._outcome(lambda: controller.switch(form) or ""))
+            elif self.path == "/video/backend":
+                if video_controller is None:
+                    self._send_json({"error": "Video generation is not configured."}, status=503)
+                else:
+                    self._send(self._outcome(lambda: video_controller.switch(form) or ""))
+            elif self.path == "/workspace":
+                self._send(self._outcome(lambda: controller.release_model() or ""))
             elif self.path == "/rewrite":
                 # The page reads this one as data, so a failure arrives as JSON
                 # too. The other routes send HTML, which the page appends or toasts.

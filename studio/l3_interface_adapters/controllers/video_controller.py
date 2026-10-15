@@ -8,35 +8,44 @@ from collections.abc import Mapping
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from studio.l1_entities.errors import InvalidJob, UnreadableImage
+from studio.l1_entities.video_capabilities import VideoCapabilities
 from studio.l1_entities.video_job import VideoJob, VideoReference, VideoResult
+from studio.l2_use_cases.boundaries.video_backend_catalog_gateway import VideoBackendCatalogGateway
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
-
-MAX_REFERENCES = 8
-MAX_FRAMES = 361
-MIN_FRAMES = 9
-FRAME_GRID = 8
-SIZE_GRID = 32
-MIN_SIZE = 256
-MAX_SIZE = 1280
-FRAME_RATE = 24
+from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
 
 
 class VideoController:
-    def __init__(self, run: RunVideoUseCase):
+    def __init__(
+        self,
+        run: RunVideoUseCase,
+        catalog: VideoBackendCatalogGateway,
+        switch: SwitchVideoBackendUseCase,
+    ):
         self._run = run
+        self._catalog = catalog
+        self._switch = switch
 
     def run(self, payload: Mapping) -> VideoResult:
-        return self._run.execute(video_job(payload))
+        backend_id = payload.get("backend") or self._catalog.active_id()
+        if not isinstance(backend_id, str):
+            raise InvalidJob("backend must be a video model id")
+        backend = self._catalog.get(backend_id)
+        return self._run.execute(video_job(payload, backend.capabilities()), backend_id)
+
+    def switch(self, form: Mapping[str, str]) -> None:
+        self._switch.execute(form.get("backend", ""))
 
 
-def video_job(payload: Mapping) -> VideoJob:
+def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
     prompt = _prompt(payload.get("prompt"))
-    width = _dimension(payload.get("width"), "width")
-    height = _dimension(payload.get("height"), "height")
-    num_frames = _frame_count(payload.get("num_frames"))
-    frame_rate = _frame_rate(payload.get("frame_rate"))
+    width = _dimension(payload.get("width"), "width", capabilities)
+    height = _dimension(payload.get("height"), "height", capabilities)
+    _shape(width, height, capabilities)
+    num_frames = _frame_count(payload.get("num_frames"), capabilities)
+    frame_rate = _frame_rate(payload.get("frame_rate"), capabilities)
     seed = _seed(payload.get("seed"))
-    references = _references(payload.get("references", []), num_frames)
+    references = _references(payload.get("references", []), num_frames, capabilities.max_references)
     return VideoJob(prompt, width, height, num_frames, frame_rate, seed, references)
 
 
@@ -46,25 +55,42 @@ def _prompt(value) -> str:
     return value.strip()
 
 
-def _dimension(value, name: str) -> int:
+def _dimension(value, name: str, capabilities: VideoCapabilities) -> int:
     if type(value) is not int:
         raise InvalidJob(f"{name} must be a whole number")
-    if not MIN_SIZE <= value <= MAX_SIZE or value % SIZE_GRID:
-        raise InvalidJob(f"{name} must be between {MIN_SIZE} and {MAX_SIZE}, on a {SIZE_GRID}-pixel grid")
+    if not capabilities.min_dimension <= value <= capabilities.max_dimension or value % capabilities.dimension_step:
+        raise InvalidJob(
+            f"{name} must be between {capabilities.min_dimension} and {capabilities.max_dimension}, "
+            f"on a {capabilities.dimension_step}-pixel grid"
+        )
     return value
 
 
-def _frame_count(value) -> int:
+def _shape(width: int, height: int, capabilities: VideoCapabilities) -> None:
+    if any(shape.width == width and shape.height == height for shape in capabilities.shapes):
+        return
+    choices = ", ".join(shape.ratio for shape in capabilities.shapes)
+    raise InvalidJob(f"width and height must match a supported video shape: {choices}")
+
+
+def _frame_count(value, capabilities: VideoCapabilities) -> int:
     if type(value) is not int:
         raise InvalidJob("num_frames must be a whole number")
-    if not MIN_FRAMES <= value <= MAX_FRAMES or (value - 1) % FRAME_GRID:
-        raise InvalidJob("num_frames must be 8k + 1, between 9 and 361")
+    frame_offset = capabilities.min_frames % capabilities.frame_step
+    if (
+        not capabilities.min_frames <= value <= capabilities.max_frames
+        or (value - frame_offset) % capabilities.frame_step
+    ):
+        raise InvalidJob(
+            f"num_frames must be {capabilities.frame_step}k + {frame_offset}, "
+            f"between {capabilities.min_frames} and {capabilities.max_frames}"
+        )
     return value
 
 
-def _frame_rate(value) -> int:
-    if type(value) is not int or value != FRAME_RATE:
-        raise InvalidJob(f"frame_rate must be {FRAME_RATE}")
+def _frame_rate(value, capabilities: VideoCapabilities) -> int:
+    if type(value) is not int or value != capabilities.frame_rate:
+        raise InvalidJob(f"frame_rate must be {capabilities.frame_rate}")
     return value
 
 
@@ -76,11 +102,11 @@ def _seed(value) -> int | None:
     return value
 
 
-def _references(values, num_frames: int) -> tuple[VideoReference, ...]:
+def _references(values, num_frames: int, max_references: int) -> tuple[VideoReference, ...]:
     if not isinstance(values, list):
         raise InvalidJob("references must be a list")
-    if len(values) > MAX_REFERENCES:
-        raise InvalidJob(f"A video can use at most {MAX_REFERENCES} image references")
+    if len(values) > max_references:
+        raise InvalidJob(f"A video can use at most {max_references} image references")
     return tuple(_reference(value, num_frames) for value in values)
 
 

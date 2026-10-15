@@ -17,6 +17,7 @@ from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase, StudioView
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
 from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
+from studio.l2_use_cases.release_model_use_case import ReleaseModelUseCase
 from studio.l2_use_cases.rewrite_prompt_use_case import RewritePromptUseCase, RewriteRequest, RewriteResponse
 from studio.l2_use_cases.run_image_use_case import RunImageRequest, RunImageResponse, RunImageUseCase
 from studio.l2_use_cases.switch_backend_use_case import SwitchBackendUseCase
@@ -33,6 +34,7 @@ class FormController:
         rewrite: RewritePromptUseCase,
         read_rewrite_progress: ReadRewriteProgressUseCase,
         cancel_rewrite: CancelRewriteUseCase,
+        release_model: ReleaseModelUseCase,
     ):
         self._describe = describe
         self._run = run
@@ -42,6 +44,7 @@ class FormController:
         self._rewrite = rewrite
         self._read_rewrite_progress = read_rewrite_progress
         self._cancel_rewrite = cancel_rewrite
+        self._release_model = release_model
 
     def page(self) -> StudioView:
         return self._describe.execute()
@@ -63,6 +66,9 @@ class FormController:
 
     def cancel_rewrite(self) -> None:
         self._cancel_rewrite.execute()
+
+    def release_model(self) -> None:
+        self._release_model.execute()
 
     def switch(self, form: Mapping[str, str]) -> None:
         self._switch.execute(form.get("backend", ""))

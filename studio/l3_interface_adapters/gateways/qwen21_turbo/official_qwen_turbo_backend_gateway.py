@@ -29,11 +29,18 @@ class OfficialQwenTurboBackendGateway(ImageBackendGateway):
         self._edit = edit
         self._badge = badge
         self._model_dir = Path(model_dir).expanduser()
+        self._checkpoint_ready = False
 
     def capabilities(self):
         return qwen21_turbo_capabilities(self._badge)
 
     def load(self) -> None:
+        self._ensure_checkpoint()
+        self._generator.load()
+
+    def _ensure_checkpoint(self) -> None:
+        if self._checkpoint_ready:
+            return
         missing = missing_checkpoint_files(self._model_dir)
         if missing:
             download_official_checkpoint(self._model_dir)
@@ -42,9 +49,10 @@ class OfficialQwenTurboBackendGateway(ImageBackendGateway):
                 paths = ", ".join(missing)
                 raise StudioError(f"The official Qwen Turbo download at {self._model_dir} is incomplete: {paths}.")
         ensure_text_encoder_index(self._model_dir)
-        self._generator.load()
+        self._checkpoint_ready = True
 
     def run(self, job: ImageJob, on_step, should_stop):
+        self._ensure_checkpoint()
         if job.mode == "edit":
             self._generator.release()
             return self._edit.run(job, on_step, should_stop)
@@ -54,6 +62,7 @@ class OfficialQwenTurboBackendGateway(ImageBackendGateway):
     def release(self) -> None:
         self._generator.release()
         self._edit.release()
+        self._checkpoint_ready = False
 
 
 def missing_checkpoint_files(model_dir: Path) -> list[str]:

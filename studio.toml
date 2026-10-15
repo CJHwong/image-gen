@@ -3,6 +3,9 @@
 # on the command line opens on another one and adds it to the list.
 default_backend = "qwen21_turbo"
 visible_backends = ["qwen21_turbo", "qwen21", "viggle_turbo"]
+# Video has its own model choice and picker in the Video workspace.
+default_video_backend = "ltx25"
+visible_video_backends = ["ltx25"]
 
 [qwen21]
 quantize = 0                              # 0 is bf16; -q on the command line overrides it
