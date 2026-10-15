@@ -16,6 +16,8 @@ FILES = (
     "model_patches/ltx-2.5-duration-head-bf16.safetensors",
     "latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors",
 )
+LIVE_MODEL_DIR = Path.home() / "Library/Caches/models/ltx-2.5"
+LIVE_PYTHON_PATH = Path.home() / "Workspace/LTX-2/.venv/bin/python"
 
 
 def weights(root):
@@ -23,6 +25,10 @@ def weights(root):
         model_file = root / relative_path
         model_file.parent.mkdir(parents=True, exist_ok=True)
         model_file.write_bytes(b"local model placeholder")
+
+
+def live_runtime_ready():
+    return LIVE_PYTHON_PATH.is_file() and all((LIVE_MODEL_DIR / relative_path).is_file() for relative_path in FILES)
 
 
 def job(references=()):
@@ -64,9 +70,78 @@ def test_runner_builds_official_distilled_command_and_returns_the_mp4(tmp_path):
     assert not Path(command[image_flags[1] + 1]).exists()
 
 
-def test_runner_refuses_to_download_missing_local_weights(tmp_path):
-    with pytest.raises(StudioError, match="local weights are missing"):
-        Ltx25Runner("python", tmp_path / "missing").run(job())
+def test_runner_downloads_missing_weights_once_on_first_generation(tmp_path):
+    model_dir = tmp_path / "ltx-models"
+    downloads = []
+    generations = []
+
+    def fake_download(target_dir):
+        downloads.append(target_dir)
+        weights(target_dir)
+
+    def fake_process(command, **options):
+        generations.append(command)
+        Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4")
+
+    runner = Ltx25Runner(
+        "python",
+        model_dir,
+        process_runner=fake_process,
+        model_downloader=fake_download,
+    )
+
+    runner.run(job())
+    runner.run(job())
+
+    assert downloads == [model_dir]
+    assert len(generations) == 2
+
+
+def test_default_downloader_requests_official_files_from_hugging_face(tmp_path, monkeypatch):
+    model_dir = tmp_path / "ltx-models"
+    downloads = []
+
+    def fake_download(**options):
+        downloads.append(options)
+        weights(options["local_dir"])
+
+    def fake_process(command, **options):
+        Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4")
+
+    monkeypatch.setattr("huggingface_hub.snapshot_download", fake_download)
+
+    Ltx25Runner("python", model_dir, process_runner=fake_process).run(job())
+
+    assert downloads == [
+        {
+            "repo_id": "Lightricks/LTX-2.5",
+            "allow_patterns": list(FILES),
+            "local_dir": model_dir,
+        }
+    ]
+
+
+def test_runner_reports_model_download_failure(tmp_path, monkeypatch):
+    def fail_download(**_options):
+        raise RuntimeError("access denied")
+
+    monkeypatch.setattr("huggingface_hub.snapshot_download", fail_download)
+    runner = Ltx25Runner("python", tmp_path / "ltx-models")
+
+    with pytest.raises(StudioError, match=r"LTX-2\.5 weights download failed"):
+        runner.run(job())
+
+
+@pytest.mark.parametrize("model_dir", ["", "."])
+def test_runner_refuses_to_download_into_the_current_directory(tmp_path, monkeypatch, model_dir):
+    downloads = []
+    monkeypatch.chdir(tmp_path)
+    runner = Ltx25Runner("python", model_dir, model_downloader=lambda target_dir: downloads.append(target_dir))
+
+    with pytest.raises(StudioError, match="dedicated model_dir"):
+        runner.run(job())
+
+    assert downloads == []
 
 
 def test_runner_reports_a_missing_python_environment(tmp_path):
@@ -105,8 +180,11 @@ def test_runner_reports_incomplete_local_weights(tmp_path):
     model_dir = tmp_path / "ltx-models"
     model_dir.mkdir()
 
+    def no_download(_target_dir):
+        return None
+
     with pytest.raises(StudioError, match="local weights are incomplete"):
-        Ltx25Runner("python", model_dir).run(job())
+        Ltx25Runner("python", model_dir, model_downloader=no_download).run(job())
 
 
 def test_runner_omits_seed_and_image_flags_when_not_selected(tmp_path):
@@ -171,3 +249,15 @@ def test_runner_requires_the_pipeline_to_write_an_output_file(tmp_path):
 
     with pytest.raises(StudioError, match="did not write an MP4"):
         Ltx25Runner("python", model_dir, process_runner=lambda command, **options: None).run(job())
+
+
+@pytest.mark.live
+@pytest.mark.skipif(not live_runtime_ready(), reason="no local LTX-2.5 runtime and weights")
+def test_live_runner_generates_a_short_video_clip():
+    result = Ltx25Runner(str(LIVE_PYTHON_PATH), LIVE_MODEL_DIR).run(
+        VideoJob("A red paper kite rises above a calm beach", 768, 768, 9, 24, 42)
+    )
+
+    assert result.mp4 is not None
+    assert len(result.mp4) > 1024
+    assert result.mp4[4:8] == b"ftyp"
