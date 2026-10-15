@@ -455,7 +455,7 @@ function listen() {
     const node = page.el.progressSlot.querySelector('.progress-state');
     progressState = node ? {
       stage: node.dataset.stage, step: Number(node.dataset.step), total: Number(node.dataset.total),
-      label: node.dataset.label, stopping: node.dataset.stopping === '1',
+      label: node.dataset.label, kind: node.dataset.kind, stopping: node.dataset.stopping === '1',
     } : null;
     trackPace();
     renderProgress();

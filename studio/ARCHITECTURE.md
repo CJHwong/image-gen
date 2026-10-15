@@ -37,11 +37,11 @@ Names follow the role. A gateway ends in `_gateway.py` and its class in `Gateway
 3. `RunVideoUseCase` takes the shared lock and claims the shared model-memory slot.
 4. The selected `VideoBackendGateway` runs the model. `Ltx25BackendGateway` calls the injected runner, which starts the official Python pipeline.
 5. The LTX runner downloads missing official components on first use, writes keyframes to a temporary folder, and starts `ltx_pipelines.distilled`.
-6. The page puts MP4 output in the video gallery. The stub returns settings only and creates no fake video bytes.
+6. The page puts MP4 output in the video gallery. When **Keep in this browser** is on, IndexedDB stores the MP4, thumbnail, and generation details. The stub returns settings only and creates no fake video bytes.
 
 The model selector follows the active workspace. Each workspace keeps its own selected backend and capabilities. Video settings come from `VideoCapabilities`, so a backend declares its supported shapes and default, frame limits and step, duration presets and default, frame rate, seed range, reference limit, and reference strength range and step. The Video source panel lives beside its prompt in the right sidebar. It keeps imported clips separate from image keyframes. The Video gallery holds generated output only. A frame from an imported or generated clip can move to Image or become a Video keyframe. The source clip itself is not a video-conditioning input.
 
-A batch is a chain of requests, one per image. Progress is a poll of `/progress`. A rewrite is one request of its own, and its phase is a poll of `/rewrite/state`: the page offers a cancel only while the model is writing, because a stop cannot land during the load.
+A batch is a chain of requests, one per image. Image progress is a poll of `/progress`. Video progress is a poll of `/video/progress`; LTX reports its sampler steps, which the Video workspace draws on a Render track. A rewrite is one request of its own, and its phase is a poll of `/rewrite/state`: the page offers a cancel only while the model is writing, because a stop cannot land during the load.
 
 ## Add a backend
 

@@ -162,6 +162,18 @@ class HtmlPresenter:
         return (
             f'<div class="progress-state" data-stage="{state.stage}"'
             f' data-step="{state.step}" data-total="{state.total}"'
-            f' data-label="{html.escape(state.label, quote=True)}"'
+            f' data-label="{html.escape(state.label, quote=True)}" data-kind="{state.kind}"'
             f' data-stopping="{1 if state.stopping else 0}"></div>{POLLER}'
+        )
+
+    @staticmethod
+    def video_progress(state: RunProgress) -> str:
+        return json.dumps(
+            {
+                "running": state.running,
+                "stage": state.stage,
+                "step": state.step,
+                "total": state.total,
+                "kind": state.kind,
+            }
         )

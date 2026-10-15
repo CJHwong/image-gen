@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from studio.l1_entities.video_capabilities import VideoCapabilities
 from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
@@ -12,7 +14,7 @@ class StubVideoBackendGateway(VideoBackendGateway):
     def capabilities(self) -> VideoCapabilities:
         return self._capabilities
 
-    def run(self, job: VideoJob) -> VideoResult:
+    def run(self, job: VideoJob, progress: Callable[[int, int], None] | None = None) -> VideoResult:
         return VideoResult(
             mp4=None,
             width=job.width,

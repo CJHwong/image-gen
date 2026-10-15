@@ -14,6 +14,7 @@ from studio.l3_interface_adapters.controllers.video_controller import VideoContr
 from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
     InMemoryModelResidencyGateway,
 )
+from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
 from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
     InMemoryVideoBackendCatalogGateway,
 )
@@ -61,7 +62,7 @@ def build_video_controller(run=None, capabilities=None):
     catalog = InMemoryVideoBackendCatalogGateway(backends, "video-fake", tuple(backends))
     residency = InMemoryModelResidencyGateway(backends)
     lock = threading.Lock()
-    selected_run = run or RunVideoUseCase(catalog, lock, residency)
+    selected_run = run or RunVideoUseCase(catalog, InMemoryProgressGateway(), lock, residency)
     switch = SwitchVideoBackendUseCase(catalog, lock, residency)
     return VideoController(selected_run, catalog, switch), catalog
 
