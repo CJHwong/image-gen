@@ -429,6 +429,13 @@ with sync_playwright() as playwright:
     )
     page.get_by_role("button", name="3:2", exact=True).click()
 
+    # The default Turbo backend has no Looks, so use the full model for these checks.
+    page.click("#backend-toggle")
+    page.get_by_role("menuitemradio", name=FIRST, exact=True).click()
+    page.wait_for_function(toggle_reads(FIRST), timeout=180000)
+    check("the full model shows its Look controls", page.locator("#look").is_visible())
+    page.fill("#prompt", "a pear on a table")
+    page.dispatch_event("#prompt", "input")
     # A Look chip names itself on its row, marks itself, and reaches the model in
     # the prompt. A pick closes the row, so the mark is read by opening it again.
     page.click("details:has(summary:has-text('Look')) summary")

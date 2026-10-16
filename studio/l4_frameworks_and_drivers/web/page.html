@@ -278,7 +278,7 @@
                 <button class="text-btn" type="button" data-action="add-video">Add video</button>
               </div>
             </div>
-            <p class="caption">Paste images with ⌘V. Add or drop videos to capture frames. Set each image's output frame below.</p>
+            <p class="caption">Paste an image or add a video to capture a frame. Each still guides its output frame; the model creates motion between keyframes.</p>
             <section class="video-source-group" aria-label="Source video clips">
               <div class="video-source-group-head"><strong>Video clips</strong></div>
               <div class="video-source-list" id="video-source-list"></div>
@@ -698,7 +698,11 @@
         throw new Error('Image reference frames must be between 0 and ' + (numFrames - 1) + '.');
       }
       const requestStarted = performance.now();
-      videoStudio.setGenerationProgress({running: true, stage: 'preparing', step: 0, total: 0}, 0);
+      videoStudio.setGenerationProgress(
+        {running: true, stage: 'preparing', step: 0, total: 0},
+        0,
+        {width: settings.width, height: settings.height, modelName: settings.modelName},
+      );
       let progressRequestPending = false;
       progressTimer = window.setInterval(async function () {
         if (progressRequestPending) return;

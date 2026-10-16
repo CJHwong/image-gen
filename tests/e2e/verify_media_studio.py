@@ -353,27 +353,50 @@ with sync_playwright() as playwright:
         str(model_settings["unsupportedSeed"]),
     )
     check(
-        "video has no second image mode selector and shows a keyframe track",
+        "video has no second image mode selector and shows reference keyframes",
         page.locator("#image-controls .modes").is_hidden()
         and page.locator("#video-controls .modes").count() == 0
         and page.locator("#video-keyframe-track [data-action='select-reference']").count() == 1,
     )
     check(
-        "video timeline names its tracks and removes internal track codes",
+        "video timeline names its source and reference keyframe tracks",
         page.locator(".video-studio-head").count() == 0
         and page.locator("#video-timeline .source-track .track-label").text_content() == "Source video"
-        and page.locator("#video-timeline .image-reference-track .track-label").text_content() == "Images"
-        and "Image references" in page.locator("#video-timeline").inner_text()
+        and page.locator("#video-timeline .image-reference-track .track-label").text_content() == "Keyframes"
+        and "Reference keyframes" in page.locator("#video-timeline").inner_text()
+        and "1 image, 121 output frames" in page.locator("#video-timeline").inner_text()
+        and "Images" not in page.locator("#video-timeline").inner_text()
+        and page.locator("#video-timeline .render-track").count() == 0
         and "Output keyframes" not in page.locator("#video-timeline").inner_text()
         and "V1" not in page.locator("#video-timeline").inner_text()
         and "K1" not in page.locator("#video-timeline").inner_text(),
         page.locator("#video-timeline").inner_text(),
+    )
+    empty_reference_track = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          const saved = {...studio.imageReferences[0]};
+          studio.clearImageReferences();
+          const hiddenWhenEmpty = !document.querySelector('#video-timeline #video-keyframe-track');
+          studio.addImageReference(saved);
+          return hiddenWhenEmpty;
+        }"""
+    )
+    check(
+        "empty reference keyframe track is hidden",
+        empty_reference_track,
     )
     check(
         "video sources stay beside the prompt in the right sidebar",
         page.locator("aside #video-source-panel").count() == 1
         and page.locator(".work #video-source-panel").count() == 0
         and page.locator("#video-timeline").is_visible(),
+    )
+    check(
+        "image references explain their keyframe role",
+        "Each still guides its output frame" in page.locator("#video-source-panel").inner_text()
+        and "model creates motion between keyframes" in page.locator("#video-source-panel").inner_text(),
+        page.locator("#video-source-panel").inner_text(),
     )
     paste_prevented = paste_file(page, REFERENCE.read_bytes(), "clipboard.png", "image/png")
     page.wait_for_function("() => document.querySelectorAll('#video-source-panel .video-reference').length === 2")
@@ -481,6 +504,30 @@ with sync_playwright() as playwright:
         "timeline playhead follows the selected frame time",
         bool(playhead_position) and float(playhead_position.rstrip("%")) > 0,
         playhead_position or "no playhead position",
+    )
+    resume_time = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          const video = document.querySelector('#video-preview');
+          const time = video.currentTime;
+          studio.setGenerationProgress({running: true, stage: 'running', step: 1, total: 2}, 1);
+          studio.setGenerationProgress(null);
+          return time;
+        }"""
+    )
+    page.wait_for_function(
+        "time => { const video = document.querySelector('#video-preview');"
+        "return video && video.readyState >= 2 && Math.abs(video.currentTime - time) < 0.08; }",
+        arg=resume_time,
+        timeout=10000,
+    )
+    check(
+        "clearing render status restores the source video playhead",
+        resume_time > 0.1
+        and page.locator("#video-preview").evaluate(
+            "(video, time) => Math.abs(video.currentTime - time) < 0.08", resume_time
+        ),
+        f"restored {resume_time:.2f}s",
     )
     page.get_by_role("button", name="Add frame to Video").click()
     page.wait_for_function("() => document.querySelectorAll('#video-source-panel .video-reference').length === 2")
@@ -719,29 +766,37 @@ with sync_playwright() as playwright:
         """() => {
           const studio = document.getElementById('video-studio');
           if (typeof studio.setGenerationProgress !== 'function') return {supported: false};
-          studio.setGenerationProgress({running: true, stage: 'preparing', step: 0, total: 0}, 5.2);
+          studio.setGenerationProgress(
+            {running: true, stage: 'preparing', step: 0, total: 0}, 5.2,
+            {width: 512, height: 640, modelName: 'LTX-2.5'});
           const preparing = document.querySelector('#video-preview-root #video-render-progress');
           const preparingText = preparing && preparing.getAttribute('aria-valuetext');
           const preparingIndeterminate = Boolean(preparing && preparing.classList.contains('is-indeterminate'));
           const preparingHasNoPercent = Boolean(preparing && !preparing.hasAttribute('aria-valuenow'));
           studio.setGenerationProgress({running: true, stage: 'running', step: 4, total: 8, phase: 2}, 6.4);
-          const active = document.querySelector('#video-timeline .render-progress');
           const previewStatus = document.querySelector('#video-preview-root #video-render-status');
           const previewProgress = document.querySelector('#video-preview-root #video-render-progress');
           const preview = document.querySelector('#video-preview');
           const timeline = document.querySelector('#video-timeline .render-track');
+          const previewStatusStyle = previewStatus && getComputedStyle(previewStatus);
+          const stage = document.querySelector('#video-preview-root');
+          const statusBox = previewStatus && previewStatus.getBoundingClientRect();
+          const stageBox = stage && stage.getBoundingClientRect();
           const result = {
             supported: true,
             preparingText,
             preparingIndeterminate,
             preparingHasNoPercent,
-            fill: active && active.querySelector('.render-progress-fill').style.width,
-            trackLabel: document.querySelector('#video-timeline .render-track .track-label')?.textContent,
             previewStatus: previewStatus && previewStatus.innerText,
+            previewModel: previewStatus && previewStatus.querySelector('.video-render-brand').innerText,
             previewPercent: previewProgress && previewProgress.getAttribute('aria-valuenow'),
-            previewVisible: Boolean(preview && !preview.hidden && preview.getAttribute('src')),
-            timelineText: timeline && timeline.innerText,
-            timelineHiddenFromAssistiveTech: timeline && timeline.getAttribute('aria-hidden'),
+            previewReplaced: !preview,
+            statusIsThumbnail: Boolean(previewStatusStyle && previewStatusStyle.position !== 'absolute'
+              && statusBox && stageBox && statusBox.width > 0 && statusBox.height > 0
+              && statusBox.left >= stageBox.left && statusBox.right <= stageBox.right
+              && statusBox.top >= stageBox.top && statusBox.bottom <= stageBox.bottom),
+            thumbnailRatio: statusBox && statusBox.width / statusBox.height,
+            timelineHasRenderTrack: Boolean(timeline),
           };
           studio.setGenerationProgress(null);
           result.previewStatusCleared = !document.querySelector('#video-preview-root #video-render-status');
@@ -761,18 +816,17 @@ with sync_playwright() as playwright:
         "video preview displays model and step progress",
         progress_result.get("supported")
         and (progress_result.get("preparingText") or "").startswith("Loading model")
+        and "LTX-2.5" in progress_result.get("previewModel", "")
         and "Pass 2, step 4 of 8" in progress_result.get("previewStatus", "")
         and progress_result.get("previewPercent") == "50"
-        and progress_result.get("previewVisible"),
+        and progress_result.get("previewReplaced")
+        and progress_result.get("statusIsThumbnail")
+        and abs(progress_result.get("thumbnailRatio", 0) - 0.8) < 0.02,
         str(progress_result),
     )
     check(
-        "video timeline keeps a compact secondary render indicator",
-        progress_result.get("trackLabel") == "Render"
-        and progress_result.get("fill") == "50%"
-        and "50%" in progress_result.get("timelineText", "")
-        and "elapsed" not in progress_result.get("timelineText", "").lower()
-        and progress_result.get("timelineHiddenFromAssistiveTech") == "true",
+        "video timeline has no duplicate render progress track",
+        not progress_result.get("timelineHasRenderTrack"),
         str(progress_result),
     )
     check(
