@@ -411,7 +411,7 @@ class VideoStudio extends LitElement {
     if (!this.imageReferences.length) {
       const empty = document.createElement('span');
       empty.className = 'video-ref-empty';
-      empty.textContent = 'Add an image or capture a source frame. Set its output frame below.';
+      empty.textContent = 'Add an image or capture a source frame.';
       list.append(empty);
       return;
     }
@@ -485,7 +485,7 @@ class VideoStudio extends LitElement {
     if (!sources.length) {
       const empty = document.createElement('span');
       empty.className = 'video-source-empty';
-      empty.textContent = 'Add a clip to scrub frames from it.';
+      empty.textContent = 'Add a clip to choose frames from it.';
       list.append(empty);
       return;
     }
@@ -967,35 +967,40 @@ class VideoStudio extends LitElement {
     const clip = this.selectedClip();
     const canCapture = Boolean(clip && !clip.stub);
     return html`
-      <section class="video-timeline" id="video-timeline" aria-label="Output timeline">
+      <section class="video-timeline" id="video-timeline" aria-label="Keyframes">
         <header class="timeline-head">
-          <div><strong>Output timeline</strong><span>${this.imageReferences.length} ${this.imageReferences.length === 1 ? 'reference' : 'references'}, ${frameCount} frames, ${this.outputFrameRate} fps</span></div>
+          <div><strong>Keyframes</strong><span>${this.imageReferences.length} ${this.imageReferences.length === 1 ? 'image' : 'images'}, ${frameCount} frames, ${this.outputFrameRate} fps</span></div>
           <div class="timeline-actions">
-            <button class="text-btn" type="button" data-action="capture-video-frame" ?disabled=${!canCapture}>Add current frame to output</button>
-            <button class="text-btn" type="button" data-action="capture-image-frame" ?disabled=${!canCapture}>Use current frame in Image</button>
+            ${canCapture ? html`
+              <button class="text-btn" type="button" data-action="capture-video-frame">Add frame as keyframe</button>
+              <button class="text-btn" type="button" data-action="capture-image-frame">Use current frame in Image</button>
+            ` : ''}
           </div>
         </header>
-        <div class="timeline-ruler" aria-hidden="true">
-          ${[0, 0.25, 0.5, 0.75, 1].map((part) => html`<span>${formatTime(duration * part)}</span>`)}
-        </div>
-        <div class="timeline-track reference-track" id="video-reference-track" aria-label="Reference frames">
-          <span class="track-label">Reference frames</span>
-          <div class="timeline-rail">
-            ${this.imageReferences.length ? this.imageReferences.map((reference) => {
-              const frameIndex = Number.isFinite(reference.frameIndex) ? reference.frameIndex : 0;
-              const position = Math.min(100, Math.max(0, frameIndex / Math.max(1, lastFrame) * 100));
-              const selected = reference.id === this.selectedReferenceId;
-              return html`<button class="timeline-reference-marker${selected ? ' selected' : ''}" type="button"
-                style=${'left: ' + position + '%'} data-action="select-reference" data-reference-id=${reference.id}
-                aria-label=${reference.name + ', output frame ' + frameIndex}
-                aria-valuetext=${'Frame ' + frameIndex + ' of ' + lastFrame}
-                aria-pressed=${selected} aria-keyshortcuts="ArrowLeft ArrowRight Home End" tabindex="0">
-                <img src=${reference.src} alt="">
-                <span>F${String(frameIndex).padStart(3, '0')}</span>
-              </button>`;
-            }) : html`<div class="timeline-empty">Add a reference frame from the panel or the preview.</div>`}
+        ${this.imageReferences.length ? html`
+          <p class="timeline-purpose">Image anchors set the look at key moments. LTX creates motion between them.</p>
+          <div class="timeline-ruler" aria-hidden="true">
+            ${[0, 0.25, 0.5, 0.75, 1].map((part) => html`<span>${formatTime(duration * part)}</span>`)}
           </div>
-        </div>
+          <div class="timeline-track reference-track" id="video-reference-track" aria-label="Image anchors">
+            <span class="track-label">Image anchors</span>
+            <div class="timeline-rail">
+              ${this.imageReferences.map((reference) => {
+                const frameIndex = Number.isFinite(reference.frameIndex) ? reference.frameIndex : 0;
+                const position = Math.min(100, Math.max(0, frameIndex / Math.max(1, lastFrame) * 100));
+                const selected = reference.id === this.selectedReferenceId;
+                return html`<button class="timeline-reference-marker${selected ? ' selected' : ''}" type="button"
+                  style=${'left: ' + position + '%'} data-action="select-reference" data-reference-id=${reference.id}
+                  aria-label=${reference.name + ', output frame ' + frameIndex}
+                  aria-valuetext=${'Frame ' + frameIndex + ' of ' + lastFrame}
+                  aria-pressed=${selected} aria-keyshortcuts="ArrowLeft ArrowRight Home End" tabindex="0">
+                  <img src=${reference.src} alt="">
+                  <span>F${String(frameIndex).padStart(3, '0')}</span>
+                </button>`;
+              })}
+            </div>
+          </div>
+        ` : html`<p class="timeline-empty">Add an image or capture a frame to set a key moment.</p>`}
       </section>
     `;
   }
@@ -1207,7 +1212,7 @@ class VideoStudio extends LitElement {
         <div class="video-empty-mark">VIDEO</div>
         <strong>Preview a video</strong>
         <span>Select a source video or generated clip.</span>
-        <span>Use the timeline to capture a frame as an image reference.</span>
+        <span>Capture a still to add it as a keyframe.</span>
       </div>`;
     }
     return html`<div class="video-preview-pane">

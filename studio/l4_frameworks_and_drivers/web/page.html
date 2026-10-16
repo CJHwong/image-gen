@@ -270,22 +270,22 @@
             <div class="field-head"><label for="video-prompt">Video prompt</label></div>
           <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."></textarea>
           </div>
-          <section id="video-source-panel" class="video-source-panel" aria-label="Video sources">
+          <section id="video-source-panel" class="video-source-panel" aria-label="Video media">
             <div class="video-source-panel-head">
-              <div><strong>Sources</strong><span id="video-source-count">0 clips</span></div>
+              <div><strong>Media</strong><span id="video-source-count">0 clips</span></div>
               <div class="video-source-actions">
                 <button class="text-btn" type="button" data-action="add-image">Add image</button>
                 <button class="text-btn" type="button" data-action="add-video">Add video</button>
               </div>
             </div>
-            <p class="caption">Image references anchor the scene at their selected output frame. LTX generates motion between those images. Paste with ⌘P or ⌘V.</p>
-            <section class="video-source-group" aria-label="Source video clips">
-              <div class="video-source-group-head"><strong>Video clips</strong></div>
+            <p class="caption">Only image anchors reach generation. Source clips help you pick frames. Paste with ⌘P.</p>
+            <section class="video-source-group" aria-label="Source clips">
+              <div class="video-source-group-head"><strong>Source clips</strong></div>
               <div class="video-source-list" id="video-source-list"></div>
             </section>
-            <section class="video-reference-tray" aria-label="Image references for video">
+            <section class="video-reference-tray" aria-label="Image keyframes">
               <div class="video-reference-head">
-                <div><strong>Image references</strong><span id="video-reference-count">0 references</span></div>
+                <div><strong>Image keyframes</strong><span id="video-reference-count">0 images</span></div>
               </div>
               <div class="video-references" id="video-references"></div>
             </section>
@@ -337,7 +337,7 @@
         <input type="hidden" id="count" name="count" value="1">
       </div>
       <div class="footer video-footer" id="video-footer" hidden>
-        <button id="video-generate" type="button">Generate video</button>
+        <button id="video-generate" type="button" disabled>Generate video</button>
         <span id="video-request-status" role="status" aria-live="polite"></span>
       </div>
     </form>
@@ -423,6 +423,13 @@
     document.getElementById('media-video-mode').disabled = disabled;
   }
 
+  function syncVideoGenerateButton() {
+    const button = document.getElementById('video-generate');
+    const prompt = document.getElementById('video-prompt').value.trim();
+    const waiting = videoRunState === 'starting' || videoRunState === 'stopping';
+    button.disabled = waiting || (videoRunState === 'idle' && !prompt);
+  }
+
   function setVideoRunState(state) {
     videoRunState = state;
     const active = state !== 'idle';
@@ -433,9 +440,9 @@
     document.body.classList.toggle('video-stopping', stopping);
     form.setAttribute('aria-busy', String(active));
     if (formApi) formApi.holdPanel('Locked while the video is being made.', active);
-    button.disabled = starting || stopping;
     button.textContent = starting
       ? 'Starting render…' : stopping ? 'Stopping…' : active ? 'Cancel render' : 'Generate video';
+    syncVideoGenerateButton();
     setWorkspaceControlsDisabled();
     renderBackendSelector();
   }
@@ -684,6 +691,8 @@
     syncVideoFrameCount();
   });
   document.getElementById('video-seed').addEventListener('input', syncVideoSeedSummary);
+  document.getElementById('video-prompt').addEventListener('input', syncVideoGenerateButton);
+  syncVideoGenerateButton();
   document.querySelector('.video-ratios').addEventListener('click', function (event) {
     const button = event.target.closest('button[data-ratio]');
     if (!button) return;

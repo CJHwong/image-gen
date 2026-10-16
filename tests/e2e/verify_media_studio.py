@@ -410,18 +410,19 @@ with sync_playwright() as playwright:
         str(model_settings["unsupportedSeed"]),
     )
     check(
-        "Video keeps one mode selector and places references on its output timeline",
+        "Video keeps one mode selector and places references on its keyframe timeline",
         page.locator("#image-controls .modes").is_hidden()
         and page.locator("#video-controls .modes").count() == 0
         and page.locator("#video-reference-track [data-action='select-reference']").count() == 1,
     )
     check(
-        "video timeline shows one useful reference track",
+        "keyframe timeline shows one image-anchor track",
         page.locator(".video-studio-head").count() == 0
         and page.locator("#video-timeline .source-track").count() == 0
-        and page.locator("#video-reference-track .track-label").text_content() == "Reference frames"
-        and "Output timeline" in page.locator("#video-timeline").inner_text()
-        and "1 reference" in page.locator("#video-timeline").inner_text()
+        and page.locator("#video-reference-track .track-label").text_content() == "Image anchors"
+        and page.locator("#video-timeline").get_attribute("aria-label") == "Keyframes"
+        and "Keyframes" in page.locator("#video-timeline").inner_text()
+        and "1 image" in page.locator("#video-timeline").inner_text()
         and "121 frames" in page.locator("#video-timeline").inner_text()
         and "Images" not in page.locator("#video-timeline").inner_text()
         and page.locator("#video-timeline .render-track").count() == 0
@@ -436,16 +437,18 @@ with sync_playwright() as playwright:
           const studio = document.getElementById('video-studio');
           const saved = {...studio.imageReferences[0]};
           studio.clearImageReferences();
-          const visibleWhenEmpty = Boolean(document.querySelector('#video-timeline #video-reference-track'));
+          const visibleWhenEmpty = Boolean(document.querySelector('#video-timeline'));
           const explainsEmptyState = document.querySelector('#video-timeline .timeline-empty')
-            ?.textContent.includes('Add a reference frame');
+            ?.textContent.includes('Add an image or capture a frame');
+          const hidesTrack = !document.querySelector('#video-timeline .timeline-ruler')
+            && !document.querySelector('#video-timeline .timeline-track');
           studio.addImageReference(saved);
-          return {visibleWhenEmpty, explainsEmptyState};
+          return {visibleWhenEmpty, explainsEmptyState: Boolean(explainsEmptyState), hidesTrack};
         }"""
     )
     check(
-        "empty output timeline stays visible and explains how to use it",
-        empty_reference_track == {"visibleWhenEmpty": True, "explainsEmptyState": True},
+        "empty keyframe view hides the full track and explains how to start",
+        empty_reference_track == {"visibleWhenEmpty": True, "explainsEmptyState": True, "hidesTrack": True},
         str(empty_reference_track),
     )
     check(
@@ -455,11 +458,51 @@ with sync_playwright() as playwright:
         and page.locator("#video-timeline").is_visible(),
     )
     check(
-        "image references explain their role in the generated clip",
-        "anchor the scene at their selected output frame" in page.locator("#video-source-panel").inner_text()
-        and "LTX generates motion between those images" in page.locator("#video-source-panel").inner_text(),
+        "media panel explains that source clips only provide frames",
+        "Only image anchors reach generation" in page.locator("#video-source-panel").inner_text()
+        and "Source clips help you pick frames" in page.locator("#video-source-panel").inner_text(),
         page.locator("#video-source-panel").inner_text(),
     )
+    desktop_footer = page.evaluate(
+        """() => {
+          const footer = document.querySelector('#video-footer');
+          const form = footer.closest('form');
+          const button = document.querySelector('#video-generate');
+          return {footerBottom: footer.getBoundingClientRect().bottom,
+            formBottom: form.getBoundingClientRect().bottom,
+            visible: !footer.hidden && button.getBoundingClientRect().height > 0,
+            disabled: button.disabled};
+        }"""
+    )
+    check(
+        "video action stays pinned and disabled with an empty prompt",
+        desktop_footer["visible"]
+        and desktop_footer["disabled"]
+        and abs(desktop_footer["footerBottom"] - desktop_footer["formBottom"]) < 2,
+        str(desktop_footer),
+    )
+    page.fill("#video-prompt", "   ")
+    check("whitespace does not enable video generation", page.locator("#video-generate").is_disabled())
+    page.fill("#video-prompt", "A short camera move")
+    check("video prompt enables the generate action", page.locator("#video-generate").is_enabled())
+    page.fill("#video-prompt", "")
+    page.set_viewport_size({"width": 390, "height": 844})
+    mobile_footer = page.evaluate(
+        """() => {
+          const footer = document.querySelector('#video-footer');
+          return {position: getComputedStyle(footer).position,
+            bottom: footer.getBoundingClientRect().bottom,
+            viewportBottom: window.innerHeight, visible: !footer.hidden};
+        }"""
+    )
+    check(
+        "video action stays fixed to the screen on narrow layouts",
+        mobile_footer["visible"]
+        and mobile_footer["position"] == "fixed"
+        and abs(mobile_footer["viewportBottom"] - mobile_footer["bottom"]) < 2,
+        str(mobile_footer),
+    )
+    page.set_viewport_size({"width": 1440, "height": 1000})
     paste_prevented = paste_file(page, REFERENCE.read_bytes(), "clipboard.png", "image/png")
     page.wait_for_function("() => document.querySelectorAll('#video-source-panel .video-reference').length === 2")
     check(
@@ -606,7 +649,7 @@ with sync_playwright() as playwright:
         ),
         f"restored {resume_time:.2f}s",
     )
-    capture_button = page.get_by_role("button", name="Add current frame to output")
+    capture_button = page.get_by_role("button", name="Add frame as keyframe")
     expected_capture = page.evaluate(
         """async () => {
           const studio = document.getElementById('video-studio');
@@ -739,6 +782,7 @@ with sync_playwright() as playwright:
     )
     page.locator("#video-source-panel .video-reference input[type=number]").nth(1).fill("300")
     page.locator("#video-source-panel .video-reference input[type=number]").nth(1).dispatch_event("change")
+    page.fill("#video-prompt", "Check the keyframe range")
     page.get_by_role("button", name="Generate video").click()
     page.wait_for_function(
         "() => document.querySelector('#video-request-status').textContent === 'Video generation failed.'",
@@ -1008,6 +1052,7 @@ with sync_playwright() as playwright:
     check(
         "a successful video run clears its prompt and image references",
         page.locator("#video-prompt").input_value() == ""
+        and page.locator("#video-generate").is_disabled()
         and page.locator("#video-source-panel .video-reference").count() == 0
         and page.locator("#video-reference-count").inner_text() == "0 images"
         and page.locator("#video-source-list .video-source").count() == 1
@@ -1065,16 +1110,18 @@ with sync_playwright() as playwright:
     generated_details = page.locator("#video-output-details").inner_text()
     gallery_geometry = page.evaluate(
         """() => {
-          const timeline = document.querySelector('#video-timeline').getBoundingClientRect();
           const gallery = document.querySelector('#video-gallery').getBoundingClientRect();
           const card = document.querySelector('#video-gallery .video-gallery-item').getBoundingClientRect();
-          return {timelineWidth: timeline.width, galleryWidth: gallery.width, cardWidth: card.width};
+          const thumbnail = document.querySelector('#video-gallery .video-clip-thumb').getBoundingClientRect();
+          return {galleryWidth: gallery.width, galleryHeight: gallery.height,
+            cardWidth: card.width, thumbnailHeight: thumbnail.height};
         }"""
     )
     check(
-        "video gallery spans the workspace with larger thumbnail cards",
-        gallery_geometry["galleryWidth"] >= gallery_geometry["timelineWidth"] * 0.95
-        and gallery_geometry["cardWidth"] >= 220,
+        "video gallery stays compact and leaves room for the preview",
+        gallery_geometry["cardWidth"] <= 160
+        and gallery_geometry["thumbnailHeight"] <= 90
+        and gallery_geometry["galleryHeight"] <= 170,
         str(gallery_geometry),
     )
     check(
