@@ -100,6 +100,8 @@ class VideoStudio extends LitElement {
   galleryStore = null;
   keepEnabled = true;
   generationProgress = null;
+  generationEpoch = 0;
+  pendingRender = null;
   previewResume = null;
   sourcePanel = null;
   selectedReferenceId = null;
@@ -114,7 +116,9 @@ class VideoStudio extends LitElement {
   frameLimit = null;
   outputWidth = 16;
   outputHeight = 9;
+  outputFrameRate = 24;
   outputModelName = 'Video';
+  draggedReferenceId = null;
   previewResizeObserver = null;
   error = '';
   handleSourceClick = (event) => this.onComponentClick(event);
@@ -124,6 +128,11 @@ class VideoStudio extends LitElement {
   handleSourceDragLeave = (event) => this.onSourceDragLeave(event);
   handleSourceDrop = (event) => this.onSourceDrop(event);
   handleDocumentPaste = (event) => this.onPaste(event);
+  handleDocumentKeydown = (event) => this.onShortcutPaste(event);
+  handleTimelinePointerDown = (event) => this.onTimelinePointerDown(event);
+  handleTimelinePointerMove = (event) => this.onTimelinePointerMove(event);
+  handleTimelinePointerUp = (event) => this.onTimelinePointerUp(event);
+  handleTimelineKeydown = (event) => this.onTimelineKeydown(event);
 
   createRenderRoot() { return this; }
 
@@ -136,6 +145,12 @@ class VideoStudio extends LitElement {
     this.addEventListener('loadedmetadata', this.onMetadata, true);
     this.addEventListener('timeupdate', this.onTimeUpdate, true);
     document.addEventListener('paste', this.handleDocumentPaste);
+    document.addEventListener('keydown', this.handleDocumentKeydown);
+    this.addEventListener('pointerdown', this.handleTimelinePointerDown);
+    this.addEventListener('pointermove', this.handleTimelinePointerMove);
+    this.addEventListener('pointerup', this.handleTimelinePointerUp);
+    this.addEventListener('pointercancel', this.handleTimelinePointerUp);
+    this.addEventListener('keydown', this.handleTimelineKeydown);
     if (this.sourcePanel) {
       this.sourcePanel.addEventListener('click', this.handleSourceClick);
       this.sourcePanel.addEventListener('change', this.handleSourceChange);
@@ -153,6 +168,12 @@ class VideoStudio extends LitElement {
     this.removeEventListener('loadedmetadata', this.onMetadata, true);
     this.removeEventListener('timeupdate', this.onTimeUpdate, true);
     document.removeEventListener('paste', this.handleDocumentPaste);
+    document.removeEventListener('keydown', this.handleDocumentKeydown);
+    this.removeEventListener('pointerdown', this.handleTimelinePointerDown);
+    this.removeEventListener('pointermove', this.handleTimelinePointerMove);
+    this.removeEventListener('pointerup', this.handleTimelinePointerUp);
+    this.removeEventListener('pointercancel', this.handleTimelinePointerUp);
+    this.removeEventListener('keydown', this.handleTimelineKeydown);
     if (this.sourcePanel) {
       this.sourcePanel.removeEventListener('click', this.handleSourceClick);
       this.sourcePanel.removeEventListener('change', this.handleSourceChange);
@@ -238,6 +259,7 @@ class VideoStudio extends LitElement {
 
   setGenerationProgress(state, elapsedSeconds, outputShape) {
     if (state?.running && !this.generationProgress) {
+      this.generationEpoch += 1;
       const video = this.querySelector('#video-preview');
       if (video) this.previewResume = {clipId: this.selectedClipId, time: video.currentTime};
     }
@@ -248,19 +270,45 @@ class VideoStudio extends LitElement {
     }
     if (!state) {
       this.generationProgress = null;
+      this.pendingRender = null;
     } else if (state.running) {
       this.generationProgress = {
         stage: state.stage,
         step: state.step,
         total: state.total,
         phase: state.phase,
+        stopping: Boolean(state.stopping),
         elapsedSeconds: elapsedSeconds,
+      };
+      this.pendingRender = {
+        ...(this.pendingRender || {}),
+        ...(outputShape || {}),
+        elapsedSeconds: elapsedSeconds,
+        modelName: this.outputModelName,
       };
     }
     this.renderPreview();
+    this.renderVideoGallery();
+    this.renderOutputDetails();
   }
 
-  addImageReference(reference) {
+  setCancelRequested(stopping) {
+    if (!this.generationProgress) return;
+    this.generationProgress.stopping = stopping;
+    this.renderPreview();
+    this.renderVideoGallery();
+  }
+
+  captureInputEpoch() {
+    return this.generationProgress ? null : this.generationEpoch;
+  }
+
+  canCommitInput(epoch) {
+    return epoch !== null && !this.generationProgress && epoch === this.generationEpoch;
+  }
+
+  addImageReference(reference, epoch = this.captureInputEpoch()) {
+    if (!this.canCommitInput(epoch)) return;
     if (this.imageReferences.some(function (saved) { return saved.id === reference.id; })) return;
     if (this.maxReferences !== null && this.imageReferences.length >= this.maxReferences) {
       this.setError('This video model accepts at most ' + this.maxReferences + ' image references.');
@@ -306,9 +354,16 @@ class VideoStudio extends LitElement {
   setReferenceFrame(id, value) {
     const reference = this.imageReferences.find((item) => item.id === id);
     if (!reference) return;
+    const focusedMarker = document.activeElement?.dataset.referenceId === id
+      && document.activeElement.classList.contains('timeline-reference-marker');
     reference.frameIndex = Number(value);
     this.renderImageReferences();
     this.renderTimelineView(this.selectedClip());
+    if (focusedMarker) {
+      const marker = Array.from(this.querySelectorAll('.timeline-reference-marker'))
+        .find((item) => item.dataset.referenceId === id);
+      if (marker) marker.focus();
+    }
   }
 
   setFrameLimit(frameCount) {
@@ -320,6 +375,7 @@ class VideoStudio extends LitElement {
   }
 
   setModelCapabilities(capabilities) {
+    this.outputFrameRate = capabilities.frame_rate;
     this.maxReferences = capabilities.max_references;
     this.minReferenceStrength = capabilities.min_reference_strength;
     this.maxReferenceStrength = capabilities.max_reference_strength;
@@ -355,7 +411,7 @@ class VideoStudio extends LitElement {
     if (!this.imageReferences.length) {
       const empty = document.createElement('span');
       empty.className = 'video-ref-empty';
-      empty.textContent = 'Add an image or paste with ⌘V. Each image guides its selected frame.';
+      empty.textContent = 'Add an image or capture a source frame. Set its output frame below.';
       list.append(empty);
       return;
     }
@@ -388,7 +444,7 @@ class VideoStudio extends LitElement {
       name.className = 'video-reference-name';
       name.textContent = reference.name;
       const frameLabel = document.createElement('label');
-      frameLabel.textContent = 'Frame';
+      frameLabel.textContent = 'Output frame';
       const frameIndex = document.createElement('input');
       frameIndex.type = 'number';
       frameIndex.min = '0';
@@ -397,7 +453,7 @@ class VideoStudio extends LitElement {
       frameIndex.value = String(reference.frameIndex);
       frameIndex.dataset.action = 'reference-frame';
       frameIndex.dataset.referenceId = reference.id;
-      frameIndex.setAttribute('aria-label', 'Output frame for ' + reference.name);
+        frameIndex.setAttribute('aria-label', 'Output frame for ' + reference.name);
       frameLabel.append(frameIndex);
       const strengthLabel = document.createElement('label');
       strengthLabel.textContent = 'Strength';
@@ -470,6 +526,7 @@ class VideoStudio extends LitElement {
     return {
       prompt: settings.prompt,
       backend: settings.backend,
+      request_id: settings.requestId,
       width: settings.width,
       height: settings.height,
       num_frames: settings.numFrames,
@@ -537,6 +594,7 @@ class VideoStudio extends LitElement {
     this.previewResume = null;
     this.currentTime = 0;
     this.duration = clip.duration || 0;
+    this.pendingRender = null;
     this.error = '';
     this.renderError();
     this.renderSourceVideos();
@@ -571,7 +629,6 @@ class VideoStudio extends LitElement {
   onComponentInput(event) {
     const control = event.target;
     if (!(control instanceof HTMLInputElement)) return;
-    if (control.id === 'video-playhead') this.seek(event);
     if (control.dataset.action === 'reference-strength') {
       this.setReferenceStrength(control.dataset.referenceId, control);
     }
@@ -581,10 +638,11 @@ class VideoStudio extends LitElement {
     const input = event.target;
     const files = Array.from(input.files || []);
     input.value = '';
-    this.addVideoFiles(files);
+    this.addVideoFiles(files, this.captureInputEpoch());
   }
 
-  addVideoFiles(files) {
+  addVideoFiles(files, epoch = this.captureInputEpoch()) {
+    if (!this.canCommitInput(epoch)) return;
     const videos = Array.from(files).filter(isVideoFile);
     const hasUnsupported = videos.length !== files.length;
     if (!videos.length) {
@@ -613,17 +671,20 @@ class VideoStudio extends LitElement {
     const input = event.target;
     const files = Array.from(input.files || []);
     input.value = '';
-    await this.addImageFiles(files);
+    await this.addImageFiles(files, this.captureInputEpoch());
   }
 
-  async addImageFiles(files) {
+  async addImageFiles(files, epoch = this.captureInputEpoch()) {
+    if (!this.canCommitInput(epoch)) return;
     for (const file of files) {
+      if (!this.canCommitInput(epoch)) return;
       if (!isImageFile(file)) {
         this.setError('Choose an image file.');
         continue;
       }
       try {
         const src = await readDataUrl(file);
+        if (!this.canCommitInput(epoch)) return;
         this.addImageReference({
           id: 'video-ref-' + nextClipId++,
           name: file.name,
@@ -631,17 +692,20 @@ class VideoStudio extends LitElement {
           base64: src.slice(src.indexOf(',') + 1),
         });
       } catch (error) {
+        if (!this.canCommitInput(epoch)) return;
         this.setError('The image could not be added: ' + error.message);
       }
     }
   }
 
-  async addMediaFiles(files) {
+  async addMediaFiles(files, epoch = this.captureInputEpoch()) {
+    if (!this.canCommitInput(epoch)) return;
     const images = Array.from(files).filter(isImageFile);
     const videos = Array.from(files).filter(isVideoFile);
     const unsupported = Array.from(files).filter((file) => !isImageFile(file) && !isVideoFile(file));
-    if (images.length) await this.addImageFiles(images);
-    if (videos.length) this.addVideoFiles(videos);
+    if (images.length) await this.addImageFiles(images, epoch);
+    if (!this.canCommitInput(epoch)) return;
+    if (videos.length) this.addVideoFiles(videos, epoch);
     if (unsupported.length) this.setError('Choose image or video files.');
     else if (images.length || videos.length) this.clearError();
   }
@@ -661,7 +725,114 @@ class VideoStudio extends LitElement {
     const media = files.filter((file) => isImageFile(file) || isVideoFile(file));
     if (!media.length) return;
     event.preventDefault();
+    if (this.generationProgress) return;
     this.addMediaFiles(media);
+  }
+
+  onShortcutPaste(event) {
+    if (this.hidden || event.defaultPrevented || event.altKey
+        || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'p') return;
+    event.preventDefault();
+    if (this.generationProgress) return;
+    this.pasteMediaFromClipboard();
+  }
+
+  async pasteMediaFromClipboard() {
+    const epoch = this.captureInputEpoch();
+    if (!this.canCommitInput(epoch)) return;
+    if (!navigator.clipboard || typeof navigator.clipboard.read !== 'function') {
+      this.setError('Clipboard file access is unavailable. Use Paste or choose a file.');
+      return;
+    }
+    try {
+      const items = await navigator.clipboard.read();
+      if (!this.canCommitInput(epoch)) return;
+      const files = [];
+      for (const item of items) {
+        const mediaType = item.types.find((type) => type.startsWith('image/') || type.startsWith('video/'));
+        if (!mediaType) continue;
+        const blob = await item.getType(mediaType);
+        if (!this.canCommitInput(epoch)) return;
+        const extension = mediaType.split('/')[1].replace('jpeg', 'jpg');
+        const name = item.name || 'pasted-' + (mediaType.startsWith('image/') ? 'image' : 'video') + '.' + extension;
+        files.push(new File([blob], name, {type: mediaType}));
+      }
+      if (!files.length) {
+        this.setError('The clipboard has no image or video file. Copy media, then paste again.');
+        return;
+      }
+      await this.addMediaFiles(files, epoch);
+    } catch (error) {
+      if (!this.canCommitInput(epoch)) return;
+      this.setError('The clipboard media could not be read: ' + error.message);
+    }
+  }
+
+  onTimelinePointerDown(event) {
+    const marker = event.target.closest('.timeline-reference-marker');
+    if (!marker || event.button !== 0) return;
+    this.draggedReferenceId = marker.dataset.referenceId;
+    this.selectedReferenceId = this.draggedReferenceId;
+    this.renderImageReferences();
+    marker.classList.add('selected');
+    marker.setPointerCapture(event.pointerId);
+    this.moveTimelineReference(marker, event.clientX);
+    event.preventDefault();
+  }
+
+  onTimelinePointerMove(event) {
+    if (!this.draggedReferenceId) return;
+    const marker = Array.from(this.querySelectorAll('.timeline-reference-marker'))
+      .find((item) => item.dataset.referenceId === this.draggedReferenceId);
+    if (marker) this.moveTimelineReference(marker, event.clientX);
+  }
+
+  onTimelinePointerUp() {
+    if (!this.draggedReferenceId) return;
+    this.draggedReferenceId = null;
+    this.renderTimelineView(this.selectedClip());
+  }
+
+  onTimelineKeydown(event) {
+    const marker = event.target.closest('.timeline-reference-marker');
+    if (!marker) return;
+    const reference = this.imageReferences.find((item) => item.id === marker.dataset.referenceId);
+    if (!reference) return;
+    const lastFrame = Math.max(0, (this.frameLimit || 1) - 1);
+    const increment = event.shiftKey ? 10 : 1;
+    let frameIndex = reference.frameIndex;
+    if (event.key === 'ArrowLeft') frameIndex -= increment;
+    else if (event.key === 'ArrowRight') frameIndex += increment;
+    else if (event.key === 'Home') frameIndex = 0;
+    else if (event.key === 'End') frameIndex = lastFrame;
+    else return;
+    event.preventDefault();
+    this.selectedReferenceId = reference.id;
+    this.setReferenceFrame(reference.id, Math.max(0, Math.min(lastFrame, frameIndex)));
+  }
+
+  moveTimelineReference(marker, clientX) {
+    const reference = this.imageReferences.find((item) => item.id === marker.dataset.referenceId);
+    const rail = marker.closest('.timeline-rail');
+    if (!reference || !rail) return;
+    const bounds = rail.getBoundingClientRect();
+    const fraction = Math.min(1, Math.max(0, (clientX - bounds.left) / bounds.width));
+    const lastFrame = Math.max(0, (this.frameLimit || 1) - 1);
+    reference.frameIndex = Math.round(fraction * lastFrame);
+    this.updateTimelineReference(marker, reference, lastFrame);
+  }
+
+  updateTimelineReference(marker, reference, lastFrame) {
+    const frameIndex = reference.frameIndex;
+    const position = frameIndex / Math.max(1, lastFrame) * 100;
+    marker.style.left = position + '%';
+    marker.setAttribute('aria-valuetext', 'Frame ' + frameIndex + ' of ' + lastFrame);
+    marker.setAttribute('aria-label', reference.name + ', output frame ' + frameIndex);
+    const frameLabel = marker.querySelector('span');
+    if (frameLabel) frameLabel.textContent = 'F' + String(frameIndex).padStart(3, '0');
+    const field = Array.from(this.sourcePanel.querySelectorAll('[data-action="reference-frame"]'))
+      .find((input) => input.dataset.referenceId === reference.id);
+    if (field) field.value = String(frameIndex);
   }
 
   onSourceDragOver(event) {
@@ -737,24 +908,6 @@ class VideoStudio extends LitElement {
 
   onTimeUpdate(event) {
     this.currentTime = event.target.currentTime || 0;
-    this.drawPlayhead();
-    this.renderTimecode();
-  }
-
-  drawPlayhead() {
-    const track = this.querySelector('.source-track');
-    if (!track || !this.duration) return;
-    const position = Math.min(100, Math.max(0, this.currentTime / this.duration * 100));
-    track.style.setProperty('--playhead', position + '%');
-  }
-
-  seek(event) {
-    const video = this.querySelector('#video-preview');
-    if (!video || !this.duration) return;
-    video.currentTime = Number(event.target.value);
-    this.currentTime = video.currentTime;
-    this.drawPlayhead();
-    this.renderTimecode();
   }
 
   captureFrameForImage() {
@@ -766,6 +919,8 @@ class VideoStudio extends LitElement {
   }
 
   async captureFrame(target) {
+    const epoch = this.captureInputEpoch();
+    if (!this.canCommitInput(epoch)) return;
     const video = this.querySelector('#video-preview');
     const clip = this.selectedClip();
     if (!video || !clip || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
@@ -773,6 +928,7 @@ class VideoStudio extends LitElement {
       return;
     }
     try {
+      const frameTime = video.currentTime;
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -783,79 +939,63 @@ class VideoStudio extends LitElement {
           else reject(new Error('The frame could not be captured.'));
         }, 'image/png');
       });
+      if (!this.canCommitInput(epoch)) return;
       this.dispatchEvent(new CustomEvent('video-frame-captured', {
         detail: {
           blob: blob,
-          name: clip.name + ' frame ' + formatTime(video.currentTime),
+          name: clip.name + ' frame ' + formatTime(frameTime),
           target: target,
-          frameIndex: Math.round(video.currentTime * 24),
+          epoch: epoch,
+          frameIndex: target === 'video'
+            ? Math.round(frameTime / Math.max(video.duration, 0.01) * Math.max(0, (this.frameLimit || 1) - 1))
+            : Math.round(frameTime * this.outputFrameRate),
         },
         bubbles: true,
         composed: true,
       }));
       this.clearError();
     } catch (error) {
+      if (!this.canCommitInput(epoch)) return;
       this.setError('The frame could not be captured: ' + error.message);
     }
   }
 
-  renderTimeline(clip) {
-    const duration = clip ? this.duration || clip.duration || 1 : 0;
-    const quarter = duration / 4;
-    const frameSpan = Math.max(1, (this.frameLimit || 1) - 1);
+  renderTimeline() {
+    const frameCount = Math.max(1, this.frameLimit || 1);
+    const lastFrame = frameCount - 1;
+    const duration = frameCount / this.outputFrameRate;
+    const clip = this.selectedClip();
+    const canCapture = Boolean(clip && !clip.stub);
     return html`
-      <section class="video-timeline" id="video-timeline" aria-label="Video timeline">
+      <section class="video-timeline" id="video-timeline" aria-label="Output timeline">
         <header class="timeline-head">
-          <div><strong>Timeline</strong></div>
-          <output id="video-timecode"><span id="video-timecode-value"></span></output>
+          <div><strong>Output timeline</strong><span>${this.imageReferences.length} ${this.imageReferences.length === 1 ? 'reference' : 'references'}, ${frameCount} frames, ${this.outputFrameRate} fps</span></div>
           <div class="timeline-actions">
-            <button class="text-btn" type="button" data-action="capture-video-frame" ?disabled=${!clip || clip.stub}>Add frame to Video</button>
-            <button class="text-btn" type="button" data-action="capture-image-frame" ?disabled=${!clip || clip.stub}>Use this frame in Image</button>
+            <button class="text-btn" type="button" data-action="capture-video-frame" ?disabled=${!canCapture}>Add current frame to output</button>
+            <button class="text-btn" type="button" data-action="capture-image-frame" ?disabled=${!canCapture}>Use current frame in Image</button>
           </div>
         </header>
-        ${clip ? html`
-          <div class="timeline-ruler" aria-hidden="true">
-            <span>00:00</span><span>${formatTime(quarter)}</span>
-            <span>${formatTime(quarter * 2)}</span><span>${formatTime(quarter * 3)}</span>
-            <span>${formatTime(duration)}</span>
-          </div>` : html`<p class="source-empty">Choose a source video in the sidebar to scrub it and capture a frame.</p>`}
-        <div class="timeline-track source-track" style=${'--playhead: ' + (clip ? Math.min(100, this.currentTime / duration * 100) : 0) + '%'}>
-          <span class="track-label">${clip && clip.kind === 'generated' ? 'Generated video' : 'Source video'}</span>
+        <div class="timeline-ruler" aria-hidden="true">
+          ${[0, 0.25, 0.5, 0.75, 1].map((part) => html`<span>${formatTime(duration * part)}</span>`)}
+        </div>
+        <div class="timeline-track reference-track" id="video-reference-track" aria-label="Reference frames">
+          <span class="track-label">Reference frames</span>
           <div class="timeline-rail">
-            <div class="timeline-clip${clip ? '' : ' timeline-clip-empty'}"><span>${clip ? clip.name : 'Source video'}</span></div>
-            ${clip ? html`<input id="video-playhead" type="range" min="0" max=${duration} step="0.01"
-              .value=${String(Math.min(this.currentTime, duration))} aria-label="Timeline playhead">` : ''}
+            ${this.imageReferences.length ? this.imageReferences.map((reference) => {
+              const frameIndex = Number.isFinite(reference.frameIndex) ? reference.frameIndex : 0;
+              const position = Math.min(100, Math.max(0, frameIndex / Math.max(1, lastFrame) * 100));
+              const selected = reference.id === this.selectedReferenceId;
+              return html`<button class="timeline-reference-marker${selected ? ' selected' : ''}" type="button"
+                style=${'left: ' + position + '%'} data-action="select-reference" data-reference-id=${reference.id}
+                aria-label=${reference.name + ', output frame ' + frameIndex}
+                aria-valuetext=${'Frame ' + frameIndex + ' of ' + lastFrame}
+                aria-pressed=${selected} aria-keyshortcuts="ArrowLeft ArrowRight Home End" tabindex="0">
+                <img src=${reference.src} alt="">
+                <span>F${String(frameIndex).padStart(3, '0')}</span>
+              </button>`;
+            }) : html`<div class="timeline-empty">Add a reference frame from the panel or the preview.</div>`}
           </div>
         </div>
-        ${this.imageReferences.length ? html`
-          <header class="keyframes-head">
-            <div><strong>Reference keyframes</strong></div>
-            <span>${this.imageReferences.length} ${this.imageReferences.length === 1 ? 'image' : 'images'},
-              ${this.frameLimit || 0} output frames</span>
-          </header>
-          <div class="timeline-ruler keyframe-ruler" aria-hidden="true">
-            <span>F000</span><span>F${String(Math.round(frameSpan / 4)).padStart(3, '0')}</span>
-            <span>F${String(Math.round(frameSpan / 2)).padStart(3, '0')}</span>
-            <span>F${String(Math.round(frameSpan * 3 / 4)).padStart(3, '0')}</span>
-            <span>F${String(frameSpan).padStart(3, '0')}</span>
-          </div>
-          <div class="timeline-track keyframe-track image-reference-track" id="video-keyframe-track" aria-label="Reference keyframes">
-            <span class="track-label">Keyframes</span>
-            <div class="keyframe-rail">
-              ${this.imageReferences.map((reference) => {
-                const frameIndex = Number.isFinite(reference.frameIndex) ? reference.frameIndex : 0;
-                const position = Math.min(100, Math.max(0, frameIndex / frameSpan * 100));
-                const selected = reference.id === this.selectedReferenceId;
-                return html`<button class="keyframe-marker" type="button"
-                  style=${'left: ' + position + '%'} data-action="select-reference" data-reference-id=${reference.id}
-                  aria-label=${'Select ' + reference.name + ' at output frame ' + frameIndex}
-                  aria-pressed=${selected}>
-                  <img src=${reference.src} alt="">
-                  <span>F${String(frameIndex).padStart(3, '0')}</span>
-                </button>`;
-              })}
-            </div>
-          </div>` : ''}
       </section>
     `;
   }
@@ -865,6 +1005,48 @@ class VideoStudio extends LitElement {
     this.renderPreview();
     this.renderTimelineView(clip);
     this.renderVideoGallery();
+    this.renderOutputDetails();
+  }
+
+  renderOutputDetails() {
+    const root = this.querySelector('#video-output-details-root');
+    if (!root) return;
+    const clip = this.selectedClip();
+    const pending = this.generationProgress && this.pendingRender;
+    const metadata = pending ? videoMetadata(this.pendingRender) : clip?.metadata;
+    if (!metadata || (!pending && clip.kind !== 'generated')) {
+      renderTemplate('', root);
+      return;
+    }
+    const duration = metadata.numFrames / metadata.frameRate;
+    const seed = Number.isInteger(metadata.seed) ? metadata.seed : pending ? 'Assigned at render' : 'Not recorded';
+    const references = metadata.references || [];
+    const referenceSummary = references.length
+      ? references.map((reference) => reference.name + ' at frame ' + reference.frameIndex).join(', ')
+      : 'No image references';
+    const referenceDetails = references.map((reference) =>
+      reference.name + ', frame ' + reference.frameIndex + ', strength ' + Number(reference.strength).toFixed(2))
+      .join(', ');
+    const timeLabel = pending ? 'Elapsed' : clip.stub ? 'Request time' : 'Render time';
+    return renderTemplate(html`
+      <section class="video-output-details" id="video-output-details" aria-label="Video output details">
+        <div class="video-output-title">
+          <strong>${pending ? 'Current render' : clip.name}</strong>
+          <span>${pending ? 'Render settings' : 'Output details'}</span>
+        </div>
+        <div class="video-output-facts">
+          <span><small>Model</small><b>${metadata.modelName}</b></span>
+          <span><small>Duration</small><b>${duration.toFixed(2)} sec</b></span>
+          <span><small>Resolution</small><b>${metadata.width} × ${metadata.height}</b></span>
+          <span><small>Frame rate</small><b>${metadata.frameRate} fps</b></span>
+          <span><small>Frames</small><b>${metadata.numFrames}</b></span>
+          <span><small>Seed</small><b>${seed}</b></span>
+          <span><small>${timeLabel}</small><b>${formatTime(metadata.elapsedSeconds)}</b></span>
+          <span title=${referenceDetails}><small>References</small><b>${references.length} ${references.length === 1 ? 'image' : 'images'}</b></span>
+        </div>
+        <p class="video-output-prompt" title=${metadata.prompt || ''}>${metadata.prompt || 'No prompt recorded'}</p>
+        <p class="video-output-references" title=${referenceDetails}>${referenceSummary}</p>
+      </section>`, root);
   }
 
   renderPreview() {
@@ -888,18 +1070,37 @@ class VideoStudio extends LitElement {
   }
 
   generationProgressDetails(progress) {
-    let label = 'Preparing video';
-    if (progress.stage === 'preparing') {
-      label = 'Loading model';
-    } else if (progress.step > 0 && progress.total > 0) {
-      const pass = progress.phase > 0 ? 'Pass ' + progress.phase + ', ' : '';
-      label = pass + 'step ' + progress.step + ' of ' + progress.total;
+    let label = 'Preparing render';
+    let phaseNumber = 0;
+    let percent = null;
+    if (progress.stopping) {
+      label = 'Stopping render';
+      phaseNumber = progress.phase > 1 ? 2 : 1;
+    } else if (progress.stage === 'preparing') {
+      label = 'Loading LTX-2.5';
+    } else {
+      phaseNumber = progress.phase > 1 ? 2 : 1;
+      if (phaseNumber === 1) {
+        label = progress.total > 0 && progress.step >= progress.total
+          ? 'Base generation complete' : 'Base generation at half resolution';
+      } else if (progress.total > 0 && progress.step >= progress.total) {
+        label = 'Finalizing video';
+      } else {
+        label = 'Upscaling and refining';
+      }
+      if (progress.total > 0 && progress.step < progress.total) {
+        percent = Math.round(Math.min(1, progress.step / progress.total) * 100);
+      } else if (phaseNumber === 1 && progress.total > 0) {
+        percent = 100;
+      }
     }
-    const percent = progress.total > 0
-      ? Math.round(Math.min(1, progress.step / progress.total) * 100)
-      : null;
     const elapsed = formatTime(progress.elapsedSeconds);
-    return {label: label, percent: percent, elapsed: elapsed, text: label + ', ' + elapsed + ' elapsed'};
+    const phase = phaseNumber ? 'Stage ' + phaseNumber + ' of 2' : 'Preparing render';
+    const progressLabel = phaseNumber === 1 ? 'Base generation progress' : 'Upscaling and refinement progress';
+    const text = percent === null
+      ? label + ', ' + elapsed + ' elapsed'
+      : label + ', ' + percent + '% of this stage, ' + elapsed + ' elapsed';
+    return {label, phaseNumber, phase, percent, elapsed, progressLabel, text};
   }
 
   renderProgressPlaceholder(progress) {
@@ -909,39 +1110,48 @@ class VideoStudio extends LitElement {
       <section id="video-render-status" class="video-render-placeholder" role="status"
         aria-label="Video render status" aria-atomic="true"
         style=${'--video-render-ratio: ' + this.outputWidth + ' / ' + this.outputHeight}>
-        <div class="video-render-brand"><span>VIDEO STUDIO</span><span>${this.outputModelName}</span></div>
+        <div class="video-render-brand"><span>RENDER STATUS</span><span>${this.outputModelName}</span></div>
         <div class="video-render-content">
-          <span class="video-render-mark" aria-hidden="true"></span>
           <strong>Rendering new clip</strong>
           <span class="video-render-phase">${details.label}</span>
+          <div class="video-render-stages" aria-label="LTX generation stages">
+            <span class=${details.phaseNumber === 1 ? 'active' : details.phaseNumber > 1 ? 'complete' : ''}>Base generation</span>
+            <span class=${details.phaseNumber === 2 ? 'active' : ''}>Upscaling and refining</span>
+          </div>
           <div id="video-render-progress" class="video-render-progress${details.percent === null
-            ? ' is-indeterminate' : ''}" role="progressbar" aria-label="Video render progress"
+            ? ' is-indeterminate' : ''}" role="progressbar" aria-label=${details.progressLabel}
             aria-valuemin="0" aria-valuemax="100"
             aria-valuenow=${details.percent === null ? nothing : String(details.percent)}
             aria-valuetext=${details.text} style=${'--video-render-progress: ' + width + '%'}></div>
         </div>
         <div class="video-render-details">
           <span>${details.elapsed} elapsed</span>
-          <span>${details.percent === null ? 'Step progress starts after model load' : details.percent + '% complete'}</span>
+          <span>${details.phase}</span>
         </div>
       </section>`;
   }
 
-  renderTimelineView(clip) {
-    const timeline = this.querySelector('#video-timeline-root');
-    if (timeline) renderTemplate(this.renderTimeline(clip), timeline);
-    this.renderTimecode();
-  }
-
-  renderTimecode() {
-    const value = this.querySelector('#video-timecode-value');
-    if (!value) return;
-    if (!this.selectedClip()) {
-      value.textContent = '';
-      return;
+  renderTimelineView() {
+    const previous = this.querySelector('#video-timeline-root');
+    if (!previous) return;
+    const activeElement = previous.contains(document.activeElement) ? document.activeElement : null;
+    const activeMarker = activeElement?.classList.contains('timeline-reference-marker')
+      ? activeElement.dataset.referenceId
+      : null;
+    const activeAction = activeMarker ? null : activeElement?.dataset.action;
+    const timeline = document.createElement('div');
+    timeline.id = 'video-timeline-root';
+    previous.replaceWith(timeline);
+    renderTemplate(this.renderTimeline(), timeline);
+    if (activeMarker) {
+      const marker = Array.from(this.querySelectorAll('.timeline-reference-marker'))
+        .find((item) => item.dataset.referenceId === activeMarker);
+      marker?.focus();
+    } else if (activeAction) {
+      const action = Array.from(this.querySelectorAll('#video-timeline-root [data-action]'))
+        .find((item) => item.dataset.action === activeAction);
+      action?.focus();
     }
-    const duration = this.duration || (this.selectedClip() && this.selectedClip().duration) || 0;
-    value.textContent = formatTime(this.currentTime) + ' / ' + formatTime(duration);
   }
 
   renderVideoGallery() {
@@ -960,6 +1170,15 @@ class VideoStudio extends LitElement {
       <section class="video-gallery" id="video-gallery" aria-label="Video gallery">
         <div class="video-gallery-head"><strong>Video gallery</strong><span>${outputs.length}${outputs.length === 1 ? ' clip' : ' clips'}</span></div>
         <div class="video-clips">
+          ${this.pendingRender ? html`
+            <div class="video-gallery-item video-gallery-pending" role="status" aria-label="Video render pending">
+              <div class="video-clip-thumb pending-thumb">
+                <span class="video-pending-indicator" aria-hidden="true"></span>
+                <span>Rendering</span>
+              </div>
+              <span class="video-clip-name">${this.pendingRender.modelName || 'Video render'}</span>
+              <span class="video-clip-state">${this.generationProgress?.stopping ? 'Stopping render' : 'In progress'}</span>
+            </div>` : ''}
           ${outputs.length ? outputs.map((clip) => html`
             <div class="video-gallery-item">
               <button class="video-clip${clip.id === this.selectedClipId ? ' selected' : ''}"
@@ -971,21 +1190,13 @@ class VideoStudio extends LitElement {
                     : html`<span class="video-clip-placeholder" title=${clip.thumbnailError || ''}>
                       ${clip.stub ? 'STUB' : clip.thumbnailError ? 'NO PREVIEW' : 'PREVIEW'}
                     </span>`}
-                  <span class="video-clip-duration">${formatTime(clip.duration || duration)}</span>
+                  <span class="video-clip-duration">${formatTime(clip.duration || 0)}</span>
                 </span>
                 <span class="video-clip-name">${clip.name}</span>
-                <span class="video-clip-parameters">${clip.metadata.width} × ${clip.metadata.height}, ${clip.metadata.frameRate} fps, ${clip.metadata.numFrames} frames</span>
-                <span class="video-clip-run">Seed ${clip.metadata.seed === null ? 'not set' : clip.metadata.seed},
-                  ${clip.stub ? 'Request' : 'Took'} ${formatTime(clip.metadata.elapsedSeconds)}</span>
-                <span class="video-clip-references" title=${clip.metadata.references.map((reference) =>
-                  reference.name + ', frame ' + reference.frameIndex + ', strength ' + Number(reference.strength).toFixed(2)).join(', ')}>
-                  ${clip.metadata.references.length} image ${clip.metadata.references.length === 1 ? 'reference' : 'references'}
-                </span>
-                <span class="video-clip-prompt" title=${clip.metadata.prompt}>${clip.metadata.prompt || 'No prompt recorded'}</span>
               </button>
               <button class="video-clip-remove" type="button" aria-label=${'Remove video ' + clip.name}
                 data-action="remove-clip" data-clip-id=${clip.id}>Remove</button>
-            </div>`) : html`<span class="video-gallery-empty">Generated clips appear here.</span>`}
+            </div>`) : this.pendingRender ? '' : html`<span class="video-gallery-empty">Generated clips appear here.</span>`}
         </div>
       </section>`;
   }
@@ -1017,6 +1228,7 @@ class VideoStudio extends LitElement {
         <div class="video-preview-area" id="video-preview-root">
           <div id="video-preview-content-root"></div>
         </div>
+        <div id="video-output-details-root"></div>
         <div class="video-editing-area">
           <div id="video-timeline-root"></div>
           <div id="video-error-root"></div>

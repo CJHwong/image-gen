@@ -9,9 +9,10 @@ def test_ltx25_gateway_passes_the_job_to_the_pipeline_runner():
         def __init__(self):
             self.job = None
 
-        def run(self, job, progress=None):
+        def run(self, job, progress=None, cancelled=None):
             self.job = job
             self.progress = progress
+            self.cancelled = cancelled
             if progress:
                 progress(2, 4, 2)
             return expected
@@ -24,10 +25,15 @@ def test_ltx25_gateway_passes_the_job_to_the_pipeline_runner():
         reports.append((step, total, phase))
 
     gateway = Ltx25BackendGateway(runner)
-    result = gateway.run(job, progress)
+
+    def should_cancel():
+        return False
+
+    result = gateway.run(job, progress, should_cancel)
 
     assert runner.job == job
     assert runner.progress is progress
+    assert runner.cancelled is should_cancel
     assert reports == [(2, 4, 2)]
     assert result is expected
     assert gateway.capabilities().backend_id == "ltx25"

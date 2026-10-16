@@ -1,5 +1,6 @@
 """Run the official LTX-2.5 distilled pipeline and fetch its weights on first use."""
 
+import json
 import os
 import re
 import selectors
@@ -11,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO, cast
 
-from studio.l1_entities.errors import StudioError
+from studio.l1_entities.errors import Cancelled, StudioError
 from studio.l1_entities.video_job import VideoJob, VideoResult
 
 MODEL_PATHS = {
@@ -45,6 +46,16 @@ from ltx_pipelines.distilled import main
 main()
 """
 PROGRESS_RECORD = re.compile(r"STUDIO_STEP (\d+) (\d+) (\d+)")
+DOWNLOAD_SCRIPT = """import json
+import sys
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id=sys.argv[1],
+    allow_patterns=json.loads(sys.argv[2]),
+    local_dir=sys.argv[3],
+)
+"""
 
 
 class Ltx25Runner:
@@ -59,15 +70,16 @@ class Ltx25Runner:
         self._model_dir_value = str(model_dir).strip() if model_dir is not None else ""
         self._model_dir = Path(self._model_dir_value).expanduser()
         self._process_runner = process_runner
-        self._model_downloader = model_downloader or self._download_model
+        self._model_downloader = model_downloader
 
     def run(
         self,
         job: VideoJob,
         progress: Callable[[int, int, int], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> VideoResult:
         python = self._python()
-        model_paths = self._model_paths()
+        model_paths = self._model_paths(python, cancelled)
         with tempfile.TemporaryDirectory(prefix="studio-ltx25-") as scratch:
             output_path = Path(scratch) / "output.mp4"
             image_arguments = self._write_references(job, Path(scratch))
@@ -76,7 +88,7 @@ class Ltx25Runner:
                 script_path = Path(scratch) / "ltx25_progress.py"
                 script_path.write_text(PROGRESS_WRAPPER, encoding="utf-8")
                 command = [python, str(script_path), *command[3:]]
-            self._execute(command, progress)
+            self._execute(command, progress, cancelled)
             if not output_path.is_file() or output_path.stat().st_size == 0:
                 raise StudioError("The LTX-2.5 pipeline did not write an MP4 file.")
             mp4 = output_path.read_bytes()
@@ -94,30 +106,38 @@ class Ltx25Runner:
             return command_path
         raise StudioError(f"The configured LTX-2.5 Python executable is missing: {self._python_path}")
 
-    def _model_paths(self) -> dict[str, Path]:
+    def _model_paths(self, python: str, cancelled: Callable[[], bool] | None) -> dict[str, Path]:
         if not self._model_dir_value or self._model_dir.resolve() == Path.cwd().resolve():
             raise StudioError("Set a dedicated model_dir under [ltx25] before video generation.")
         missing = [relative for relative in MODEL_FILES if not (self._model_dir / relative).is_file()]
         if missing:
-            self._model_downloader(self._model_dir)
+            if self._model_downloader:
+                self._model_downloader(self._model_dir)
+            else:
+                self._download_model(python, self._model_dir, cancelled)
         missing = [relative for relative in MODEL_FILES if not (self._model_dir / relative).is_file()]
         if missing:
             raise StudioError(f"The LTX-2.5 local weights are incomplete: {', '.join(missing)}")
         return {name: self._model_dir / relative for name, relative in MODEL_PATHS.items()}
 
     @staticmethod
-    def _download_model(model_dir: Path) -> None:
-        from huggingface_hub import snapshot_download
-
+    def _download_model(python: str, model_dir: Path, cancelled: Callable[[], bool] | None) -> None:
+        command = [python, "-c", DOWNLOAD_SCRIPT, MODEL_REPOSITORY, json.dumps(list(MODEL_FILES)), str(model_dir)]
         try:
             model_dir.mkdir(parents=True, exist_ok=True)
-            snapshot_download(repo_id=MODEL_REPOSITORY, allow_patterns=list(MODEL_FILES), local_dir=model_dir)
-        except Exception as error:
+            Ltx25Runner._execute_with_progress(command, None, cancelled)
+        except Cancelled:
+            raise
+        except FileNotFoundError:
+            raise StudioError("The configured LTX-2.5 Python executable could not start.") from None
+        except subprocess.CalledProcessError as error:
             raise StudioError(
-                f"LTX-2.5 weights download failed ({type(error).__name__}). "
+                f"LTX-2.5 weights download failed (exit status {error.returncode}). "
                 "Run `hf auth login`, accept access at "
                 "https://huggingface.co/Lightricks/LTX-2.5, and check the network."
             ) from None
+        except subprocess.TimeoutExpired:
+            raise StudioError("LTX-2.5 weights download timed out after one hour.") from None
 
     @staticmethod
     def _write_references(job: VideoJob, scratch: Path) -> list[tuple[Path, int, float]]:
@@ -165,10 +185,15 @@ class Ltx25Runner:
             command.extend(("--image", str(image_path), str(frame_index), str(strength)))
         return command
 
-    def _execute(self, command: list[str], progress: Callable[[int, int, int], None] | None = None) -> None:
+    def _execute(
+        self,
+        command: list[str],
+        progress: Callable[[int, int, int], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> None:
         try:
-            if progress:
-                self._execute_with_progress(command, progress)
+            if progress or cancelled:
+                self._execute_with_progress(command, progress, cancelled)
                 return
             self._process_runner(
                 command,
@@ -177,6 +202,8 @@ class Ltx25Runner:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
+        except Cancelled:
+            raise
         except FileNotFoundError:
             raise StudioError("The configured LTX-2.5 Python executable could not start.") from None
         except subprocess.CalledProcessError as error:
@@ -185,7 +212,12 @@ class Ltx25Runner:
             raise StudioError("The LTX-2.5 pipeline timed out after one hour.") from None
 
     @staticmethod
-    def _execute_with_progress(command: list[str], progress: Callable[[int, int, int], None]) -> None:
+    def _execute_with_progress(
+        command: list[str],
+        progress: Callable[[int, int, int], None] | None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> None:
+        should_cancel = cancelled or (lambda: False)
         with subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, bufsize=0) as process:
             stderr = cast(BinaryIO, process.stderr)
             started = time.monotonic()
@@ -193,6 +225,9 @@ class Ltx25Runner:
             with selectors.DefaultSelector() as selector:
                 selector.register(stderr, selectors.EVENT_READ)
                 while selector.get_map():
+                    if should_cancel():
+                        _stop_process(process)
+                        raise Cancelled("video generation was cancelled")
                     remaining = RUN_TIMEOUT_SECONDS - (time.monotonic() - started)
                     if remaining <= 0:
                         process.kill()
@@ -205,13 +240,30 @@ class Ltx25Runner:
                     if not chunk:
                         selector.unregister(stderr)
                         continue
-                    pending += chunk.decode(errors="replace")
-                    pending = _report_progress_lines(pending, progress)
+                    if progress:
+                        pending += chunk.decode(errors="replace")
+                        pending = _report_progress_lines(pending, progress)
             return_code = process.wait(timeout=max(0.01, RUN_TIMEOUT_SECONDS - (time.monotonic() - started)))
-            if pending:
+            if should_cancel():
+                raise Cancelled("video generation was cancelled")
+            if pending and progress:
                 _report_progress_line(pending, progress)
             if return_code:
                 raise subprocess.CalledProcessError(return_code, command)
+
+
+def _stop_process(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
 
 
 def _report_progress_lines(pending: str, progress: Callable[[int, int, int], None]) -> str:

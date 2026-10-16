@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from studio.l1_entities.errors import BackendBusy, StudioError
+from studio.l1_entities.errors import BackendBusy, Cancelled, StudioError
 from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l3_interface_adapters.gateways.prompt_rewriters import StubPromptRewriter
 from studio.l4_frameworks_and_drivers import http_server
@@ -31,7 +31,7 @@ class FakeVideoBackend(FakeVideoBackendGateway):
         self.failure = None
         self.result = None
 
-    def run(self, job: VideoJob, progress=None) -> VideoResult:
+    def run(self, job: VideoJob, progress=None, cancelled=None) -> VideoResult:
         self.jobs.append(job)
         if self.failure is not None:
             raise self.failure
@@ -103,7 +103,16 @@ def test_the_video_progress_route_returns_json(served):
     status, content_type, body = call(served[1], "/video/progress")
 
     assert status == 200 and content_type == "application/json"
-    assert json.loads(body) == {"running": False, "stage": "", "step": 0, "total": 0, "phase": 0, "kind": ""}
+    assert json.loads(body) == {
+        "running": False,
+        "stage": "",
+        "step": 0,
+        "total": 0,
+        "phase": 0,
+        "kind": "",
+        "stopping": False,
+        "request_id": None,
+    }
 
 
 def test_a_get_to_an_unknown_path_is_a_plain_not_found(served):
@@ -159,6 +168,7 @@ def video_request(**updates):
         "num_frames": 145,
         "frame_rate": 24,
         "seed": 42,
+        "request_id": "run-a",
         "references": [],
     }
     payload.update(updates)
@@ -167,6 +177,11 @@ def video_request(**updates):
 
 def post_video(server, body):
     return call(server, "/video/generate", body, **{"Content-Type": "application/json"})
+
+
+def post_video_cancel(server, request_id):
+    body = json.dumps({"request_id": request_id}).encode()
+    return call(server, "/video/cancel", body, **{"Content-Type": "application/json"})
 
 
 def post_video_with_length(server, body, length):
@@ -185,10 +200,72 @@ def post_video_with_length(server, body, length):
 
 
 def test_video_route_returns_mp4_bytes_from_the_backend(served):
-    status, content_type, body = post_video(served[1], video_request())
+    url = f"http://127.0.0.1:{served[1].server_address[1]}/video/generate"
+    request = urllib.request.Request(
+        url,
+        data=video_request(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as answer:
+        status, content_type, body = answer.status, answer.headers["Content-Type"], answer.read().decode()
+        seed = answer.headers.get("X-Studio-Seed")
 
     assert (status, content_type, body) == (200, "video/mp4", "fake mp4 bytes")
+    assert seed == "42"
     assert served[2].jobs[0].prompt == "A kite rises"
+
+
+def test_video_route_returns_cancellation_as_a_successful_result(served):
+    served[2].failure = Cancelled("video generation was cancelled")
+
+    status, content_type, body = post_video(served[1], video_request())
+
+    assert status == 200 and content_type == "application/json; charset=utf-8"
+    assert json.loads(body) == {"cancelled": True}
+
+
+def test_video_cancel_only_stops_the_matching_request(served):
+    entered = threading.Event()
+    waiting = threading.Event()
+    result = []
+
+    def wait_for_cancel(job, progress=None, cancelled=None):
+        assert cancelled is not None
+        entered.set()
+        while not cancelled():
+            waiting.wait(0.01)
+        raise Cancelled("video generation was cancelled")
+
+    served[2].run = wait_for_cancel
+    worker = threading.Thread(target=lambda: result.append(post_video(served[1], video_request(request_id="run-a"))))
+    worker.start()
+    assert entered.wait(5)
+
+    progress = json.loads(call(served[1], "/video/progress")[2])
+    wrong_request = post_video_cancel(served[1], "run-b")
+    legacy_cancel = call(served[1], "/cancel", b"")
+    progress_after_legacy_cancel = json.loads(call(served[1], "/video/progress")[2])
+    matching_request = post_video_cancel(served[1], "run-a")
+    worker.join(timeout=5)
+    inactive_request = post_video_cancel(served[1], "run-a")
+
+    assert progress["request_id"] == "run-a"
+    assert wrong_request[0] == 409
+    assert legacy_cancel[0] == 204
+    assert progress_after_legacy_cancel["running"] is True
+    assert progress_after_legacy_cancel["stopping"] is False
+    assert matching_request[0] == 204
+    assert not worker.is_alive()
+    assert result[0][0] == 200 and json.loads(result[0][2]) == {"cancelled": True}
+    assert inactive_request[0] == 409
+
+
+def test_video_cancel_rejects_a_request_without_an_id(served):
+    response = call(served[1], "/video/cancel", b"{}", **{"Content-Type": "application/json"})
+
+    assert response[0] == 400
+    assert "request_id" in json.loads(response[2])["error"]
 
 
 def test_video_stub_route_returns_metadata_only(served):
@@ -312,12 +389,15 @@ def test_video_route_is_unavailable_without_a_video_backend():
 
     try:
         response = post_video(server, video_request())
+        cancel_response = post_video_cancel(server, "run-a")
     finally:
         server.shutdown()
         server.server_close()
 
     assert response[0] == 503
     assert json.loads(response[2])["error"] == "Video generation is not configured."
+    assert cancel_response[0] == 503
+    assert json.loads(cancel_response[2])["error"] == "Video generation is not configured."
 
 
 def test_video_model_switch_is_unavailable_without_a_video_backend():

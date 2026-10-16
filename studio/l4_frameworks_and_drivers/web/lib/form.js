@@ -1211,7 +1211,7 @@ function applyHold() {
     // The Run button is Cancel while a run is going, and the rewrite button is
     // Cancel while a rewrite is writing, so holding either would trap the user
     // with no way out.
-    if (control.id === 'go' || control.id === 'rewrite-toggle') return;
+    if (control.id === 'go' || control.id === 'rewrite-toggle' || control.id === 'video-generate') return;
     const text = control.tagName === 'TEXTAREA' || (control.tagName === 'INPUT' && control.type === 'text');
     if (text) {
       if (control.readOnly) return;
@@ -1242,6 +1242,7 @@ function releaseHold() {
 }
 
 const handle = {
+  holdPanel: holdPanel,
   editing: editing,
   currentMode: currentMode,
   paramSpec: paramSpec,

@@ -32,16 +32,16 @@ Names follow the role. A gateway ends in `_gateway.py` and its class in `Gateway
 
 ## One video request
 
-1. The page sends the selected video backend, prompt, output settings, and still references with target frames as JSON to `/video/generate`.
+1. The page sends a unique request ID, the selected video backend, prompt, output settings, and still references with target frames as JSON to `/video/generate`.
 2. `VideoController` reads that backend's `VideoCapabilities`, checks the request, and decodes stills to PNG bytes.
 3. `RunVideoUseCase` takes the shared lock and claims the shared model-memory slot.
 4. The selected `VideoBackendGateway` runs the model. `Ltx25BackendGateway` calls the injected runner, which starts the official Python pipeline.
-5. The LTX runner downloads missing official components on first use, writes keyframes to a temporary folder, and starts `ltx_pipelines.distilled`.
+5. The LTX runner downloads missing official components on first use, writes keyframes to a temporary folder, and starts `ltx_pipelines.distilled`. A cancel request terminates the child process.
 6. The page puts MP4 output in the video gallery. When **Keep in this browser** is on, IndexedDB stores the MP4, thumbnail, and generation details. The stub returns settings only and creates no fake video bytes.
 
 The model selector follows the active workspace. Each workspace keeps its own selected backend and capabilities. Video settings come from `VideoCapabilities`, so a backend declares its supported shapes and default, frame limits and step, duration presets and default, frame rate, seed range, reference limit, and reference strength range and step. The Video source panel lives beside its prompt in the right sidebar. It keeps imported clips separate from image keyframes. The Video gallery holds generated output only. A frame from an imported or generated clip can move to Image or become a Video keyframe. The source clip itself is not a video-conditioning input.
 
-A batch is a chain of requests, one per image. Image progress is a poll of `/progress`. Video progress is a poll of `/video/progress`; LTX reports its sampler pass and steps, which the Video workspace shows in a frame-shaped preview placeholder. The timeline keeps source clips and reference keyframes. A rewrite is one request of its own, and its phase is a poll of `/rewrite/state`: the page offers a cancel only while the model is writing, because a stop cannot land during the load.
+A batch is a chain of requests, one per image. Image progress is a poll of `/progress`. Video progress is a poll of `/video/progress`, which includes the active request ID. The page ignores progress from another tab. It sends cancellation to `/video/cancel` with the same ID. The server stops only that matching run. LTX reports its sampler pass and steps, which the Video workspace shows in a frame-shaped preview placeholder. A video cancel terminates the LTX child and releases the shared lock after it exits. The timeline keeps source clips and reference keyframes. A rewrite is one request of its own, and its phase is a poll of `/rewrite/state`: the page offers a cancel only while the model is writing, because a stop cannot land during the load.
 
 ## Add a backend
 

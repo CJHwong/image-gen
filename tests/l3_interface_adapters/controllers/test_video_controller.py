@@ -10,6 +10,7 @@ from studio.l1_entities.errors import InvalidJob, UnreadableImage
 from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
+from studio.l3_interface_adapters.controllers import video_controller as video_controller_module
 from studio.l3_interface_adapters.controllers.video_controller import VideoController, video_job
 from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
     InMemoryModelResidencyGateway,
@@ -25,7 +26,7 @@ class UnusedVideoRun(RunVideoUseCase):
     def __init__(self):
         pass
 
-    def execute(self, job: VideoJob, backend_id: str) -> VideoResult:
+    def execute(self, job: VideoJob, backend_id: str, request_id: str) -> VideoResult:
         pytest.fail("invalid request reached the use case")
 
 
@@ -49,6 +50,7 @@ def payload(**overrides):
         "num_frames": 145,
         "frame_rate": 24,
         "seed": 42,
+        "request_id": "run-a",
         "references": [],
     }
     values.update(overrides)
@@ -72,9 +74,10 @@ def test_controller_maps_shared_images_to_ltx_keyframes():
         def __init__(self):
             pass
 
-        def execute(self, job: VideoJob, backend_id: str) -> VideoResult:
+        def execute(self, job: VideoJob, backend_id: str, request_id: str) -> VideoResult:
             self.job = job
             self.backend_id = backend_id
+            self.request_id = request_id
             return VideoResult(None, job.width, job.height, job.num_frames, job.frame_rate, job.seed, True)
 
     runner = FakeRun()
@@ -96,6 +99,7 @@ def test_controller_maps_shared_images_to_ltx_keyframes():
 
     assert response.stub is True
     assert runner.backend_id == "video-fake"
+    assert runner.request_id == "run-a"
     assert runner.job is not None
     submitted_job = runner.job
     assert submitted_job.prompt == "A kite rises above the beach"
@@ -104,7 +108,16 @@ def test_controller_maps_shared_images_to_ltx_keyframes():
     assert submitted_job.references[0].png.startswith(b"\x89PNG")
 
 
-def test_controller_normalizes_transparent_keyframes_to_png():
+@pytest.mark.parametrize("request_id", [None, "", 17, "x" * 129])
+def test_controller_rejects_a_missing_or_invalid_request_id(request_id):
+    video_controller, _ = build_video_controller(run=UnusedVideoRun())
+
+    with pytest.raises(InvalidJob, match="request_id"):
+        video_controller.run(payload(request_id=request_id))
+
+
+def test_controller_normalizes_transparent_keyframes_and_assigns_a_random_seed(monkeypatch):
+    monkeypatch.setattr(video_controller_module.secrets, "randbelow", lambda _limit: 42)
     submitted_job = video_job(
         payload(
             seed="",
@@ -122,7 +135,7 @@ def test_controller_normalizes_transparent_keyframes_to_png():
 
     with Image.open(io.BytesIO(submitted_job.references[0].png)) as image:
         assert image.mode == "RGBA" and image.size == (32, 24)
-    assert submitted_job.seed is None
+    assert submitted_job.seed == 42
 
 
 @pytest.mark.parametrize(
@@ -204,6 +217,14 @@ def test_controller_rejects_a_seed_when_the_model_does_not_support_one():
 
     with pytest.raises(InvalidJob, match="This video model does not support a seed"):
         video_job(payload(seed=42), capabilities)
+
+
+def test_controller_keeps_a_blank_seed_unset_when_the_model_does_not_support_one():
+    capabilities = replace(fake_video_capabilities(), min_seed=None, max_seed=None)
+
+    submitted_job = video_job(payload(seed=""), capabilities)
+
+    assert submitted_job.seed is None
 
 
 def test_controller_rejects_unreadable_keyframe_data():

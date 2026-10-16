@@ -268,7 +268,7 @@
         <div id="video-controls" class="mode-controls video-controls" hidden>
           <div class="field prompt-field">
             <div class="field-head"><label for="video-prompt">Video prompt</label></div>
-            <textarea id="video-prompt" rows="4" placeholder="Describe the motion and the scene."></textarea>
+          <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."></textarea>
           </div>
           <section id="video-source-panel" class="video-source-panel" aria-label="Video sources">
             <div class="video-source-panel-head">
@@ -278,7 +278,7 @@
                 <button class="text-btn" type="button" data-action="add-video">Add video</button>
               </div>
             </div>
-            <p class="caption">Paste an image or add a video to capture a frame. Each still guides its output frame; the model creates motion between keyframes.</p>
+            <p class="caption">Image references anchor the scene at their selected output frame. LTX generates motion between those images. Paste with ⌘P or ⌘V.</p>
             <section class="video-source-group" aria-label="Source video clips">
               <div class="video-source-group-head"><strong>Video clips</strong></div>
               <div class="video-source-list" id="video-source-list"></div>
@@ -404,6 +404,9 @@
   const videoStudio = document.getElementById('video-studio');
   let mediaMode = new URLSearchParams(location.search).get('workspace') === 'video' ? 'video' : 'image';
   let workspaceSwitchPending = false;
+  let videoRunState = 'idle';
+  let videoRunRequestId = null;
+  let formApi = null;
 
   // The references are the page's array, not the form's, because a run posts it
   // and `verify_capabilities.py` reads it by name out of the page's global
@@ -412,6 +415,37 @@
 
   function renderMediaActions() {
     document.getElementById('share-references-video').hidden = mediaMode !== 'image' || !references.length;
+  }
+
+  function setWorkspaceControlsDisabled() {
+    const disabled = workspaceSwitchPending || videoRunState !== 'idle';
+    document.getElementById('media-image-mode').disabled = disabled;
+    document.getElementById('media-video-mode').disabled = disabled;
+  }
+
+  function setVideoRunState(state) {
+    videoRunState = state;
+    const active = state !== 'idle';
+    const starting = state === 'starting';
+    const stopping = state === 'stopping';
+    const button = document.getElementById('video-generate');
+    document.body.classList.toggle('video-busy', active);
+    document.body.classList.toggle('video-stopping', stopping);
+    form.setAttribute('aria-busy', String(active));
+    if (formApi) formApi.holdPanel('Locked while the video is being made.', active);
+    button.disabled = starting || stopping;
+    button.textContent = starting
+      ? 'Starting render…' : stopping ? 'Stopping…' : active ? 'Cancel render' : 'Generate video';
+    setWorkspaceControlsDisabled();
+    renderBackendSelector();
+  }
+
+  function newVideoRequestId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, function (byte) { return byte.toString(16).padStart(2, '0'); }).join('');
   }
 
   function applyMediaMode(next) {
@@ -427,6 +461,7 @@
     document.getElementById('strip-wrap').hidden = video || (!gallery.length && !busy());
     document.getElementById('video-controls').hidden = !video;
     document.getElementById('image-controls').hidden = video;
+    setWorkspaceControlsDisabled();
     renderMediaActions();
     renderBackendSelector();
   }
@@ -436,11 +471,9 @@
       applyMediaMode(next);
       return;
     }
-    if (workspaceSwitchPending) return;
+    if (workspaceSwitchPending || videoRunState !== 'idle') return;
     workspaceSwitchPending = true;
-    const tabs = [document.getElementById('media-image-mode'), document.getElementById('media-video-mode')];
-    const disabledBeforeSwitch = tabs.map(function (tab) { return tab.disabled; });
-    tabs.forEach(function (tab) { tab.disabled = true; });
+    setWorkspaceControlsDisabled();
     try {
       const answer = await fetch('/workspace', {
         method: 'POST',
@@ -456,7 +489,7 @@
       showToast('info', error.message);
     } finally {
       workspaceSwitchPending = false;
-      tabs.forEach(function (tab, index) { tab.disabled = disabledBeforeSwitch[index]; });
+      setWorkspaceControlsDisabled();
     }
   }
 
@@ -508,6 +541,7 @@
   document.addEventListener('video-frame-captured', function (event) {
     const reader = new FileReader();
     reader.onload = function () {
+      if (!videoStudio.canCommitInput(event.detail.epoch)) return;
       const base64 = base64FromDataUrl(reader.result);
       if (event.detail.target === 'video') {
         videoStudio.addImageReference({
@@ -516,13 +550,14 @@
           src: reader.result,
           base64: base64,
           frameIndex: event.detail.frameIndex,
-        });
+        }, event.detail.epoch);
       } else {
         formApi.addReference(base64, event.detail.name);
         setMediaMode('image');
       }
     };
     reader.onerror = function () {
+      if (!videoStudio.canCommitInput(event.detail.epoch)) return;
       showToast('error', 'The video frame could not be read as an image reference.');
     };
     reader.readAsDataURL(event.detail.blob);
@@ -658,22 +693,41 @@
     syncVideoFrameCount();
   });
 
+  async function cancelVideoRun() {
+    if (videoRunState === 'idle' || videoRunState === 'starting' || videoRunState === 'stopping') return;
+    setVideoRunState('stopping');
+    videoStudio.setCancelRequested(true);
+    document.getElementById('video-request-status').textContent = 'Stopping video render.';
+    try {
+      const response = await fetch('/video/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: videoRunRequestId }),
+      });
+      if (!response.ok) throw new Error('The cancel request failed.');
+    } catch (error) {
+      videoStudio.setCancelRequested(false);
+      setVideoRunState('running');
+      videoStudio.setError(error.message);
+    }
+  }
+
   document.getElementById('video-generate').addEventListener('click', async function () {
-    const button = this;
+    if (videoRunState !== 'idle') {
+      await cancelVideoRun();
+      return;
+    }
     const status = document.getElementById('video-request-status');
     const capabilities = videoCapabilities();
     const numFrames = Number(document.getElementById('video-duration').value);
     const duration = numFrames / capabilities.frame_rate;
     const [width, height] = selectedVideoShape();
-    button.disabled = true;
-    button.textContent = 'Generating video…';
-    status.textContent = 'Sending prompt and image references.';
-    videoStudio.clearError();
-    let progressTimer = null;
+    let settings;
+    let seed;
+    const prompt = document.getElementById('video-prompt').value;
     try {
-      const seed = selectedVideoSeed();
-      const prompt = document.getElementById('video-prompt').value;
-      const settings = {
+      seed = selectedVideoSeed();
+      settings = {
         backend: STUDIO.video.backend.id,
         modelName: STUDIO.video.backend.name,
         prompt: prompt,
@@ -697,32 +751,54 @@
       if (invalidReference) {
         throw new Error('Image reference frames must be between 0 and ' + (numFrames - 1) + '.');
       }
-      const requestStarted = performance.now();
-      videoStudio.setGenerationProgress(
-        {running: true, stage: 'preparing', step: 0, total: 0},
-        0,
-        {width: settings.width, height: settings.height, modelName: settings.modelName},
-      );
-      let progressRequestPending = false;
-      progressTimer = window.setInterval(async function () {
-        if (progressRequestPending) return;
-        progressRequestPending = true;
-        try {
-          const progressResponse = await fetch('/video/progress', {cache: 'no-store'});
-          if (!progressResponse.ok) throw new Error('The progress request failed.');
-          const progressState = await progressResponse.json();
-          if (progressState.kind === 'video') {
-            videoStudio.setGenerationProgress(progressState, (performance.now() - requestStarted) / 1000);
-          }
-        } catch (error) {
-          videoStudio.setGenerationProgress(
-            {running: true, stage: 'preparing', step: 0, total: 0},
-            (performance.now() - requestStarted) / 1000,
-          );
-        } finally {
-          progressRequestPending = false;
+    } catch (error) {
+      videoStudio.setError(error.message);
+      status.textContent = 'Video generation failed.';
+      return;
+    }
+    videoStudio.clearError();
+    status.textContent = 'Preparing video render.';
+    videoRunRequestId = newVideoRequestId();
+    setVideoRunState('starting');
+    let progressTimer = null;
+    let progressRequestPending = false;
+    const requestStarted = performance.now();
+    videoStudio.setGenerationProgress(
+      {running: true, stage: 'preparing', step: 0, total: 0},
+      0,
+      {
+        width: settings.width,
+        height: settings.height,
+        modelName: settings.modelName,
+        prompt: settings.prompt,
+        numFrames: settings.numFrames,
+        frameRate: settings.frameRate,
+        seed: settings.seed,
+        elapsedSeconds: 0,
+        references: settings.references,
+      },
+    );
+    progressTimer = window.setInterval(async function () {
+      if (progressRequestPending) return;
+      progressRequestPending = true;
+      try {
+        const progressResponse = await fetch('/video/progress', {cache: 'no-store'});
+        if (!progressResponse.ok) throw new Error('The progress request failed.');
+        const progressState = await progressResponse.json();
+        if (progressState.kind === 'video' && progressState.request_id === videoRunRequestId) {
+          videoStudio.setGenerationProgress(progressState, (performance.now() - requestStarted) / 1000);
+          if (progressState.running && videoRunState === 'starting') setVideoRunState('running');
         }
-      }, 500);
+      } catch (error) {
+        videoStudio.setGenerationProgress(
+          {running: true, stage: 'preparing', step: 0, total: 0, stopping: videoRunState === 'stopping'},
+          (performance.now() - requestStarted) / 1000,
+        );
+      } finally {
+        progressRequestPending = false;
+      }
+    }, 350);
+    try {
       const response = await fetch('/video/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -734,6 +810,7 @@
           frameRate: capabilities.frame_rate,
           seed: seed,
           backend: STUDIO.video.backend.id,
+          requestId: videoRunRequestId,
         })),
       });
       const contentType = response.headers.get('content-type') || '';
@@ -743,11 +820,18 @@
       }
       if (contentType.indexOf('video/mp4') !== -1) {
         const video = await response.blob();
+        const actualSeed = response.headers.get('X-Studio-Seed');
+        if (actualSeed !== null && /^\d+$/.test(actualSeed)) settings.seed = Number(actualSeed);
         settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
         await videoStudio.addGeneratedClip(video, settings);
         status.textContent = 'Video added to the gallery.';
       } else {
         const output = await response.json();
+        if (output.cancelled) {
+          status.textContent = 'Video generation cancelled.';
+          videoStudio.clearError();
+          return;
+        }
         if (!output.stub) throw new Error('The video server returned an unknown response.');
         settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
         videoStudio.addStubClip(output, settings);
@@ -763,12 +847,12 @@
     } finally {
       if (progressTimer !== null) window.clearInterval(progressTimer);
       videoStudio.setGenerationProgress(null, 0);
-      button.disabled = false;
-      button.textContent = 'Generate video';
+      videoStudio.setCancelRequested(false);
+      setVideoRunState('idle');
+      videoRunRequestId = null;
     }
   });
 
-  let formApi = null;
   document.addEventListener('form-ready', function (event) {
     formApi = event.detail.configure({
       studio: STUDIO,
@@ -1364,7 +1448,7 @@
     const backends = family.backends || [];
     toggle.querySelector('.name').textContent = backend.name;
     document.querySelector('.dial .badge').textContent = backend.badge;
-    toggle.disabled = backends.length < 2 || !menus;
+    toggle.disabled = backends.length < 2 || !menus || busy() || videoRunState !== 'idle';
     toggle.title = backends.length > 1 ? 'Switch the model' : backend.name;
     menu.replaceChildren();
     if (backends.length < 2 || !menus) return;
@@ -1406,7 +1490,7 @@
     if (id === family.backend.id) return;
     const endpoint = workspace === 'video' ? '/video/backend' : '/backend';
     const toggle = document.getElementById('backend-toggle');
-    if (busy()) return showToast('info', 'Wait for the run to finish, then switch.');
+    if (busy() || videoRunState !== 'idle') return showToast('info', 'Wait for the run to finish, then switch.');
     toggle.disabled = true;
     showToast('info', 'Selecting ' + name + '. It will load when you generate.');
     fetch(endpoint, { method: 'POST', body: new URLSearchParams({ backend: id }) })

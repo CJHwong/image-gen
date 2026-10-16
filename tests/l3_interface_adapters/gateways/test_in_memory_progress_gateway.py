@@ -31,6 +31,17 @@ def test_a_step_keeps_the_label_of_the_image_it_belongs_to(progress):
     )
 
 
+def test_video_progress_keeps_its_request_id_until_finish(progress):
+    progress.begin("", kind="video", request_id="run-a")
+    progress.set_step(2, 8, 1)
+
+    assert progress.snapshot().request_id == "run-a"
+
+    progress.finish()
+
+    assert progress.snapshot().request_id is None
+
+
 def test_finish_puts_the_state_back_to_idle(progress):
     progress.begin("")
     progress.set_step(3, 25)
@@ -46,6 +57,22 @@ def test_the_snapshot_says_a_cancel_is_pending(progress):
     # The page polls, and the flag is what turns its button into "stopping".
     progress.request_cancel()
     assert progress.snapshot().stopping is True
+
+
+def test_a_scoped_cancel_only_targets_the_matching_run(progress):
+    progress.begin("", kind="video", request_id="run-a")
+
+    assert progress.request_cancel("run-b") is False
+    assert progress.cancel_requested() is False
+    assert progress.request_cancel("run-a") is True
+    assert progress.cancel_requested() is True
+
+
+def test_an_unscoped_cancel_does_not_target_a_video_run(progress):
+    progress.begin("", kind="video", request_id="run-a")
+
+    assert progress.request_cancel() is False
+    assert progress.cancel_requested() is False
 
 
 def test_a_cancel_outlives_the_run_it_landed_in(progress):

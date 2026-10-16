@@ -176,5 +176,7 @@ class HtmlPresenter:
                 "total": state.total,
                 "phase": state.phase,
                 "kind": state.kind,
+                "stopping": state.stopping,
+                "request_id": state.request_id,
             }
         )
