@@ -174,6 +174,10 @@ class VideoStudio extends LitElement {
   outputFrameRate = 24;
   outputModelName = 'Video';
   previewResizeObserver = null;
+  outputPromptResizeObserver = new ResizeObserver((observations) => {
+    observations.forEach((observation) => this.markOutputPrompt(observation.target));
+  });
+  observedOutputPrompt = null;
   error = '';
   handleSourceClick = (event) => this.onComponentClick(event);
   handleSourceChange = (event) => this.onComponentChange(event);
@@ -228,6 +232,8 @@ class VideoStudio extends LitElement {
       this.sourcePanel.removeEventListener('drop', this.handleSourceDrop);
     }
     if (this.previewResizeObserver) this.previewResizeObserver.disconnect();
+    this.outputPromptResizeObserver.disconnect();
+    this.observedOutputPrompt = null;
     super.disconnectedCallback();
     this.clips.forEach(releaseClipUrls);
   }
@@ -401,7 +407,19 @@ class VideoStudio extends LitElement {
   }
 
   setFrameLimit(frameCount) {
+    if (!Number.isInteger(frameCount) || frameCount < 1) return 0;
     this.frameLimit = frameCount;
+    const lastFrame = frameCount - 1;
+    let movedReferences = 0;
+    this.imageReferences = this.imageReferences.map((reference) => {
+      const frameIndex = Number.isInteger(reference.frameIndex) ? reference.frameIndex : 0;
+      const validFrame = Math.min(lastFrame, Math.max(0, frameIndex));
+      if (frameIndex === validFrame) return reference;
+      movedReferences += 1;
+      return {...reference, frameIndex: validFrame};
+    });
+    if (movedReferences) this.renderImageReferences();
+    return movedReferences;
   }
 
   setModelCapabilities(capabilities) {
@@ -661,33 +679,45 @@ class VideoStudio extends LitElement {
   }
 
   onOutputKeydown(event) {
-    if (event.key !== 'Escape' || !this.querySelector('#video-prompt-sheet')) return;
+    if (event.key === 'Escape' && this.querySelector('#video-prompt-sheet')) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closeOutputPromptSheet();
+      return;
+    }
+    const prompt = event.target instanceof Element
+      ? event.target.closest('.video-output-prompt[role="button"]') : null;
+    if (!prompt || (event.key !== 'Enter' && event.key !== ' ')) return;
     event.preventDefault();
-    event.stopPropagation();
-    this.closeOutputPromptSheet();
+    this.openOutputPromptSheet();
   }
 
   openOutputPromptSheet() {
     const prompt = this.querySelector('.video-output-prompt');
     const preview = this.querySelector('#video-preview-root');
-    if (!prompt || !preview || this.querySelector('#video-prompt-sheet')) return;
+    if (!prompt || !prompt.hasAttribute('role') || !preview || this.querySelector('#video-prompt-sheet')) return;
     const sheet = document.createElement('div');
     sheet.id = 'video-prompt-sheet';
-    sheet.className = 'sheet video-prompt-sheet';
+    sheet.className = 'sheet';
     sheet.setAttribute('role', 'region');
-    sheet.setAttribute('aria-label', 'Full prompt');
-    const fullPrompt = document.createElement('p');
+    sheet.setAttribute('aria-label', 'The whole prompt');
+    const list = document.createElement('dl');
+    const label = document.createElement('dt');
+    label.textContent = 'Prompt';
+    const fullPrompt = document.createElement('dd');
     fullPrompt.textContent = prompt.textContent;
+    list.append(label, fullPrompt);
     const close = document.createElement('button');
     close.className = 'icon-btn close';
     close.type = 'button';
     close.dataset.action = 'close-output-prompt';
-    close.setAttribute('aria-label', 'Close full prompt');
+    close.setAttribute('aria-label', 'Close');
     close.title = 'Close';
     close.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>';
-    sheet.append(fullPrompt, close);
+    sheet.append(list, close);
     preview.append(sheet);
-    prompt.setAttribute('aria-expanded', 'true');
+    prompt.setAttribute('aria-controls', sheet.id);
+    this.markOutputPrompt(prompt);
     close.focus();
   }
 
@@ -695,8 +725,36 @@ class VideoStudio extends LitElement {
     this.querySelector('#video-prompt-sheet')?.remove();
     const prompt = this.querySelector('.video-output-prompt');
     if (!prompt) return;
-    prompt.setAttribute('aria-expanded', 'false');
+    prompt.removeAttribute('aria-controls');
+    this.markOutputPrompt(prompt);
     if (restoreFocus) prompt.focus();
+  }
+
+  observeOutputPrompt(prompt) {
+    if (this.observedOutputPrompt && this.observedOutputPrompt !== prompt) {
+      this.outputPromptResizeObserver.unobserve(this.observedOutputPrompt);
+    }
+    this.observedOutputPrompt = prompt;
+    if (!prompt) return;
+    this.outputPromptResizeObserver.observe(prompt);
+    this.markOutputPrompt(prompt);
+  }
+
+  markOutputPrompt(prompt) {
+    const open = Boolean(this.querySelector('#video-prompt-sheet'));
+    const cut = prompt.scrollHeight > prompt.clientHeight + 1;
+    if (open || cut) {
+      prompt.dataset.action = 'open-output-prompt';
+      prompt.setAttribute('role', 'button');
+      prompt.tabIndex = 0;
+      prompt.setAttribute('aria-expanded', String(open));
+      return;
+    }
+    prompt.removeAttribute('data-action');
+    prompt.removeAttribute('role');
+    prompt.removeAttribute('tabindex');
+    prompt.removeAttribute('aria-expanded');
+    prompt.removeAttribute('aria-controls');
   }
 
   async toggleVideoFullscreen() {
@@ -925,6 +983,22 @@ class VideoStudio extends LitElement {
     this.renderSelectedClip();
   }
 
+  stepClip(delta) {
+    const gallery = this.querySelector('#video-gallery');
+    const outputs = this.clips.filter((clip) => clip.kind === 'generated');
+    const current = outputs.findIndex((clip) => clip.id === this.selectedClipId);
+    const next = outputs[current + delta];
+    if (!next) return false;
+    const keepFocus = Boolean(gallery?.contains(document.activeElement));
+    this.selectClip(next.id);
+    const selected = this.querySelector('#video-gallery .video-clip.selected');
+    if (selected) {
+      selected.scrollIntoView({block: 'nearest', inline: 'nearest'});
+      if (keepFocus) selected.focus();
+    }
+    return true;
+  }
+
   async removeClip(id) {
     const removed = this.clips.find(function (clip) { return clip.id === id; });
     if (!removed) return;
@@ -1083,6 +1157,7 @@ class VideoStudio extends LitElement {
     const metadata = pending ? videoMetadata(this.pendingRender) : clip?.metadata;
     if (!pending && !clip) {
       renderTemplate('', root);
+      this.observeOutputPrompt(null);
       return;
     }
     const isSource = !pending && clip.kind === 'source';
@@ -1124,15 +1199,22 @@ class VideoStudio extends LitElement {
       <section class="stage-bar video-stage-bar video-output-details" id="video-output-details"
         aria-label="Video preview details">
         <div class="about">
-          <button class="prompt-line video-output-prompt" type="button" data-action="open-output-prompt"
-            aria-label="Read full prompt" aria-controls="video-prompt-sheet" aria-expanded="false"
-            title=${prompt}>${prompt}</button>
+          <p class="prompt-line video-output-prompt" title=${prompt}>${prompt}</p>
           <div class="facts num video-output-facts" aria-label="Video metadata">
             ${renderLabel ? html`<span class="made">${renderLabel}</span>` : nothing}
             ${facts.map((fact) => html`<span>${fact}</span>`)}
           </div>
         </div>
         <div class="actions video-output-actions">
+          ${canShowMore ? html`
+            <div class="menu-anchor">
+              <button class="icon-btn" type="button" data-action="toggle-output-menu"
+                aria-label="More actions" aria-controls="video-output-menu" aria-expanded="false" title="More actions">
+                <svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>
+              </button>
+              <div class="menu up" id="video-output-menu" role="menu" hidden></div>
+            </div>` : nothing}
+          ${canShowMore ? html`<span class="rule" aria-hidden="true"></span>` : nothing}
           ${canDownload ? html`
             <a class="icon-btn" href=${clip.url} download=${videoDownloadName(clip)}
               aria-label="Download video" title="Download">
@@ -1154,16 +1236,9 @@ class VideoStudio extends LitElement {
               aria-label="Add frame as keyframe" title="Add frame as keyframe">
               <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>
             </button>` : nothing}
-          ${canShowMore ? html`
-            <div class="menu-anchor">
-              <button class="icon-btn" type="button" data-action="toggle-output-menu"
-                aria-label="More actions" aria-controls="video-output-menu" aria-expanded="false" title="More actions">
-                <svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>
-              </button>
-              <div class="menu up" id="video-output-menu" role="menu" hidden></div>
-            </div>` : nothing}
         </div>
       </section>`, root);
+    this.observeOutputPrompt(root.querySelector('.video-output-prompt'));
     const menu = root.querySelector('#video-output-menu');
     if (!menu || !clip) return;
     menu.replaceChildren();

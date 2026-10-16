@@ -125,17 +125,17 @@
       <input type="hidden" name="backend" value="__BACKEND__">
       <div class="controls">
         <div id="image-controls" class="mode-controls">
+        <div class="modes" role="radiogroup" aria-label="Image mode">
+          <input type="radio" name="mode" id="mode-generate" value="generate" checked>
+          <label for="mode-generate"><svg class="icon"><use href="#i-sparkle"/></svg>Generate</label>
+          <input type="radio" name="mode" id="mode-edit" value="edit">
+          <label for="mode-edit"><svg class="icon"><use href="#i-brush"/></svg>Edit</label>
+        </div>
+
         <div class="field prompt-field">
-          <div class="field-head prompt-head">
+          <div class="field-head">
             <label for="prompt"><span class="generate-only">Prompt</span><span class="edit-only">What to change</span></label>
-            <div class="prompt-head-tools">
-              <div class="modes" role="radiogroup" aria-label="Image mode">
-                <input type="radio" name="mode" id="mode-generate" value="generate" checked>
-                <label for="mode-generate"><svg class="icon"><use href="#i-sparkle"/></svg>Generate</label>
-                <input type="radio" name="mode" id="mode-edit" value="edit">
-                <label for="mode-edit"><svg class="icon"><use href="#i-brush"/></svg>Edit</label>
-              </div>
-              <div class="head-actions">
+            <div class="head-actions">
             <button type="button" class="pill" id="templates-toggle" aria-expanded="false"
               aria-controls="templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
             <!-- The button carries the rewrite's three verbs, and `hidden` picks
@@ -145,7 +145,6 @@
                  stays on the button and never on a label. -->
             <button type="button" class="pill" id="rewrite-toggle" hidden
               title="Rewrite the prompt into a longer instruction before generating"><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle">Rewrite</span><span class="rewrite-cancel" hidden>Cancel</span><span class="rewrite-stopping" hidden>Stopping&hellip;</span></button>
-              </div>
             </div>
           </div>
           <div class="menu" id="templates" role="menu" hidden></div>
@@ -668,7 +667,14 @@
     document.getElementById('video-frame-count').textContent =
       durationLabel + ' seconds, ' + width + ' × ' + height + ', ' + frameCount + ' frames at '
       + capabilities.frame_rate + ' fps.';
-    if (typeof videoStudio.setFrameLimit === 'function') videoStudio.setFrameLimit(frameCount);
+    if (typeof videoStudio.setFrameLimit === 'function') {
+      const movedReferences = videoStudio.setFrameLimit(frameCount);
+      if (movedReferences) {
+        const noun = movedReferences === 1 ? 'image reference moved' : 'image references moved';
+        showToast('info', movedReferences + ' ' + noun + ' to frame ' + frameCount
+          + ' to fit the selected duration.');
+      }
+    }
   }
 
   function selectedVideoSeed() {
@@ -1444,8 +1450,17 @@
       event.preventDefault();
       stage.toggleFullscreen();
     }
-    if (event.key === 'ArrowRight') strip.step(1);
-    if (event.key === 'ArrowLeft') strip.step(-1);
+    if (mediaMode === 'video' && event.target.closest('video')) return;
+    if (event.key === 'ArrowRight') {
+      if (mediaMode === 'video') {
+        if (videoStudio.stepClip(1)) event.preventDefault();
+      } else strip.step(1);
+    }
+    if (event.key === 'ArrowLeft') {
+      if (mediaMode === 'video') {
+        if (videoStudio.stepClip(-1)) event.preventDefault();
+      } else strip.step(-1);
+    }
   });
 
   // Cmd+Enter (Ctrl+Enter off a Mac) runs from anywhere on the page. It obeys

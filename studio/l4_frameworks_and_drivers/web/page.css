@@ -404,15 +404,6 @@
   .swatch[aria-pressed=true] { border-color: var(--text-2); }
   .swatch:hover { border-color: var(--line-strong); }
   .field-head .head-actions { display: flex; gap: 10px; }
-  .prompt-head { align-items: center; gap: 6px; }
-  .prompt-head > label { flex: none; white-space: nowrap; }
-  .prompt-head-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start;
-    align-content: flex-start; gap: 5px; min-width: 0; }
-  .prompt-head .modes { display: flex; flex: none; gap: 1px; padding: 1px; }
-  .prompt-head .modes label { height: 24px; gap: 4px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
-  .prompt-head .modes .icon { width: 12px; height: 12px; }
-  .prompt-head .head-actions { gap: 4px; }
-  .prompt-head .pill { padding-right: 7px; padding-left: 7px; }
 
   .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; margin-top: 4px;
     color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -547,11 +538,7 @@
   #video-output-details-root { min-width: 0; margin: 0 -18px -18px; }
   .video-stage-bar { min-height: 82px; padding: 0 28px 18px; border: 0; background: transparent; gap: 24px; }
   .video-output-prompt { width: 100%; max-width: 100%; padding: 0; border: 0; background: transparent;
-    text-align: left; cursor: pointer; }
-  .video-output-prompt:hover { text-decoration: underline; text-decoration-color: var(--line-strong);
-    text-underline-offset: 3px; }
-  .video-output-prompt:focus-visible { outline: 1.5px solid var(--text-2); outline-offset: 3px; }
-  .video-prompt-sheet p { margin: 0; font: 16px/1.55 var(--serif); white-space: pre-wrap; overflow-wrap: anywhere; }
+    text-align: left; }
   .video-output-facts { gap: 2px 14px; }
   .video-output-actions { gap: 2px; }
   .video-output-actions .menu-anchor { position: relative; }
@@ -687,7 +674,6 @@
   #form[data-panel-held=true] .controls #rewrite-toggle { pointer-events: auto; }
   .field { display: flex; flex-direction: column; gap: 8px; }
   .field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; min-height: 18px; }
-  .field-head.prompt-head { align-items: flex-start; }
   label, .label { color: var(--text-2); font-size: 12px; font-weight: 500; }
   .prompt-field { position: relative; }
   .pill { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px 0 7px;

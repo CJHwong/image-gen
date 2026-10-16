@@ -160,19 +160,28 @@ with sync_playwright() as playwright:
         and page.locator("#form #workspace-tabs").count() == 0
         and page.locator("#image-controls .modes").is_visible(),
     )
-    image_prompt_head = page.locator("#image-controls .prompt-field .field-head").bounding_box()
-    image_mode_in_head = page.locator("#image-controls .prompt-field .field-head .modes").count() == 1
+    image_mode_layout = page.evaluate(
+        """() => {
+          const controls = document.querySelector('#image-controls');
+          const modes = controls.querySelector('.modes');
+          const prompt = controls.querySelector('.prompt-field');
+          const label = modes.querySelector('label').getBoundingClientRect();
+          return {
+            selectorBeforePrompt: Boolean(modes.compareDocumentPosition(prompt)
+              & Node.DOCUMENT_POSITION_FOLLOWING),
+            selectorHeight: label.height,
+            videoHasImageSelector: Boolean(document.querySelector('#video-controls .modes')),
+          };
+        }"""
+    )
     switch_workspace(page, "video")
-    video_prompt_head = page.locator("#video-controls .prompt-field .field-head").bounding_box()
     switch_workspace(page, "image")
     check(
-        "Image and Video prompt fields start at the same sidebar position",
-        image_mode_in_head
-        and image_prompt_head is not None
-        and video_prompt_head is not None
-        and abs(image_prompt_head["y"] - video_prompt_head["y"]) < 1
-        and abs(image_prompt_head["x"] - video_prompt_head["x"]) < 1,
-        f"Image: {image_prompt_head}, Video: {video_prompt_head}, mode in heading: {image_mode_in_head}",
+        "Image Generate and Edit keep their original selector above Prompt",
+        image_mode_layout["selectorBeforePrompt"]
+        and image_mode_layout["selectorHeight"] == 32
+        and not image_mode_layout["videoHasImageSelector"],
+        str(image_mode_layout),
     )
     page.set_viewport_size({"width": 1024, "height": 844})
     page.locator("label[for=mode-edit]").click()
@@ -180,22 +189,20 @@ with sync_playwright() as playwright:
     page.locator("#rewrite-toggle").evaluate("button => { button.hidden = false; button.disabled = false; }")
     narrow_prompt_head = page.evaluate(
         """() => {
-          const head = document.querySelector('#image-controls .prompt-head');
+          const head = document.querySelector('#image-controls .prompt-field .field-head');
           const bounds = head.getBoundingClientRect();
-          const controls = [...head.querySelectorAll(
-            '.prompt-head-tools, .modes, .head-actions, #templates-toggle, #rewrite-toggle'
-          )];
+          const controls = [...head.querySelectorAll('.head-actions, #templates-toggle, #rewrite-toggle')];
           const left = Math.min(...controls.map(control => control.getBoundingClientRect().left));
           const right = Math.max(...controls.map(control => control.getBoundingClientRect().right));
           const label = head.querySelector(':scope > label').getBoundingClientRect();
-          const modes = head.querySelector('.modes').getBoundingClientRect();
           const actions = head.querySelector('.head-actions').getBoundingClientRect();
           const overlaps = (first, second) => first.left < second.right && first.right > second.left
             && first.top < second.bottom && first.bottom > second.top;
+          const modes = document.querySelector('#image-controls .modes');
           return {width: bounds.width, clientWidth: head.clientWidth, scrollWidth: head.scrollWidth,
             left, headerLeft: bounds.left, right, headerRight: bounds.right,
-            labelModeOverlap: overlaps(label, modes), labelActionsOverlap: overlaps(label, actions),
-            modeActionOverlap: overlaps(modes, actions)};
+            labelActionsOverlap: overlaps(label, actions),
+            modeFitsSidebar: modes.getBoundingClientRect().right <= bounds.right + 1};
         }"""
     )
     check(
@@ -203,9 +210,8 @@ with sync_playwright() as playwright:
         narrow_prompt_head["scrollWidth"] <= narrow_prompt_head["clientWidth"]
         and narrow_prompt_head["left"] >= narrow_prompt_head["headerLeft"] - 1
         and narrow_prompt_head["right"] <= narrow_prompt_head["headerRight"] + 1
-        and not narrow_prompt_head["labelModeOverlap"]
         and not narrow_prompt_head["labelActionsOverlap"]
-        and not narrow_prompt_head["modeActionOverlap"],
+        and narrow_prompt_head["modeFitsSidebar"],
         str(narrow_prompt_head),
     )
     page.locator("label[for=mode-generate]").click()
@@ -1089,6 +1095,27 @@ with sync_playwright() as playwright:
     )
     page.evaluate("() => { window.fetch = window.__studioOriginalFetch; }")
     page.fill("#video-seed", "")
+    duration_reference = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          const reference = studio.imageReferences.at(-1);
+          const duration = document.getElementById('video-duration');
+          reference.frameIndex = Number(duration.value) + 40;
+          duration.dispatchEvent(new Event('input', {bubbles: true}));
+          return {frameIndex: studio.imageReferences.at(-1).frameIndex,
+            lastFrame: Number(duration.value) - 1};
+        }"""
+    )
+    check(
+        "shortening duration keeps keyframe references inside the output",
+        duration_reference["frameIndex"] == duration_reference["lastFrame"] == 240,
+        str(duration_reference),
+    )
+    check(
+        "duration change explains when a reference moves to the last frame",
+        "moved to frame 241" in page.locator("#toasts").inner_text(),
+        page.locator("#toasts").inner_text(),
+    )
     sent_strength = float(
         page.locator("#video-source-panel .video-reference-options input[type=range]").nth(1).input_value()
     )
@@ -1118,6 +1145,10 @@ with sync_playwright() as playwright:
         and len(request.get("request_id", "")) >= 16
         and request["references"][1].get("frame_index") == sent_frame == captured_frame_index
         and request["references"][1].get("strength") == sent_strength == 0.55
+        and all(
+            0 <= reference.get("frame_index", -1) < request.get("num_frames", 0)
+            for reference in request.get("references", [])
+        )
         and all(len(reference.get("image", "")) > 100 for reference in request.get("references", [])),
         json.dumps({key: value for key, value in request.items() if key != "references"})
         + f", references: {len(request.get('references', []))}",
@@ -1161,6 +1192,20 @@ with sync_playwright() as playwright:
         and "A kite rises as the camera pans across the shore" not in stub_details,
         page.locator("#video-output-details").inner_text(),
     )
+    page.locator("#video-output-details .video-output-prompt").click()
+    short_prompt_state = page.evaluate(
+        """() => {
+          const prompt = document.querySelector('#video-output-details .video-output-prompt');
+          return {tag: prompt.tagName, role: prompt.getAttribute('role'),
+            tabIndex: prompt.getAttribute('tabindex'), sheetOpen: Boolean(document.querySelector('#video-prompt-sheet'))};
+        }"""
+    )
+    check(
+        "a short video prompt stays plain text and does not open a sheet",
+        short_prompt_state == {"tag": "P", "role": None, "tabIndex": None, "sheetOpen": False},
+        str(short_prompt_state),
+    )
+    page.evaluate("() => document.getElementById('video-studio').closeOutputPromptSheet(false)")
     original_stub_prompt = page.evaluate(
         """() => {
           const studio = document.getElementById('video-studio');
@@ -1171,16 +1216,29 @@ with sync_playwright() as playwright:
           return prompt;
         }"""
     )
-    prompt_button = page.get_by_role("button", name="Read full prompt")
-    prompt_button.focus()
+    page.locator("#video-output-details .video-output-prompt[role=button]").focus()
     page.keyboard.press("Enter")
     prompt_sheet = page.locator("#video-prompt-sheet")
     prompt_sheet.wait_for(state="visible")
-    full_prompt = "A detailed scene description " * 18
+    full_prompt = ("A detailed scene description " * 18).strip()
     check(
         "keyboard opens the complete video prompt over the preview",
         full_prompt in prompt_sheet.inner_text()
-        and page.evaluate("() => document.activeElement?.getAttribute('aria-label')") == "Close full prompt",
+        and page.locator("#video-prompt-sheet").get_attribute("aria-label") == "The whole prompt"
+        and page.locator("#video-prompt-sheet dl dt").inner_text() == "Prompt"
+        and page.locator("#video-prompt-sheet dl dd").inner_text() == full_prompt
+        and page.locator(".video-output-prompt").get_attribute("aria-controls") == "video-prompt-sheet"
+        and page.evaluate("() => document.activeElement?.getAttribute('aria-label')") == "Close",
+        json.dumps(
+            {
+                "sheet": prompt_sheet.inner_text(),
+                "label": prompt_sheet.get_attribute("aria-label"),
+                "term": page.locator("#video-prompt-sheet dl dt").inner_text(),
+                "value": page.locator("#video-prompt-sheet dl dd").inner_text(),
+                "controls": page.locator(".video-output-prompt").get_attribute("aria-controls"),
+                "focus": page.evaluate("() => document.activeElement?.getAttribute('aria-label')"),
+            }
+        ),
     )
     page.locator("#video-source-list .video-source").first.click()
     check(
@@ -1189,17 +1247,53 @@ with sync_playwright() as playwright:
         and "demo.webm" in page.locator("#video-output-details").inner_text(),
     )
     page.locator("#video-gallery .video-clip").first.click()
-    page.get_by_role("button", name="Read full prompt").focus()
+    page.locator("#video-output-details .video-output-prompt[role=button]").focus()
     page.keyboard.press("Enter")
     check(
         "the selected clip can open its own prompt sheet",
         full_prompt in page.locator("#video-prompt-sheet").inner_text(),
+        json.dumps(
+            {
+                "sheet": page.locator("#video-prompt-sheet").inner_text(),
+                "prompt": page.locator(".video-output-prompt").inner_text(),
+                "role": page.locator(".video-output-prompt").get_attribute("role"),
+            }
+        ),
     )
     page.keyboard.press("Escape")
     check(
         "Escape closes the full prompt and restores caption focus",
         page.locator("#video-prompt-sheet").count() == 0
-        and page.evaluate("() => document.activeElement?.getAttribute('aria-label')") == "Read full prompt",
+        and page.evaluate("() => document.activeElement?.matches('.video-output-prompt[role=button]')"),
+    )
+    resize_prompt = ("A detailed scene description " * 10).strip()
+    page.evaluate(
+        """prompt => {
+          const studio = document.getElementById('video-studio');
+          studio.selectedClip().metadata.prompt = prompt;
+          studio.renderOutputDetails();
+        }""",
+        resize_prompt,
+    )
+    page.wait_for_function(
+        "() => document.querySelector('.video-output-prompt')?.getAttribute('role') === 'button'",
+        timeout=10000,
+    )
+    page.set_viewport_size({"width": 2560, "height": 1000})
+    page.wait_for_function(
+        "() => !document.querySelector('.video-output-prompt')?.hasAttribute('role')",
+        timeout=10000,
+    )
+    page.locator("#video-output-details .video-output-prompt").click()
+    check(
+        "a prompt stops acting as a control when the full text fits",
+        page.locator(".video-output-prompt").get_attribute("role") is None
+        and page.locator("#video-prompt-sheet").count() == 0,
+    )
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    page.wait_for_function(
+        "() => document.querySelector('.video-output-prompt')?.getAttribute('role') === 'button'",
+        timeout=10000,
     )
     page.evaluate(
         """prompt => {
@@ -1244,9 +1338,12 @@ with sync_playwright() as playwright:
           const monitor = document.querySelector('#video-preview-content-root .video-tv-frame');
           const edge = monitor?.querySelector('.video-tv-edge');
           const actions = document.querySelector('#video-output-details .video-output-actions');
-          const actionOrder = actions ? Array.from(actions.children).map(item =>
-            item.matches('a, button') ? item.getAttribute('aria-label')
-              : item.querySelector('button')?.getAttribute('aria-label')) : [];
+          const actionOrder = actions ? Array.from(actions.children).flatMap(item => {
+            if (item.classList.contains('rule')) return [];
+            const label = item.matches('a, button') ? item.getAttribute('aria-label')
+              : item.querySelector('button')?.getAttribute('aria-label');
+            return label ? [label] : [];
+          }) : [];
           const facts = document.querySelector('#video-output-details .video-output-facts');
           const screen = monitor?.querySelector('.video-tv-screen');
           const details = document.querySelector('#video-output-details');
@@ -1258,6 +1355,7 @@ with sync_playwright() as playwright:
             model: edge?.querySelector('.video-tv-model')?.textContent,
             serial: edge?.querySelector('.video-tv-serial')?.textContent,
             actionOrder,
+            hasActionDivider: Boolean(actions?.querySelector('.rule')),
             facts: facts?.innerText,
             referenceDetailCount: document.querySelectorAll('.video-output-references').length,
             directFrameAction: Boolean(actions?.querySelector('[data-action="capture-image-frame"]')),
@@ -1315,6 +1413,36 @@ with sync_playwright() as playwright:
         },
         str(gallery_actions),
     )
+    page.locator("#video-gallery .video-clip").nth(1).focus()
+    page.keyboard.press("ArrowLeft")
+    previous_clip = page.evaluate(
+        """() => ({
+          selected: document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId,
+          focused: document.activeElement?.dataset.clipId,
+          clips: [...document.querySelectorAll('#video-gallery .video-clip')].map(clip => clip.dataset.clipId),
+        })"""
+    )
+    page.keyboard.press("ArrowLeft")
+    first_clip_edge = page.evaluate(
+        """() => document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId"""
+    )
+    page.keyboard.press("ArrowRight")
+    next_clip = page.evaluate(
+        """() => ({
+          selected: document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId,
+          focused: document.activeElement?.dataset.clipId,
+        })"""
+    )
+    check(
+        "Video gallery arrows select adjacent clips and keep focus",
+        len(previous_clip["clips"]) == 2
+        and previous_clip["selected"] == previous_clip["clips"][0]
+        and previous_clip["focused"] == previous_clip["clips"][0]
+        and first_clip_edge == previous_clip["clips"][0]
+        and next_clip["selected"] == previous_clip["clips"][1]
+        and next_clip["focused"] == previous_clip["clips"][1],
+        json.dumps({"previous": previous_clip, "edge": first_clip_edge, "next": next_clip}),
+    )
     check(
         "generated gallery thumbnail and output metadata appear with the clip",
         thumbnail_ready
@@ -1338,7 +1466,8 @@ with sync_playwright() as playwright:
         and video_presentation.get("referenceDetailCount") == 0
         and video_presentation.get("directFrameAction") is False
         and video_presentation.get("actionOrder")
-        == ["Download video", "Remove video LTX-2.5 1s", "Full screen", "Add frame as keyframe", "More actions"]
+        == ["More actions", "Download video", "Remove video LTX-2.5 1s", "Full screen", "Add frame as keyframe"]
+        and video_presentation.get("hasActionDivider")
         and video_presentation.get("directVideoFrameAction")
         and page.locator("#video-output-details .video-output-actions a[download]").count() == 1
         and page.locator("#video-output-details .video-output-actions a[download]").get_attribute("download")
