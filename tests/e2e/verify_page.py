@@ -441,7 +441,8 @@ with sync_playwright() as playwright:
     # is an id the page publishes, and it is not in the design's contract.
     page.locator("#tier-sizes").get_by_role("button").first.click()
     page.click("#advanced summary")
-    page.fill("#steps", "8")
+    # A live model can finish eight steps before the busy-state checks sample it.
+    page.fill("#steps", "24")
     page.dispatch_event("#steps", "input")
     page.click("#count-toggle")
     check("a batch goes up to 4", page.locator("#count-menu [role=menuitemradio]").count() == 4)
