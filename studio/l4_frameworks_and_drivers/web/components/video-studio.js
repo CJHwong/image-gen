@@ -1206,6 +1206,11 @@ class VideoStudio extends LitElement {
           </div>
         </div>
         <div class="actions video-output-actions">
+          ${canCapture ? html`
+            <button class="icon-btn" type="button" data-action="capture-video-frame"
+              aria-label="Add this frame as an image reference" title="Add this frame as an image reference">
+              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>
+            </button>` : nothing}
           ${canShowMore ? html`
             <div class="menu-anchor">
               <button class="icon-btn" type="button" data-action="toggle-output-menu"
@@ -1230,11 +1235,6 @@ class VideoStudio extends LitElement {
               aria-label=${fullscreen ? 'Exit full screen' : 'Full screen'}
               title=${fullscreen ? 'Exit full screen' : 'Full screen'}>
               <svg class="icon" aria-hidden="true"><use href=${fullscreen ? '#i-shrink' : '#i-expand'}></use></svg>
-            </button>` : nothing}
-          ${canCapture ? html`
-            <button class="icon-btn" type="button" data-action="capture-video-frame"
-              aria-label="Add frame as keyframe" title="Add frame as keyframe">
-              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>
             </button>` : nothing}
         </div>
       </section>`, root);
@@ -1284,10 +1284,24 @@ class VideoStudio extends LitElement {
     monitor.style.height = Math.floor(screenWidth / ratio + 38) + 'px';
   }
 
+  // The run reports the whole render's steps, not one stage's, because the
+  // distilled pipeline denoises the clip in two stages and a number that reset
+  // between them read as if the render were about to finish. So the bar fills to
+  // the share of the whole render that is done, and the page shows that share as
+  // one percentage. Before the engine reports a step there is nothing to fill to,
+  // and the bar sweeps instead.
   generationProgressDetails(progress) {
     const label = progress.stopping ? 'Stopping video' : 'Generating video';
     const elapsed = formatTime(progress.elapsedSeconds);
-    return {label, elapsed: elapsed + ' elapsed'};
+    const total = Number(progress.total) || 0;
+    const step = Number(progress.step) || 0;
+    const percent = total > 0 ? Math.max(0, Math.min(100, Math.round(step / total * 100))) : null;
+    return {
+      label,
+      elapsed: elapsed + ' elapsed',
+      percent,
+      readout: percent === null ? elapsed + ' elapsed' : percent + '%, ' + elapsed + ' elapsed',
+    };
   }
 
   renderProgressPlaceholder(progress) {
@@ -1297,9 +1311,14 @@ class VideoStudio extends LitElement {
         aria-label=${details.label} aria-atomic="true">
         <div class="video-render-content">
           <strong>${details.label}</strong>
-          <div id="video-render-progress" class="video-render-progress is-indeterminate" role="progressbar"
-            aria-label=${details.label} aria-valuemin="0" aria-valuemax="100"
-            aria-valuetext=${details.elapsed}></div>
+          <div id="video-render-progress"
+            class=${details.percent === null ? 'video-render-progress is-indeterminate' : 'video-render-progress'}
+            role="progressbar" aria-label=${details.label} aria-valuemin="0" aria-valuemax="100"
+            aria-valuenow=${details.percent === null ? nothing : details.percent}
+            aria-valuetext=${details.readout}
+            style=${details.percent === null ? nothing : '--rendered: ' + details.percent + '%'}></div>
+          ${details.percent === null ? nothing : html`
+            <span id="video-render-percent" class="video-render-percent">${details.percent}%</span>`}
         </div>
       </section>`;
     return this.renderMonitor(

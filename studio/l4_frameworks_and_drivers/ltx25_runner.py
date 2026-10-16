@@ -27,19 +27,30 @@ MODEL_FILES = tuple(MODEL_PATHS.values())
 MODEL_REPOSITORY = "Lightricks/LTX-2.5"
 RUN_TIMEOUT_SECONDS = 3600
 PROGRESS_WRAPPER = """import sys
-import ltx_pipelines.utils.samplers as samplers
 
-phase_state = {"number": 0}
+import ltx_pipelines.utils.samplers as samplers
+from ltx_pipelines.utils.constants import DISTILLED_SIGMA_VALUES, STAGE_2_DISTILLED_SIGMA_VALUES
+
+# The distilled pipeline denoises the clip twice: once at its own resolution, then
+# again after the spatial upsampler. The pipeline runs one window for the studio,
+# so each of those two stages samples exactly once, and a stage's step count is
+# the schedule it samples with. The page shows one percentage for the whole
+# render, so the two stages have to arrive as one count, and the count has to be
+# known before the first step: the schedules are read from the pipeline rather
+# than guessed, and one window is what the runner's own flags ask for. A step is
+# printed after the denoiser has run it, so a count of 11 steps means 11 steps
+# are done.
+stage_steps = (len(DISTILLED_SIGMA_VALUES) - 1, len(STAGE_2_DISTILLED_SIGMA_VALUES) - 1)
+total_steps = sum(stage_steps)
+state = {"stage": 0}
 
 def report_steps(iterable, *args, **kwargs):
-    phase_state["number"] += 1
-    phase = phase_state["number"]
-    total = kwargs.get("total")
-    if total is None:
-        total = len(iterable)
+    stage = state["stage"]
+    state["stage"] = stage + 1
+    done_before = sum(stage_steps[:stage])
     for step, value in enumerate(iterable, 1):
         yield value
-        print(f"STUDIO_STEP {phase} {step} {total}", file=sys.stderr, flush=True)
+        print(f"STUDIO_STEP 1 {done_before + step} {total_steps}", file=sys.stderr, flush=True)
 
 samplers.tqdm = report_steps
 from ltx_pipelines.distilled import main

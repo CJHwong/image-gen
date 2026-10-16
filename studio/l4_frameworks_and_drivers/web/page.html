@@ -444,7 +444,11 @@
     document.body.classList.toggle('video-stopping', stopping);
     form.setAttribute('aria-busy', String(active));
     if (formApi) formApi.holdPanel('Locked while the video is being made.', active);
-    button.textContent = stopping ? 'Stopping…' : active ? 'Cancel render' : 'Generate video';
+    /* The button carries the video run's verbs: it starts the run, and while one
+       goes it is the way out of it. It says Cancel and not Cancel render, because
+       the button already sits in the video workspace's own footer and the word
+       it cancels is the one next to it. */
+    button.textContent = stopping ? 'Stopping…' : active ? 'Cancel' : 'Generate video';
     syncVideoGenerateButton();
     setWorkspaceControlsDisabled();
     renderBackendSelector();
