@@ -513,21 +513,29 @@ with sync_playwright() as playwright:
         return [Math.round(plate.bottom - bar.bottom), bar.height / plate.height];
     }""")
     check("the Kodak print rises from the bottom edge", bar[0] == 0 and bar[1] < 0.5, str(bar))
-    # LEFT: the same drawing, held across a mode switch to see that it is the same node.
+    # LEFT: the same drawing stays in the stage while the sidebar is locked.
     card = page.evaluate_handle("document.querySelector('.card')")
-    page.click("label[for=mode-edit]")
     check(
-        "a mode switch keeps the running frame",
+        "the running frame stays in the stage",
         page.evaluate("(card) => card === document.querySelector('.card')", card),
     )
-    page.click("label[for=mode-generate]")
+    mode_lock = page.evaluate(
+        """() => document.querySelector('#form').dataset.panelHeld === 'true'
+          && document.querySelector('#mode-generate').checked
+          && document.querySelector('#mode-edit').style.pointerEvents === 'none'
+          && getComputedStyle(document.querySelector('.controls')).pointerEvents === 'none'"""
+    )
+    check("the mode selector stays locked while rendering", mode_lock)
     check(
         "the count is part of the run button",
         page.evaluate(
             "document.getElementById('count-toggle').previousElementSibling === document.getElementById('go')"
         ),
     )
-    check("the count is locked while running", page.is_disabled("#count-toggle"))
+    check(
+        "the count is locked while running",
+        page.locator("#count-toggle").evaluate("button => button.style.pointerEvents === 'none'"),
+    )
     check("leave warning while running", leave_blocked(page))
     check("tab title shows progress", page.title().startswith("("), page.title())
     check(
