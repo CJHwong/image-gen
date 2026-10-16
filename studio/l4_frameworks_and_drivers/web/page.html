@@ -125,17 +125,17 @@
       <input type="hidden" name="backend" value="__BACKEND__">
       <div class="controls">
         <div id="image-controls" class="mode-controls">
-        <div class="modes" role="radiogroup" aria-label="Image mode">
-          <input type="radio" name="mode" id="mode-generate" value="generate" checked>
-          <label for="mode-generate"><svg class="icon"><use href="#i-sparkle"/></svg>Generate</label>
-          <input type="radio" name="mode" id="mode-edit" value="edit">
-          <label for="mode-edit"><svg class="icon"><use href="#i-brush"/></svg>Edit</label>
-        </div>
-
         <div class="field prompt-field">
-          <div class="field-head">
+          <div class="field-head prompt-head">
             <label for="prompt"><span class="generate-only">Prompt</span><span class="edit-only">What to change</span></label>
-            <div class="head-actions">
+            <div class="prompt-head-tools">
+              <div class="modes" role="radiogroup" aria-label="Image mode">
+                <input type="radio" name="mode" id="mode-generate" value="generate" checked>
+                <label for="mode-generate"><svg class="icon"><use href="#i-sparkle"/></svg>Generate</label>
+                <input type="radio" name="mode" id="mode-edit" value="edit">
+                <label for="mode-edit"><svg class="icon"><use href="#i-brush"/></svg>Edit</label>
+              </div>
+              <div class="head-actions">
             <button type="button" class="pill" id="templates-toggle" aria-expanded="false"
               aria-controls="templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
             <!-- The button carries the rewrite's three verbs, and `hidden` picks
@@ -145,6 +145,7 @@
                  stays on the button and never on a label. -->
             <button type="button" class="pill" id="rewrite-toggle" hidden
               title="Rewrite the prompt into a longer instruction before generating"><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle">Rewrite</span><span class="rewrite-cancel" hidden>Cancel</span><span class="rewrite-stopping" hidden>Stopping&hellip;</span></button>
+              </div>
             </div>
           </div>
           <div class="menu" id="templates" role="menu" hidden></div>
@@ -268,22 +269,27 @@
         <div id="video-controls" class="mode-controls video-controls" hidden>
           <div class="field prompt-field">
             <div class="field-head"><label for="video-prompt">Prompt</label></div>
-          <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."></textarea>
+            <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."></textarea>
           </div>
           <section id="video-source-panel" class="video-source-panel" aria-label="Video media">
             <div class="video-source-panel-head">
-              <div><strong>Media</strong><span id="video-source-count">0 clips</span></div>
+              <strong>Media</strong>
               <div class="video-source-actions">
                 <button class="text-btn" type="button" data-action="add-image">Add image</button>
                 <button class="text-btn" type="button" data-action="add-video">Add video</button>
               </div>
             </div>
             <p class="caption">Image references guide the generated video. Source clips help you pick frames. Paste with ⌘P.</p>
-            <section class="video-source-group" aria-label="Source clips">
-              <div class="video-source-group-head"><strong>Source clips</strong></div>
+            <div class="video-media-empty" id="video-media-empty">
+              Add an image reference or a source clip.
+            </div>
+            <section class="video-source-group" id="video-source-group" aria-label="Source clips" hidden>
+              <div class="video-source-group-head">
+                <strong>Source clips</strong><span id="video-source-count"></span>
+              </div>
               <div class="video-source-list" id="video-source-list"></div>
             </section>
-            <section class="video-reference-tray" id="video-reference-tray" aria-label="Image references">
+            <section class="video-reference-tray" id="video-reference-tray" aria-label="Image references" hidden>
               <div class="video-reference-head">
                 <div><strong>Image references</strong><span id="video-reference-count">0 images</span></div>
               </div>
@@ -338,7 +344,7 @@
       </div>
       <div class="footer video-footer" id="video-footer" hidden>
         <button id="video-generate" type="button" disabled>Generate video</button>
-        <span id="video-request-status" role="status" aria-live="polite"></span>
+        <span class="visually-hidden" id="video-request-status" role="status" aria-live="polite"></span>
       </div>
     </form>
   </aside>
@@ -433,15 +439,13 @@
   function setVideoRunState(state) {
     videoRunState = state;
     const active = state !== 'idle';
-    const starting = state === 'starting';
     const stopping = state === 'stopping';
     const button = document.getElementById('video-generate');
     document.body.classList.toggle('video-busy', active);
     document.body.classList.toggle('video-stopping', stopping);
     form.setAttribute('aria-busy', String(active));
     if (formApi) formApi.holdPanel('Locked while the video is being made.', active);
-    button.textContent = starting
-      ? 'Starting render…' : stopping ? 'Stopping…' : active ? 'Cancel render' : 'Generate video';
+    button.textContent = stopping ? 'Stopping…' : active ? 'Cancel render' : 'Generate video';
     syncVideoGenerateButton();
     setWorkspaceControlsDisabled();
     renderBackendSelector();
@@ -722,7 +726,6 @@
     if (videoRunState === 'idle' || videoRunState === 'starting' || videoRunState === 'stopping') return;
     setVideoRunState('stopping');
     videoStudio.setCancelRequested(true);
-    document.getElementById('video-request-status').textContent = 'Stopping video render.';
     try {
       const response = await fetch('/video/cancel', {
         method: 'POST',
@@ -782,7 +785,7 @@
       return;
     }
     videoStudio.clearError();
-    status.textContent = 'Preparing video render.';
+    status.textContent = '';
     videoRunRequestId = newVideoRequestId();
     setVideoRunState('starting');
     let progressTimer = null;

@@ -68,6 +68,7 @@ async function createVideoThumbnail(sourceUrl) {
     if (!video.videoWidth || !video.videoHeight) {
       throw new Error('The video has no frame for its thumbnail.');
     }
+    await seekThumbnailFrame(video);
     const scale = Math.min(1, 240 / video.videoWidth, 320 / video.videoHeight);
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
@@ -88,6 +89,26 @@ async function createVideoThumbnail(sourceUrl) {
     video.removeAttribute('src');
     video.load();
   }
+}
+
+function seekThumbnailFrame(video) {
+  const targetTime = video.duration * 0.65;
+  if (!Number.isFinite(targetTime) || targetTime < 0.05) return Promise.resolve();
+  return new Promise(function (resolve) {
+    let timeoutId;
+    const finish = function () {
+      window.clearTimeout(timeoutId);
+      video.removeEventListener('seeked', finish);
+      resolve();
+    };
+    video.addEventListener('seeked', finish, {once: true});
+    timeoutId = window.setTimeout(finish, 1500);
+    try {
+      video.currentTime = targetTime;
+    } catch {
+      finish();
+    }
+  });
 }
 
 function releaseClipUrls(clip) {
@@ -419,10 +440,7 @@ class VideoStudio extends LitElement {
       + (this.imageReferences.length === 1 ? ' image' : ' images');
     list.replaceChildren();
     if (!this.imageReferences.length) {
-      const empty = document.createElement('span');
-      empty.className = 'video-ref-empty';
-      empty.textContent = 'Add an image or capture a source frame.';
-      list.append(empty);
+      this.renderMediaEmptyState();
       return;
     }
     this.imageReferences.forEach((reference) => {
@@ -478,6 +496,7 @@ class VideoStudio extends LitElement {
       card.append(select, name, remove, settings);
       list.append(card);
     });
+    this.renderMediaEmptyState();
   }
 
   renderSourceVideos() {
@@ -488,10 +507,7 @@ class VideoStudio extends LitElement {
     count.textContent = sources.length + (sources.length === 1 ? ' clip' : ' clips');
     list.replaceChildren();
     if (!sources.length) {
-      const empty = document.createElement('span');
-      empty.className = 'video-source-empty';
-      empty.textContent = 'Add a clip to choose frames from it.';
-      list.append(empty);
+      this.renderMediaEmptyState();
       return;
     }
     sources.forEach((clip) => {
@@ -525,6 +541,19 @@ class VideoStudio extends LitElement {
       item.append(select, remove);
       list.append(item);
     });
+    this.renderMediaEmptyState();
+  }
+
+  renderMediaEmptyState() {
+    const sourceGroup = document.getElementById('video-source-group');
+    const referenceTray = document.getElementById('video-reference-tray');
+    const emptyState = document.getElementById('video-media-empty');
+    if (!sourceGroup || !referenceTray || !emptyState) return;
+    const hasSources = this.clips.some((clip) => clip.kind === 'source');
+    const hasReferences = this.imageReferences.length > 0;
+    sourceGroup.hidden = !hasSources;
+    referenceTray.hidden = !hasReferences;
+    emptyState.hidden = hasSources || hasReferences;
   }
 
   requestPayload(settings) {
@@ -1296,10 +1325,10 @@ class VideoStudio extends LitElement {
   render() {
     return html`
       <div class="video-studio-shell">
-        <div class="video-preview-area" id="video-preview-root">
+        <div class="video-preview-area stage" id="video-preview-root">
           <div id="video-preview-content-root"></div>
+          <div id="video-output-details-root"></div>
         </div>
-        <div id="video-output-details-root"></div>
         <div class="video-editing-area">
           <div id="video-error-root"></div>
           <div id="video-gallery-root"></div>

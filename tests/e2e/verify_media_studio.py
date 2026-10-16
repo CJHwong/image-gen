@@ -160,6 +160,56 @@ with sync_playwright() as playwright:
         and page.locator("#form #workspace-tabs").count() == 0
         and page.locator("#image-controls .modes").is_visible(),
     )
+    image_prompt_head = page.locator("#image-controls .prompt-field .field-head").bounding_box()
+    image_mode_in_head = page.locator("#image-controls .prompt-field .field-head .modes").count() == 1
+    switch_workspace(page, "video")
+    video_prompt_head = page.locator("#video-controls .prompt-field .field-head").bounding_box()
+    switch_workspace(page, "image")
+    check(
+        "Image and Video prompt fields start at the same sidebar position",
+        image_mode_in_head
+        and image_prompt_head is not None
+        and video_prompt_head is not None
+        and abs(image_prompt_head["y"] - video_prompt_head["y"]) < 1
+        and abs(image_prompt_head["x"] - video_prompt_head["x"]) < 1,
+        f"Image: {image_prompt_head}, Video: {video_prompt_head}, mode in heading: {image_mode_in_head}",
+    )
+    page.set_viewport_size({"width": 1024, "height": 844})
+    page.locator("label[for=mode-edit]").click()
+    page.locator("#templates-toggle").evaluate("button => { button.hidden = false; }")
+    page.locator("#rewrite-toggle").evaluate("button => { button.hidden = false; button.disabled = false; }")
+    narrow_prompt_head = page.evaluate(
+        """() => {
+          const head = document.querySelector('#image-controls .prompt-head');
+          const bounds = head.getBoundingClientRect();
+          const controls = [...head.querySelectorAll(
+            '.prompt-head-tools, .modes, .head-actions, #templates-toggle, #rewrite-toggle'
+          )];
+          const left = Math.min(...controls.map(control => control.getBoundingClientRect().left));
+          const right = Math.max(...controls.map(control => control.getBoundingClientRect().right));
+          const label = head.querySelector(':scope > label').getBoundingClientRect();
+          const modes = head.querySelector('.modes').getBoundingClientRect();
+          const actions = head.querySelector('.head-actions').getBoundingClientRect();
+          const overlaps = (first, second) => first.left < second.right && first.right > second.left
+            && first.top < second.bottom && first.bottom > second.top;
+          return {width: bounds.width, clientWidth: head.clientWidth, scrollWidth: head.scrollWidth,
+            left, headerLeft: bounds.left, right, headerRight: bounds.right,
+            labelModeOverlap: overlaps(label, modes), labelActionsOverlap: overlaps(label, actions),
+            modeActionOverlap: overlaps(modes, actions)};
+        }"""
+    )
+    check(
+        "Edit prompt controls fit in a narrow sidebar",
+        narrow_prompt_head["scrollWidth"] <= narrow_prompt_head["clientWidth"]
+        and narrow_prompt_head["left"] >= narrow_prompt_head["headerLeft"] - 1
+        and narrow_prompt_head["right"] <= narrow_prompt_head["headerRight"] + 1
+        and not narrow_prompt_head["labelModeOverlap"]
+        and not narrow_prompt_head["labelActionsOverlap"]
+        and not narrow_prompt_head["modeActionOverlap"],
+        str(narrow_prompt_head),
+    )
+    page.locator("label[for=mode-generate]").click()
+    page.set_viewport_size({"width": 1440, "height": 1000})
     stable_switch = page.evaluate(
         """() => {
           const name = document.querySelector('#backend-toggle .name');
@@ -472,15 +522,27 @@ with sync_playwright() as playwright:
           const saved = {...studio.imageReferences[0]};
           studio.clearImageReferences();
           const timelineCount = document.querySelectorAll('#video-timeline, #video-reference-track').length;
-          const explainsEmptyState = document.querySelector('#video-references .video-ref-empty')
-            ?.textContent.includes('Add an image or capture a source frame');
+          const emptyState = document.querySelector('#video-media-empty');
+          const sourceGroup = document.querySelector('.video-source-group');
+          const referenceTray = document.querySelector('#video-reference-tray');
+          const explainsEmptyState = emptyState?.textContent.includes('Add an image reference or a source clip');
+          const emptyMedia = {
+            hidden: Boolean(emptyState?.hidden),
+            sourceGroupHidden: Boolean(sourceGroup?.hidden),
+            referenceTrayHidden: Boolean(referenceTray?.hidden),
+          };
           studio.addImageReference(saved);
-          return {timelineCount, explainsEmptyState: Boolean(explainsEmptyState)};
+          return {timelineCount, explainsEmptyState: Boolean(explainsEmptyState), emptyMedia};
         }"""
     )
     check(
-        "empty reference list explains how to add media without a timeline",
-        empty_reference_list == {"timelineCount": 0, "explainsEmptyState": True},
+        "one media empty state replaces two empty lists",
+        empty_reference_list
+        == {
+            "timelineCount": 0,
+            "explainsEmptyState": True,
+            "emptyMedia": {"hidden": False, "sourceGroupHidden": True, "referenceTrayHidden": True},
+        },
         str(empty_reference_list),
     )
     check(
@@ -906,11 +968,20 @@ with sync_playwright() as playwright:
         """() => ({
           disabled: document.querySelector('#video-generate').disabled,
           label: document.querySelector('#video-generate').textContent,
+          panelHeld: document.querySelector('#form').dataset.panelHeld === 'true',
+          durationPointerLocked: document.querySelector('#video-duration').style.pointerEvents === 'none',
+          controlsOpacity: getComputedStyle(document.querySelector('.controls')).opacity,
+          statusVisuallyHidden: document.querySelector('#video-request-status').classList.contains('visually-hidden'),
         })"""
     )
     check(
-        "video cancel waits until the server confirms that the run started",
-        starting_locked["disabled"] and starting_locked["label"] == "Starting render…",
+        "video shows one status and a visible lock while cancel waits for the server",
+        starting_locked["disabled"]
+        and starting_locked["label"] == "Cancel render"
+        and starting_locked["panelHeld"]
+        and starting_locked["durationPointerLocked"]
+        and float(starting_locked["controlsOpacity"]) < 1
+        and starting_locked["statusVisuallyHidden"],
         str(starting_locked),
     )
     page.evaluate("() => { window.__studioProgressReady = true; }")
@@ -924,11 +995,15 @@ with sync_playwright() as playwright:
     )
     check(
         "another tab cannot unlock this request's cancel button",
-        foreign_run_state["disabled"] and foreign_run_state["label"] == "Starting render…",
+        foreign_run_state["disabled"] and foreign_run_state["label"] == "Cancel render",
         str(foreign_run_state),
     )
     page.evaluate("() => { window.__studioForeignRequestId = null; }")
     page.get_by_role("button", name="Cancel render").wait_for(state="visible", timeout=10000)
+    page.wait_for_function(
+        "() => !document.querySelector('#video-generate').disabled",
+        timeout=10000,
+    )
     cancel_locked = page.evaluate(
         """() => ({
           promptReadOnly: document.querySelector('#video-prompt').readOnly,
@@ -999,6 +1074,7 @@ with sync_playwright() as playwright:
           references: document.querySelectorAll('#video-source-panel .video-reference').length,
           pending: document.querySelectorAll('#video-gallery .video-gallery-pending').length,
           released: !document.body.classList.contains('video-busy'),
+          panelReleased: document.querySelector('#form').dataset.panelHeld !== 'true',
         })"""
     )
     check(
@@ -1007,7 +1083,8 @@ with sync_playwright() as playwright:
         and cancel_retained["prompt"]
         and cancel_retained["references"] == 3
         and cancel_retained["pending"] == 0
-        and cancel_retained["released"],
+        and cancel_retained["released"]
+        and cancel_retained["panelReleased"],
         str(cancel_retained),
     )
     page.evaluate("() => { window.fetch = window.__studioOriginalFetch; }")
@@ -1057,7 +1134,7 @@ with sync_playwright() as playwright:
         page.locator("#video-prompt").input_value() == ""
         and page.locator("#video-generate").is_disabled()
         and page.locator("#video-source-panel .video-reference").count() == 0
-        and page.locator("#video-reference-count").inner_text() == "0 images"
+        and page.locator("#video-reference-count").text_content() == "0 images"
         and page.locator("#video-source-list .video-source").count() == 1
         and page.locator("#video-duration").input_value() == "241"
         and page.locator("#video-seed").input_value() == "",
@@ -1172,9 +1249,12 @@ with sync_playwright() as playwright:
               : item.querySelector('button')?.getAttribute('aria-label')) : [];
           const facts = document.querySelector('#video-output-details .video-output-facts');
           const screen = monitor?.querySelector('.video-tv-screen');
+          const details = document.querySelector('#video-output-details');
           const directVideoFrameAction = Boolean(actions?.querySelector('[data-action="capture-video-frame"]'));
           return {
             isMonitorFrame: Boolean(monitor && screen && monitor.querySelector('#video-preview')),
+            detailsInStage: Boolean(details?.closest('#video-preview-root')
+              && details.classList.contains('stage-bar')),
             model: edge?.querySelector('.video-tv-model')?.textContent,
             serial: edge?.querySelector('.video-tv-serial')?.textContent,
             actionOrder,
@@ -1207,10 +1287,10 @@ with sync_playwright() as playwright:
         })"""
     )
     check(
-        "video gallery uses the compact Image filmstrip scale",
+        "video gallery uses the Image filmstrip scale",
         gallery_geometry["cardWidth"] <= 120
         and gallery_geometry["thumbnailHeight"] <= 65
-        and gallery_geometry["galleryHeight"] <= 132
+        and gallery_geometry["galleryHeight"] <= 152
         and page.locator("#video-gallery .video-clips.strip").count() == 1
         and page.locator("#video-gallery .video-clip.frame").count() == 2
         and page.locator("#video-gallery .video-clip-remove").count() == 0,
@@ -1252,6 +1332,7 @@ with sync_playwright() as playwright:
         and "Generated" not in generated_details
         and "LTX-2.5" not in (video_presentation.get("facts") or "")
         and video_presentation.get("isMonitorFrame")
+        and video_presentation.get("detailsInStage")
         and video_presentation.get("model") == "LTX-2.5"
         and video_presentation.get("serial") == "02"
         and video_presentation.get("referenceDetailCount") == 0
@@ -1278,6 +1359,37 @@ with sync_playwright() as playwright:
                 "thumbnailCount": generated_card.locator(".video-clip-thumb img").count(),
             }
         ),
+    )
+    thumbnail_color = generated_card.locator(".video-clip-thumb img").evaluate(
+        """image => {
+          const canvas = document.createElement('canvas');
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          const context = canvas.getContext('2d');
+          context.drawImage(image, 0, 0);
+          const pixel = context.getImageData(
+            Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1
+          ).data;
+          return {red: pixel[0], blue: pixel[2]};
+        }"""
+    )
+    check(
+        "video gallery thumbnail shows a representative middle frame",
+        thumbnail_color["blue"] > thumbnail_color["red"] + 30,
+        str(thumbnail_color),
+    )
+    video_gallery_box = page.locator("#video-gallery").bounding_box()
+    switch_workspace(page, "image")
+    image_gallery_box = page.locator("#strip-wrap").bounding_box()
+    switch_workspace(page, "video")
+    check(
+        "video gallery matches the image gallery width and height",
+        video_gallery_box is not None
+        and image_gallery_box is not None
+        and abs(video_gallery_box["x"] - image_gallery_box["x"]) < 1
+        and abs(video_gallery_box["width"] - image_gallery_box["width"]) < 1
+        and abs(video_gallery_box["height"] - image_gallery_box["height"]) < 1,
+        f"Image: {image_gallery_box}, Video: {video_gallery_box}",
     )
     page.get_by_role("button", name="More actions").click()
     check(
