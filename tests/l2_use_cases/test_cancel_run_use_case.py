@@ -65,6 +65,18 @@ def test_a_second_cancel_while_a_watch_runs_starts_no_second_watch():
     assert backend.events == []
 
 
+def test_an_image_cancel_does_not_watch_or_stop_a_video_run():
+    progress = InMemoryProgressGateway()
+    progress.begin("", kind="video", request_id="video-run")
+    residency = FakeModelResidencyGateway()
+    cancel = CancelRunUseCase(progress, residency, patience=0)
+
+    cancel.execute()
+
+    assert progress.cancel_requested() is False
+    assert residency.events == []
+
+
 def test_a_run_that_stops_as_the_window_ends_keeps_its_engine():
     # The watch frees the engine only while the run is still in flight when the
     # window ends. A reload costs the next run 3.8s for mflux, so the net reads

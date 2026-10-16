@@ -5,7 +5,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from studio.l1_entities.errors import BackendBusy, InvalidJob, StudioError, UnreadableImage
+from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, StudioError, UnreadableImage
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
@@ -53,6 +53,9 @@ def make_handler(
             if self.path == "/video/generate":
                 self._run_video()
                 return
+            if self.path == "/video/cancel":
+                self._cancel_video()
+                return
             form = self._read_form()
             if self.path == "/generate":
                 self._send(self._outcome(lambda: presenter.run(controller.run(form))))
@@ -89,6 +92,9 @@ def make_handler(
                 return
             try:
                 result = video_controller.run(self._read_json())
+            except Cancelled:
+                self._send_json({"cancelled": True})
+                return
             except (InvalidJob, UnreadableImage) as error:
                 self._send_json({"error": str(error)}, status=400)
                 return
@@ -115,7 +121,22 @@ def make_handler(
             elif result.mp4 is None:
                 self._send_json({"error": "The video backend returned no MP4 file."}, status=500)
             else:
-                self._send_bytes(result.mp4, content_type="video/mp4")
+                headers = {"X-Studio-Seed": str(result.seed)} if result.seed is not None else None
+                self._send_bytes(result.mp4, content_type="video/mp4", headers=headers)
+
+        def _cancel_video(self) -> None:
+            if video_controller is None:
+                self._send_json({"error": "Video generation is not configured."}, status=503)
+                return
+            try:
+                cancelled = video_controller.cancel(self._read_json())
+            except InvalidJob as error:
+                self._send_json({"error": str(error)}, status=400)
+                return
+            if not cancelled:
+                self._send_json({"error": "This video render is no longer active."}, status=409)
+                return
+            self._send("", status=204, content_type="text/plain")
 
         def _from_this_page(self) -> bool:
             """Any site open in the browser can post here. Its page sends its own
@@ -178,10 +199,18 @@ def make_handler(
         def _send_json(self, payload: dict, status: int = 200) -> None:
             self._send(json.dumps(payload, ensure_ascii=False), status, "application/json; charset=utf-8")
 
-        def _send_bytes(self, payload: bytes, status: int = 200, content_type: str = "application/octet-stream"):
+        def _send_bytes(
+            self,
+            payload: bytes,
+            status: int = 200,
+            content_type: str = "application/octet-stream",
+            headers: dict[str, str] | None = None,
+        ):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(payload)
 

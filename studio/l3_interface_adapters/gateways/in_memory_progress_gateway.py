@@ -16,9 +16,15 @@ class InMemoryProgressGateway(ProgressGateway):
         self._state = RunProgress()
         self._cancel = False
 
-    def begin(self, label, kind="image"):
+    def begin(self, label, kind="image", request_id=None):
         with self._lock:
-            self._state = RunProgress(running=True, stage="preparing", label=label, kind=kind)
+            self._state = RunProgress(
+                running=True,
+                stage="preparing",
+                label=label,
+                kind=kind,
+                request_id=request_id,
+            )
 
     def set_step(self, step, total, phase=0):
         with self._lock:
@@ -31,15 +37,24 @@ class InMemoryProgressGateway(ProgressGateway):
                 phase=phase,
                 label=state.label,
                 kind=state.kind,
+                request_id=state.request_id,
             )
 
     def finish(self):
         with self._lock:
             self._state = RunProgress()
 
-    def request_cancel(self):
+    def request_cancel(self, request_id=None):
         with self._lock:
+            state = self._state
+            if request_id is None and state.running and state.kind == "video":
+                return False
+            if request_id is not None and (
+                not state.running or state.kind != "video" or state.request_id != request_id
+            ):
+                return False
             self._cancel = True
+            return True
 
     def cancel_requested(self):
         with self._lock:
@@ -66,4 +81,5 @@ class InMemoryProgressGateway(ProgressGateway):
                 label=state.label,
                 stopping=self._cancel,
                 kind=state.kind,
+                request_id=state.request_id,
             )

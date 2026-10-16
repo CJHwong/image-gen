@@ -3,6 +3,7 @@
 import base64
 import binascii
 import io
+import secrets
 from collections.abc import Mapping
 
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -27,11 +28,15 @@ class VideoController:
         self._switch = switch
 
     def run(self, payload: Mapping) -> VideoResult:
+        request_id = _request_id(payload.get("request_id"))
         backend_id = payload.get("backend") or self._catalog.active_id()
         if not isinstance(backend_id, str):
             raise InvalidJob("backend must be a video model id")
         backend = self._catalog.get(backend_id)
-        return self._run.execute(video_job(payload, backend.capabilities()), backend_id)
+        return self._run.execute(video_job(payload, backend.capabilities()), backend_id, request_id)
+
+    def cancel(self, payload: Mapping) -> bool:
+        return self._run.cancel(_request_id(payload.get("request_id")))
 
     def switch(self, form: Mapping[str, str]) -> None:
         self._switch.execute(form.get("backend", ""))
@@ -47,6 +52,12 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
     seed = _seed(payload.get("seed"), capabilities)
     references = _references(payload.get("references", []), num_frames, capabilities)
     return VideoJob(prompt, width, height, num_frames, frame_rate, seed, references)
+
+
+def _request_id(value) -> str:
+    if not isinstance(value, str) or not value or len(value) > 128:
+        raise InvalidJob("request_id must be a non-empty string up to 128 characters")
+    return value
 
 
 def _prompt(value) -> str:
@@ -95,10 +106,12 @@ def _frame_rate(value, capabilities: VideoCapabilities) -> int:
 
 
 def _seed(value, capabilities: VideoCapabilities) -> int | None:
-    if value is None or value == "":
-        return None
     minimum = capabilities.min_seed
     maximum = capabilities.max_seed
+    if value is None or value == "":
+        if minimum is None or maximum is None:
+            return None
+        return minimum + secrets.randbelow(maximum - minimum + 1)
     if minimum is None or maximum is None:
         raise InvalidJob("This video model does not support a seed")
     if type(value) is not int or not minimum <= value <= maximum:

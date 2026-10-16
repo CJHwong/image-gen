@@ -14,5 +14,10 @@ class VideoBackendGateway(ModelLifecycleGateway, ABC):
         """Return the settings this model accepts."""
 
     @abstractmethod
-    def run(self, job: VideoJob, progress: Callable[[int, int, int], None] | None = None) -> VideoResult:
+    def run(
+        self,
+        job: VideoJob,
+        progress: Callable[[int, int, int], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> VideoResult:
         """Return the encoded video and its output settings."""

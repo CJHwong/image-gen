@@ -1,12 +1,15 @@
+import json
 import subprocess
 import sys
+import time
 from pathlib import Path
+from typing import cast
 
 import pytest
 
-from studio.l1_entities.errors import StudioError
+from studio.l1_entities.errors import Cancelled, StudioError
 from studio.l1_entities.video_job import VideoJob, VideoReference
-from studio.l4_frameworks_and_drivers.ltx25_runner import Ltx25Runner
+from studio.l4_frameworks_and_drivers.ltx25_runner import Ltx25Runner, _stop_process
 
 FILES = (
     "diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors",
@@ -76,7 +79,7 @@ def test_runner_wraps_the_distilled_sampler_when_progress_is_requested(tmp_path,
     weights(model_dir)
     calls = []
 
-    def fake_execute(self, command, progress=None):
+    def fake_execute(self, command, progress=None, cancelled=None):
         calls.append((command, progress, Path(command[1]).read_text()))
         Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4 with progress")
 
@@ -112,6 +115,12 @@ def test_runner_reads_live_progress_records_from_the_child_process():
     assert reports == [(1, 4, 1), (2, 3, 2)]
 
 
+def test_runner_drains_child_stderr_without_a_progress_callback():
+    command = [sys.executable, "-c", "import sys; sys.stderr.write('ready\\n')"]
+
+    Ltx25Runner._execute_with_progress(command, None)
+
+
 def test_runner_reports_a_streamed_pipeline_failure():
     command = [sys.executable, "-c", "raise SystemExit(2)"]
 
@@ -126,6 +135,88 @@ def test_runner_returns_after_streaming_progress():
         return None
 
     runner._execute([sys.executable, "-c", "pass"], callback)
+
+
+def test_runner_terminates_the_child_when_cancelled():
+    command = [sys.executable, "-c", "import time; time.sleep(30)"]
+    started = time.monotonic()
+
+    with pytest.raises(Cancelled, match="video generation was cancelled"):
+        Ltx25Runner._execute_with_progress(
+            command,
+            None,
+            lambda: time.monotonic() - started >= 0.15,
+        )
+
+    assert time.monotonic() - started < 5
+
+
+def test_runner_propagates_cancellation_without_wrapping_it():
+    command = [sys.executable, "-c", "import time; time.sleep(30)"]
+
+    with pytest.raises(Cancelled, match="video generation was cancelled"):
+        Ltx25Runner("python", ".")._execute(command, cancelled=lambda: True)
+
+
+def test_runner_checks_cancellation_after_the_child_exits():
+    checks = iter((False, True))
+    command = [sys.executable, "-c", "pass"]
+
+    with pytest.raises(Cancelled, match="video generation was cancelled"):
+        Ltx25Runner._execute_with_progress(command, None, lambda: next(checks))
+
+
+def test_stop_process_returns_when_the_child_has_already_exited():
+    class ExitedProcess:
+        def poll(self):
+            return 0
+
+        def terminate(self):
+            pytest.fail("an exited child must not receive a signal")
+
+    _stop_process(cast(subprocess.Popen, ExitedProcess()))
+
+
+def test_stop_process_handles_a_child_that_exits_before_terminate():
+    class RacedProcess:
+        def poll(self):
+            return None
+
+        def terminate(self):
+            raise ProcessLookupError
+
+        def wait(self, timeout=None):
+            pytest.fail("a vanished child must not be waited on")
+
+    _stop_process(cast(subprocess.Popen, RacedProcess()))
+
+
+def test_stop_process_kills_a_child_that_does_not_stop():
+    class StubbornProcess:
+        def __init__(self):
+            self.wait_count = 0
+            self.killed = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            return None
+
+        def wait(self, timeout=None):
+            self.wait_count += 1
+            if self.wait_count == 1:
+                assert timeout == 3
+                raise subprocess.TimeoutExpired("ltx", timeout)
+            assert self.killed
+
+        def kill(self):
+            self.killed = True
+
+    process = StubbornProcess()
+    _stop_process(cast(subprocess.Popen, process))
+
+    assert process.wait_count == 2
 
 
 def test_runner_reports_a_streamed_pipeline_timeout(monkeypatch):
@@ -163,18 +254,73 @@ def test_runner_downloads_missing_weights_once_on_first_generation(tmp_path):
     assert len(generations) == 2
 
 
+def test_ltx_weight_download_uses_the_cancellable_child_runner(tmp_path, monkeypatch):
+    commands = []
+
+    def fake_execute(command, progress, cancelled):
+        commands.append((command, progress, cancelled))
+        if command[1] == "-c":
+            weights(tmp_path)
+            return
+        Path(command[command.index("--output-path") + 1]).write_bytes(b"downloaded model video")
+
+    def should_cancel():
+        return False
+
+    monkeypatch.setattr(Ltx25Runner, "_execute_with_progress", staticmethod(fake_execute))
+
+    result = Ltx25Runner(sys.executable, tmp_path).run(job(), cancelled=should_cancel)
+
+    command, progress, received_cancel = commands[0]
+    assert command[:2] == [sys.executable, "-c"]
+    assert "snapshot_download" in command[2]
+    assert command[3] == "Lightricks/LTX-2.5"
+    assert command[-1] == str(tmp_path)
+    assert progress is None
+    assert received_cancel is should_cancel
+    assert result.mp4 == b"downloaded model video"
+    assert commands[1][2] is should_cancel
+
+
+@pytest.mark.parametrize(
+    "failure, error_type, message",
+    [
+        (FileNotFoundError(), StudioError, "could not start"),
+        (subprocess.CalledProcessError(1, "download"), StudioError, "weights download failed"),
+        (subprocess.TimeoutExpired("download", 3600), StudioError, "weights download timed out"),
+        (Cancelled("stop download"), Cancelled, "stop download"),
+    ],
+)
+def test_ltx_weight_download_reports_failure_and_propagates_cancel(tmp_path, monkeypatch, failure, error_type, message):
+    def failed_download(_command, _progress, _cancelled):
+        raise failure
+
+    monkeypatch.setattr(Ltx25Runner, "_execute_with_progress", staticmethod(failed_download))
+
+    with pytest.raises(error_type, match=message):
+        Ltx25Runner._download_model(sys.executable, tmp_path, None)
+
+
 def test_default_downloader_requests_official_files_from_hugging_face(tmp_path, monkeypatch):
     model_dir = tmp_path / "ltx-models"
     downloads = []
 
-    def fake_download(**options):
-        downloads.append(options)
-        weights(options["local_dir"])
+    def fake_download(command, progress, cancelled):
+        downloads.append(
+            {
+                "repo_id": command[3],
+                "allow_patterns": json.loads(command[4]),
+                "local_dir": Path(command[5]),
+                "progress": progress,
+                "cancelled": cancelled,
+            }
+        )
+        weights(Path(command[5]))
+
+    monkeypatch.setattr(Ltx25Runner, "_execute_with_progress", staticmethod(fake_download))
 
     def fake_process(command, **options):
         Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4")
-
-    monkeypatch.setattr("huggingface_hub.snapshot_download", fake_download)
 
     Ltx25Runner("python", model_dir, process_runner=fake_process).run(job())
 
@@ -183,15 +329,17 @@ def test_default_downloader_requests_official_files_from_hugging_face(tmp_path, 
             "repo_id": "Lightricks/LTX-2.5",
             "allow_patterns": list(FILES),
             "local_dir": model_dir,
+            "progress": None,
+            "cancelled": None,
         }
     ]
 
 
 def test_runner_reports_model_download_failure(tmp_path, monkeypatch):
-    def fail_download(**_options):
-        raise RuntimeError("access denied")
+    def fail_download(_command, _progress, _cancelled):
+        raise subprocess.CalledProcessError(1, "download")
 
-    monkeypatch.setattr("huggingface_hub.snapshot_download", fail_download)
+    monkeypatch.setattr(Ltx25Runner, "_execute_with_progress", staticmethod(fail_download))
     runner = Ltx25Runner("python", tmp_path / "ltx-models")
 
     with pytest.raises(StudioError, match=r"LTX-2\.5 weights download failed"):

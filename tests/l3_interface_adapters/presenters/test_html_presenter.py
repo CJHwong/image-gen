@@ -209,7 +209,7 @@ def test_progress_carries_numbers_and_the_next_poll():
 
 def test_video_progress_includes_the_sampler_pass():
     body = presenter().video_progress(
-        RunProgress(running=True, stage="running", step=2, total=3, kind="video", phase=2)
+        RunProgress(running=True, stage="running", step=2, total=3, kind="video", phase=2, request_id="run-a")
     )
 
     assert json.loads(body) == {
@@ -219,6 +219,8 @@ def test_video_progress_includes_the_sampler_pass():
         "total": 3,
         "phase": 2,
         "kind": "video",
+        "stopping": False,
+        "request_id": "run-a",
     }
 
 

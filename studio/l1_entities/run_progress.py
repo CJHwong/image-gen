@@ -19,3 +19,4 @@ class RunProgress:
     label: str = ""
     stopping: bool = False
     kind: str = ""
+    request_id: str | None = None

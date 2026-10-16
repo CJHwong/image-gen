@@ -42,7 +42,8 @@ class CancelRunUseCase:
         self._lock = threading.Lock()
 
     def execute(self) -> None:
-        self._progress.request_cancel()
+        if not self._progress.request_cancel():
+            return
         with self._lock:
             if self._escalating:
                 return  # one watch per cancel is enough
