@@ -100,6 +100,33 @@ function videoDownloadName(clip) {
   return clip.name.replace(/\.(mp4|webm)$/i, '') + '.' + extension;
 }
 
+function saveFile(url, name) {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+}
+
+function waitBetweenDownloads() {
+  return new Promise((resolve) => setTimeout(resolve, 300));
+}
+
+function videoExportMetadata(clip, file) {
+  const metadata = clip.metadata || {};
+  return {
+    file: file,
+    prompt: metadata.prompt || '',
+    model: metadata.modelName || '',
+    durationSeconds: clip.duration,
+    width: metadata.width || clip.width || null,
+    height: metadata.height || clip.height || null,
+    frameRate: metadata.frameRate || null,
+    frames: metadata.numFrames || null,
+    seed: Number.isInteger(metadata.seed) ? metadata.seed : null,
+    elapsedSeconds: metadata.elapsedSeconds || null,
+  };
+}
+
 class VideoStudio extends LitElement {
   clips = [];
   imageReferences = [];
@@ -125,7 +152,6 @@ class VideoStudio extends LitElement {
   outputHeight = 9;
   outputFrameRate = 24;
   outputModelName = 'Video';
-  draggedReferenceId = null;
   previewResizeObserver = null;
   error = '';
   handleSourceClick = (event) => this.onComponentClick(event);
@@ -136,10 +162,7 @@ class VideoStudio extends LitElement {
   handleSourceDrop = (event) => this.onSourceDrop(event);
   handleDocumentPaste = (event) => this.onPaste(event);
   handleDocumentKeydown = (event) => this.onShortcutPaste(event);
-  handleTimelinePointerDown = (event) => this.onTimelinePointerDown(event);
-  handleTimelinePointerMove = (event) => this.onTimelinePointerMove(event);
-  handleTimelinePointerUp = (event) => this.onTimelinePointerUp(event);
-  handleTimelineKeydown = (event) => this.onTimelineKeydown(event);
+  handleVideoFullscreenChange = () => this.onVideoFullscreenChange();
 
   createRenderRoot() { return this; }
 
@@ -148,17 +171,13 @@ class VideoStudio extends LitElement {
     this.sourcePanel = document.getElementById('video-source-panel');
     this.addEventListener('click', this.onComponentClick);
     this.addEventListener('keydown', this.onOutputKeydown);
+    document.addEventListener('fullscreenchange', this.handleVideoFullscreenChange);
     this.addEventListener('change', this.onComponentChange);
     this.addEventListener('input', this.onComponentInput);
     this.addEventListener('loadedmetadata', this.onMetadata, true);
     this.addEventListener('timeupdate', this.onTimeUpdate, true);
     document.addEventListener('paste', this.handleDocumentPaste);
     document.addEventListener('keydown', this.handleDocumentKeydown);
-    this.addEventListener('pointerdown', this.handleTimelinePointerDown);
-    this.addEventListener('pointermove', this.handleTimelinePointerMove);
-    this.addEventListener('pointerup', this.handleTimelinePointerUp);
-    this.addEventListener('pointercancel', this.handleTimelinePointerUp);
-    this.addEventListener('keydown', this.handleTimelineKeydown);
     if (this.sourcePanel) {
       this.sourcePanel.addEventListener('click', this.handleSourceClick);
       this.sourcePanel.addEventListener('change', this.handleSourceChange);
@@ -172,17 +191,13 @@ class VideoStudio extends LitElement {
   disconnectedCallback() {
     this.removeEventListener('click', this.onComponentClick);
     this.removeEventListener('keydown', this.onOutputKeydown);
+    document.removeEventListener('fullscreenchange', this.handleVideoFullscreenChange);
     this.removeEventListener('change', this.onComponentChange);
     this.removeEventListener('input', this.onComponentInput);
     this.removeEventListener('loadedmetadata', this.onMetadata, true);
     this.removeEventListener('timeupdate', this.onTimeUpdate, true);
     document.removeEventListener('paste', this.handleDocumentPaste);
     document.removeEventListener('keydown', this.handleDocumentKeydown);
-    this.removeEventListener('pointerdown', this.handleTimelinePointerDown);
-    this.removeEventListener('pointermove', this.handleTimelinePointerMove);
-    this.removeEventListener('pointerup', this.handleTimelinePointerUp);
-    this.removeEventListener('pointercancel', this.handleTimelinePointerUp);
-    this.removeEventListener('keydown', this.handleTimelineKeydown);
     if (this.sourcePanel) {
       this.sourcePanel.removeEventListener('click', this.handleSourceClick);
       this.sourcePanel.removeEventListener('change', this.handleSourceChange);
@@ -203,7 +218,7 @@ class VideoStudio extends LitElement {
     this.renderError();
     const preview = this.querySelector('#video-preview-root');
     if (preview) {
-      this.previewResizeObserver = new ResizeObserver(() => this.fitProgressPlaceholder());
+      this.previewResizeObserver = new ResizeObserver(() => this.fitVideoMonitor());
       this.previewResizeObserver.observe(preview);
     }
   }
@@ -228,6 +243,7 @@ class VideoStudio extends LitElement {
         duration: record.duration,
         metadata: record.metadata,
         createdAt: record.createdAt,
+        keptInBrowser: true,
       };
       this.addClip(clip);
       if (!clip.thumbnailBlob) this.createThumbnail(clip);
@@ -236,19 +252,26 @@ class VideoStudio extends LitElement {
 
   setKeeping(keeping) {
     this.keepEnabled = keeping;
-    if (keeping) return this.persistGeneratedVideos();
-    return Promise.resolve();
+    if (!keeping) {
+      this.clips.forEach((clip) => { clip.keptInBrowser = false; });
+      this.renderVideoGallery();
+      return Promise.resolve();
+    }
+    return this.persistGeneratedVideos().then(() => this.renderVideoGallery());
   }
 
   persistGeneratedVideos() {
     const saves = this.clips.filter((clip) => clip.kind === 'generated' && !clip.stub)
-      .map((clip) => this.persistVideo(clip));
+      .map(async (clip) => { clip.keptInBrowser = await this.persistVideo(clip); });
     return Promise.all(saves);
   }
 
   persistVideo(clip) {
     if (!this.keepEnabled || !this.galleryStore) return Promise.resolve(false);
-    return this.galleryStore.keepVideo(clip, clip.mp4Blob, clip.thumbnailBlob);
+    return this.galleryStore.keepVideo(clip, clip.mp4Blob, clip.thumbnailBlob).then((kept) => {
+      clip.keptInBrowser = kept;
+      return kept;
+    });
   }
 
   createThumbnail(clip) {
@@ -334,7 +357,6 @@ class VideoStudio extends LitElement {
     });
     if (!this.selectedReferenceId) this.selectedReferenceId = reference.id;
     this.renderImageReferences();
-    this.renderTimelineView(this.selectedClip());
   }
 
   removeImageReference(id) {
@@ -343,41 +365,22 @@ class VideoStudio extends LitElement {
       this.selectedReferenceId = this.imageReferences.length ? this.imageReferences[0].id : null;
     }
     this.renderImageReferences();
-    this.renderTimelineView(this.selectedClip());
   }
 
   clearImageReferences() {
     this.imageReferences = [];
     this.selectedReferenceId = null;
     this.renderImageReferences();
-    this.renderTimelineView(this.selectedClip());
   }
 
   selectReference(id) {
     if (!this.imageReferences.some(function (reference) { return reference.id === id; })) return;
     this.selectedReferenceId = id;
     this.renderImageReferences();
-    this.renderTimelineView(this.selectedClip());
-  }
-
-  setReferenceFrame(id, value) {
-    const reference = this.imageReferences.find((item) => item.id === id);
-    if (!reference) return;
-    const focusedMarker = document.activeElement?.dataset.referenceId === id
-      && document.activeElement.classList.contains('timeline-reference-marker');
-    reference.frameIndex = Number(value);
-    this.renderImageReferences();
-    this.renderTimelineView(this.selectedClip());
-    if (focusedMarker) {
-      const marker = Array.from(this.querySelectorAll('.timeline-reference-marker'))
-        .find((item) => item.dataset.referenceId === id);
-      if (marker) marker.focus();
-    }
   }
 
   setFrameLimit(frameCount) {
     this.frameLimit = frameCount;
-    this.renderTimelineView(this.selectedClip());
   }
 
   setModelCapabilities(capabilities) {
@@ -571,6 +574,7 @@ class VideoStudio extends LitElement {
     };
     this.addClip(clip);
     const saved = await this.persistVideo(clip);
+    this.renderVideoGallery();
     this.createThumbnail(clip);
     return saved;
   }
@@ -610,6 +614,7 @@ class VideoStudio extends LitElement {
     const action = control.dataset.action;
     if (action === 'open-output-prompt') this.openOutputPromptSheet();
     if (action === 'close-output-prompt') this.closeOutputPromptSheet();
+    if (action === 'toggle-video-fullscreen') this.toggleVideoFullscreen();
     if (action === 'toggle-output-menu') {
       const menu = this.querySelector('#video-output-menu');
       if (menu) toggleMenu(menu);
@@ -619,6 +624,8 @@ class VideoStudio extends LitElement {
     if (action === 'remove-reference') this.removeImageReference(control.dataset.referenceId);
     if (action === 'select-reference') this.selectReference(control.dataset.referenceId);
     if (action === 'remove-clip') this.removeClip(control.dataset.clipId);
+    if (action === 'download-all-videos') this.downloadAllVideos();
+    if (action === 'clear-video-gallery') this.clearVideoGallery();
     if (action === 'select-clip') this.selectClip(control.dataset.clipId);
     if (action === 'capture-video-frame') this.captureFrameForVideo();
     if (action === 'capture-image-frame') this.captureFrameForImage();
@@ -661,6 +668,20 @@ class VideoStudio extends LitElement {
     if (!prompt) return;
     prompt.setAttribute('aria-expanded', 'false');
     if (restoreFocus) prompt.focus();
+  }
+
+  async toggleVideoFullscreen() {
+    if (!this.querySelector('.video-tv-frame') || !document.fullscreenEnabled) return;
+    try {
+      if (document.fullscreenElement === this) await document.exitFullscreen();
+      else await this.requestFullscreen();
+    } catch (error) {
+      this.setError('Full screen failed: ' + error.message);
+    }
+  }
+
+  onVideoFullscreenChange() {
+    this.renderOutputDetails();
   }
 
   onComponentChange(event) {
@@ -812,70 +833,6 @@ class VideoStudio extends LitElement {
     }
   }
 
-  onTimelinePointerDown(event) {
-    const marker = event.target.closest('.timeline-reference-marker');
-    if (!marker || event.button !== 0) return;
-    this.draggedReferenceId = marker.dataset.referenceId;
-    this.selectedReferenceId = this.draggedReferenceId;
-    this.renderImageReferences();
-    marker.classList.add('selected');
-    marker.setPointerCapture(event.pointerId);
-    this.moveTimelineReference(marker, event.clientX);
-    event.preventDefault();
-  }
-
-  onTimelinePointerMove(event) {
-    if (!this.draggedReferenceId) return;
-    const marker = Array.from(this.querySelectorAll('.timeline-reference-marker'))
-      .find((item) => item.dataset.referenceId === this.draggedReferenceId);
-    if (marker) this.moveTimelineReference(marker, event.clientX);
-  }
-
-  onTimelinePointerUp() {
-    if (!this.draggedReferenceId) return;
-    this.draggedReferenceId = null;
-    this.renderTimelineView(this.selectedClip());
-  }
-
-  onTimelineKeydown(event) {
-    const marker = event.target.closest('.timeline-reference-marker');
-    if (!marker) return;
-    const reference = this.imageReferences.find((item) => item.id === marker.dataset.referenceId);
-    if (!reference) return;
-    const lastFrame = Math.max(0, (this.frameLimit || 1) - 1);
-    const increment = event.shiftKey ? 10 : 1;
-    let frameIndex = reference.frameIndex;
-    if (event.key === 'ArrowLeft') frameIndex -= increment;
-    else if (event.key === 'ArrowRight') frameIndex += increment;
-    else if (event.key === 'Home') frameIndex = 0;
-    else if (event.key === 'End') frameIndex = lastFrame;
-    else return;
-    event.preventDefault();
-    this.selectedReferenceId = reference.id;
-    this.setReferenceFrame(reference.id, Math.max(0, Math.min(lastFrame, frameIndex)));
-  }
-
-  moveTimelineReference(marker, clientX) {
-    const reference = this.imageReferences.find((item) => item.id === marker.dataset.referenceId);
-    const rail = marker.closest('.timeline-rail');
-    if (!reference || !rail) return;
-    const bounds = rail.getBoundingClientRect();
-    const fraction = Math.min(1, Math.max(0, (clientX - bounds.left) / bounds.width));
-    const lastFrame = Math.max(0, (this.frameLimit || 1) - 1);
-    reference.frameIndex = Math.round(fraction * lastFrame);
-    this.updateTimelineReference(marker, reference, lastFrame);
-  }
-
-  updateTimelineReference(marker, reference, lastFrame) {
-    const frameIndex = reference.frameIndex;
-    const position = frameIndex / Math.max(1, lastFrame) * 100;
-    marker.style.left = position + '%';
-    marker.setAttribute('aria-valuetext', 'Frame ' + frameIndex + ' of ' + lastFrame);
-    marker.setAttribute('aria-label', reference.name + ', output frame ' + frameIndex);
-    const frameLabel = marker.querySelector('span');
-    if (frameLabel) frameLabel.textContent = 'F' + String(frameIndex).padStart(3, '0');
-  }
-
   onSourceDragOver(event) {
     if (!Array.from(event.dataTransfer?.types || []).includes('Files')) return;
     event.preventDefault();
@@ -896,6 +853,34 @@ class VideoStudio extends LitElement {
 
   selectedClip() {
     return this.clips.find((clip) => clip.id === this.selectedClipId) || null;
+  }
+
+  videoSerial(clip) {
+    const videos = this.clips.filter((item) => item.kind === clip.kind);
+    const index = videos.findIndex((item) => item.id === clip.id);
+    const prefix = clip.kind === 'source' ? 'S' : '';
+    return prefix + String(Math.max(0, index + 1)).padStart(2, '0');
+  }
+
+  nextVideoSerial() {
+    const count = this.clips.filter((clip) => clip.kind === 'generated').length + 1;
+    return String(count).padStart(2, '0');
+  }
+
+  renderMonitor(content, modelName, serial, ratio, elapsed = '') {
+    const mediaRatio = Number.isFinite(ratio) && ratio > 0 ? ratio : 16 / 9;
+    return html`
+      <div class="video-tv-frame" data-media-ratio=${mediaRatio}>
+        <div class="video-tv-screen">${content}</div>
+        <div class="video-tv-edge" role="group" aria-label=${modelName + ', video ' + serial
+          + (elapsed ? ', ' + elapsed : '')}>
+          <span class="video-tv-model">${modelName}</span>
+          <span class="video-tv-readout">
+            ${elapsed ? html`<span class="video-tv-elapsed">${elapsed}</span>` : nothing}
+            <span class="video-tv-serial">${serial}</span>
+          </span>
+        </div>
+      </div>`;
   }
 
   selectClip(id) {
@@ -933,21 +918,71 @@ class VideoStudio extends LitElement {
     this.renderVideoGallery();
   }
 
+  async downloadAllVideos() {
+    const outputs = this.clips.filter((clip) => clip.kind === 'generated' && !clip.stub && clip.url).reverse();
+    if (!outputs.length) return;
+    const details = [];
+    try {
+      for (const clip of outputs) {
+        const file = videoDownloadName(clip);
+        saveFile(clip.url, file);
+        details.push(videoExportMetadata(clip, file));
+        await waitBetweenDownloads();
+      }
+      const metadataUrl = URL.createObjectURL(new Blob([JSON.stringify(details, null, 2)], {
+        type: 'application/json',
+      }));
+      saveFile(metadataUrl, 'studio-video-metadata.json');
+      setTimeout(() => URL.revokeObjectURL(metadataUrl), 10000);
+    } catch (error) {
+      this.setError('Download all stopped: ' + error.message);
+    }
+  }
+
+  async clearVideoGallery() {
+    const outputs = this.clips.filter((clip) => clip.kind === 'generated');
+    if (!outputs.length) return;
+    if (this.keepEnabled && this.galleryStore) {
+      const cleared = await this.galleryStore.clearVideos();
+      if (!cleared) return;
+    }
+    const selectedWasRemoved = outputs.some((clip) => clip.id === this.selectedClipId);
+    this.clips = this.clips.filter((clip) => clip.kind !== 'generated');
+    outputs.forEach(releaseClipUrls);
+    if (selectedWasRemoved) {
+      this.closeOutputPromptSheet(false);
+      this.selectedClipId = this.clips.find((clip) => clip.kind === 'source')?.id || null;
+      this.previewResume = null;
+      this.currentTime = 0;
+      const selected = this.selectedClip();
+      this.duration = selected ? selected.duration || 0 : 0;
+      this.renderSelectedClip();
+    }
+    this.renderSourceVideos();
+    this.renderVideoGallery();
+  }
+
   onMetadata(event) {
     const clip = this.selectedClip();
     if (!clip) return;
     const video = event.target;
     clip.duration = Number.isFinite(video.duration) ? video.duration : 0;
+    clip.width = video.videoWidth;
+    clip.height = video.videoHeight;
     if (this.previewResume?.clipId === clip.id) {
       video.currentTime = Math.min(this.previewResume.time, clip.duration);
       this.previewResume = null;
     }
     this.duration = clip.duration;
     this.currentTime = video.currentTime || 0;
-    this.renderTimelineView(clip);
     this.renderSourceVideos();
     this.renderVideoGallery();
     this.renderOutputDetails();
+    const monitor = this.querySelector('.video-tv-frame');
+    if (monitor && video.videoWidth && video.videoHeight) {
+      monitor.dataset.mediaRatio = String(video.videoWidth / video.videoHeight);
+      this.fitVideoMonitor();
+    }
   }
 
   onTimeUpdate(event) {
@@ -1004,54 +1039,9 @@ class VideoStudio extends LitElement {
     }
   }
 
-  renderTimeline() {
-    const frameCount = Math.max(1, this.frameLimit || 1);
-    const lastFrame = frameCount - 1;
-    const duration = frameCount / this.outputFrameRate;
-    const clip = this.selectedClip();
-    const canCapture = Boolean(clip && !clip.stub);
-    return html`
-      <section class="video-timeline" id="video-timeline" aria-label="Keyframes">
-        <header class="timeline-head">
-          <div><strong>Keyframes</strong><span>${this.imageReferences.length} ${this.imageReferences.length === 1 ? 'image' : 'images'}, ${frameCount} frames, ${this.outputFrameRate} fps</span></div>
-          <div class="timeline-actions">
-            ${canCapture ? html`
-              <button class="text-btn" type="button" data-action="capture-video-frame">Add frame as keyframe</button>
-            ` : ''}
-          </div>
-        </header>
-        ${this.imageReferences.length ? html`
-          <p class="timeline-purpose">Image anchors set the look at key moments. LTX creates motion between them.</p>
-          <div class="timeline-ruler" aria-hidden="true">
-            ${[0, 0.25, 0.5, 0.75, 1].map((part) => html`<span>${formatTime(duration * part)}</span>`)}
-          </div>
-          <div class="timeline-track reference-track" id="video-reference-track" aria-label="Image anchors">
-            <span class="track-label">Image anchors</span>
-            <div class="timeline-rail">
-              ${this.imageReferences.map((reference) => {
-                const frameIndex = Number.isFinite(reference.frameIndex) ? reference.frameIndex : 0;
-                const position = Math.min(100, Math.max(0, frameIndex / Math.max(1, lastFrame) * 100));
-                const selected = reference.id === this.selectedReferenceId;
-                return html`<button class="timeline-reference-marker${selected ? ' selected' : ''}" type="button"
-                  style=${'left: ' + position + '%'} data-action="select-reference" data-reference-id=${reference.id}
-                  aria-label=${reference.name + ', output frame ' + frameIndex}
-                  aria-valuetext=${'Frame ' + frameIndex + ' of ' + lastFrame}
-                  aria-pressed=${selected} aria-keyshortcuts="ArrowLeft ArrowRight Home End" tabindex="0">
-                  <img src=${reference.src} alt="">
-                  <span>F${String(frameIndex).padStart(3, '0')}</span>
-                </button>`;
-              })}
-            </div>
-          </div>
-        ` : html`<p class="timeline-empty">Add an image or capture a frame to set a key moment.</p>`}
-      </section>
-    `;
-  }
-
   renderSelectedClip() {
     const clip = this.selectedClip();
     this.renderPreview();
-    this.renderTimelineView(clip);
     this.renderVideoGallery();
     this.renderOutputDetails();
   }
@@ -1072,27 +1062,21 @@ class VideoStudio extends LitElement {
     const duration = metadata?.numFrames && metadata?.frameRate
       ? metadata.numFrames / metadata.frameRate : Number(clip?.duration) || 0;
     const seed = Number.isInteger(metadata?.seed) ? metadata.seed : null;
-    const referenceSummary = references.length
-      ? references.map((reference) => reference.name + ' at frame ' + reference.frameIndex).join(', ')
-      : 'No image references';
-    const referenceDetails = references.map((reference) =>
-      reference.name + ', frame ' + reference.frameIndex + ', strength ' + Number(reference.strength).toFixed(2))
-      .join(', ');
-    const timeLabel = pending
-      ? 'Elapsed ' + formatTime(metadata.elapsedSeconds)
+    const timeLabel = pending ? ''
       : clip.stub ? 'Request time ' + formatTime(metadata.elapsedSeconds)
         : metadata ? 'Took ' + formatTime(metadata.elapsedSeconds) : '';
     const preview = this.querySelector('#video-preview');
     const facts = [];
     if (metadata) {
-      facts.push(metadata.modelName || 'Video');
       if (duration) facts.push(duration.toFixed(2) + ' sec');
       if (metadata.width && metadata.height) facts.push(metadata.width + ' × ' + metadata.height);
       if (metadata.frameRate) facts.push(metadata.frameRate + ' fps');
       if (metadata.numFrames) facts.push(metadata.numFrames + ' frames');
       facts.push(seed === null ? 'Random seed' : 'Seed ' + seed);
       if (timeLabel) facts.push(timeLabel);
-      facts.push(references.length + (references.length === 1 ? ' image' : ' images'));
+      if (references.length) {
+        facts.push(references.length + (references.length === 1 ? ' image reference' : ' image references'));
+      }
     } else {
       facts.push('Source clip');
       if (duration) facts.push('Duration ' + formatTime(duration));
@@ -1103,7 +1087,10 @@ class VideoStudio extends LitElement {
     const prompt = metadata?.prompt || clip?.name || 'Rendering video';
     const canCapture = Boolean(!pending && clip && !clip.stub);
     const canDownload = Boolean(!pending && generated && clip && !clip.stub && clip.url);
-    const renderLabel = pending ? 'Rendering' : isSource ? 'Source clip' : 'Generated';
+    const canRemove = Boolean(!pending && clip);
+    const canShowMore = Boolean(!pending && (generated || canCapture));
+    const renderLabel = isSource ? 'Source clip' : '';
+    const fullscreen = document.fullscreenElement === this;
     renderTemplate(html`
       <section class="stage-bar video-stage-bar video-output-details" id="video-output-details"
         aria-label="Video preview details">
@@ -1112,18 +1099,33 @@ class VideoStudio extends LitElement {
             aria-label="Read full prompt" aria-controls="video-prompt-sheet" aria-expanded="false"
             title=${prompt}>${prompt}</button>
           <div class="facts num video-output-facts" aria-label="Video metadata">
-            <span class="made">${renderLabel}</span>
+            ${renderLabel ? html`<span class="made">${renderLabel}</span>` : nothing}
             ${facts.map((fact) => html`<span>${fact}</span>`)}
           </div>
-          ${generated ? html`<p class="video-output-references" title=${referenceDetails}>${referenceSummary}</p>` : nothing}
         </div>
         <div class="actions video-output-actions">
-          ${canCapture ? html`
-            <button class="btn quiet" type="button" data-action="capture-image-frame">
-              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>
-              Use current frame in Image
+          ${canDownload ? html`
+            <a class="icon-btn" href=${clip.url} download=${videoDownloadName(clip)}
+              aria-label="Download video" title="Download">
+              <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
+            </a>` : nothing}
+          ${canRemove ? html`
+            <button class="icon-btn danger" type="button" data-action="remove-clip" data-clip-id=${clip.id}
+              aria-label=${'Remove video ' + clip.name} title="Remove">
+              <svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg>
             </button>` : nothing}
-          ${generated && !pending ? html`
+          ${document.fullscreenEnabled ? html`
+            <button class="icon-btn" type="button" data-action="toggle-video-fullscreen"
+              aria-label=${fullscreen ? 'Exit full screen' : 'Full screen'}
+              title=${fullscreen ? 'Exit full screen' : 'Full screen'}>
+              <svg class="icon" aria-hidden="true"><use href=${fullscreen ? '#i-shrink' : '#i-expand'}></use></svg>
+            </button>` : nothing}
+          ${canCapture ? html`
+            <button class="icon-btn" type="button" data-action="capture-video-frame"
+              aria-label="Add frame as keyframe" title="Add frame as keyframe">
+              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>
+            </button>` : nothing}
+          ${canShowMore ? html`
             <div class="menu-anchor">
               <button class="icon-btn" type="button" data-action="toggle-output-menu"
                 aria-label="More actions" aria-controls="video-output-menu" aria-expanded="false" title="More actions">
@@ -1131,23 +1133,20 @@ class VideoStudio extends LitElement {
               </button>
               <div class="menu up" id="video-output-menu" role="menu" hidden></div>
             </div>` : nothing}
-          ${canDownload ? html`
-            <a class="icon-btn" href=${clip.url} download=${videoDownloadName(clip)}
-              aria-label="Download video" title="Download">
-              <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
-            </a>` : nothing}
         </div>
       </section>`, root);
     const menu = root.querySelector('#video-output-menu');
     if (!menu || !clip) return;
     menu.replaceChildren();
+    if (canCapture) {
+      menu.append(menuItem('image-in', 'Use current frame in Image', () => this.captureFrameForImage()));
+    }
     if (this.supportsSeed && seed !== null) {
       menu.append(menuItem('hash', 'Reuse seed ' + seed, () => this.reuseOutput({seed})));
     }
     if (metadata?.prompt) {
       menu.append(menuItem('text', 'Reuse prompt', () => this.reuseOutput({prompt: metadata.prompt})));
     }
-    menu.append(menuItem('trash', 'Remove video ' + clip.name, () => this.removeClip(clip.id)));
   }
 
   reuseOutput(detail) {
@@ -1166,107 +1165,54 @@ class VideoStudio extends LitElement {
       ? this.renderProgressPlaceholder(this.generationProgress)
       : this.renderClip(this.selectedClip());
     renderTemplate(content, preview);
-    if (this.generationProgress) this.fitProgressPlaceholder();
+    this.fitVideoMonitor();
   }
 
-  fitProgressPlaceholder() {
-    const status = this.querySelector('#video-render-status');
+  fitVideoMonitor() {
+    const monitor = this.querySelector('.video-tv-frame');
     const preview = this.querySelector('#video-preview-content-root');
-    if (!status || !preview || !preview.clientWidth || !preview.clientHeight) return;
-    const ratio = this.outputWidth / this.outputHeight;
-    const width = Math.min(1200, preview.clientWidth, preview.clientHeight * ratio);
-    status.style.width = Math.floor(width) + 'px';
-    status.style.height = Math.floor(width / ratio) + 'px';
+    if (!monitor || !preview || !preview.clientWidth || !preview.clientHeight) return;
+    if (document.fullscreenElement === monitor) return;
+    const ratio = Number(monitor.dataset.mediaRatio) || 16 / 9;
+    const screenWidth = Math.min(1180, preview.clientWidth - 20, (preview.clientHeight - 38) * ratio);
+    if (screenWidth <= 0) return;
+    monitor.style.width = Math.floor(screenWidth + 20) + 'px';
+    monitor.style.height = Math.floor(screenWidth / ratio + 38) + 'px';
   }
 
   generationProgressDetails(progress) {
-    let label = 'Preparing render';
-    let phaseNumber = 0;
-    let percent = null;
-    if (progress.stopping) {
-      label = 'Stopping render';
-      phaseNumber = progress.phase > 1 ? 2 : 1;
-    } else if (progress.stage === 'preparing') {
-      label = 'Loading LTX-2.5';
-    } else {
-      phaseNumber = progress.phase > 1 ? 2 : 1;
-      if (phaseNumber === 1) {
-        label = progress.total > 0 && progress.step >= progress.total
-          ? 'Base generation complete' : 'Base generation at half resolution';
-      } else if (progress.total > 0 && progress.step >= progress.total) {
-        label = 'Finalizing video';
-      } else {
-        label = 'Upscaling and refining';
-      }
-      if (progress.total > 0 && progress.step < progress.total) {
-        percent = Math.round(Math.min(1, progress.step / progress.total) * 100);
-      } else if (phaseNumber === 1 && progress.total > 0) {
-        percent = 100;
-      }
-    }
+    const label = progress.stopping ? 'Stopping video' : 'Generating video';
     const elapsed = formatTime(progress.elapsedSeconds);
-    const phase = phaseNumber ? 'Stage ' + phaseNumber + ' of 2' : 'Preparing render';
-    const progressLabel = phaseNumber === 1 ? 'Base generation progress' : 'Upscaling and refinement progress';
-    const text = percent === null
-      ? label + ', ' + elapsed + ' elapsed'
-      : label + ', ' + percent + '% of this stage, ' + elapsed + ' elapsed';
-    return {label, phaseNumber, phase, percent, elapsed, progressLabel, text};
+    return {label, elapsed: elapsed + ' elapsed'};
   }
 
   renderProgressPlaceholder(progress) {
     const details = this.generationProgressDetails(progress);
-    const width = details.percent === null ? 0 : details.percent;
-    return html`
+    const status = html`
       <section id="video-render-status" class="video-render-placeholder" role="status"
-        aria-label="Video render status" aria-atomic="true"
-        style=${'--video-render-ratio: ' + this.outputWidth + ' / ' + this.outputHeight}>
-        <div class="video-render-brand"><span>RENDER STATUS</span><span>${this.outputModelName}</span></div>
+        aria-label=${details.label} aria-atomic="true">
         <div class="video-render-content">
-          <strong>Rendering new clip</strong>
-          <span class="video-render-phase">${details.label}</span>
-          <div class="video-render-stages" aria-label="LTX generation stages">
-            <span class=${details.phaseNumber === 1 ? 'active' : details.phaseNumber > 1 ? 'complete' : ''}>Base generation</span>
-            <span class=${details.phaseNumber === 2 ? 'active' : ''}>Upscaling and refining</span>
-          </div>
-          <div id="video-render-progress" class="video-render-progress${details.percent === null
-            ? ' is-indeterminate' : ''}" role="progressbar" aria-label=${details.progressLabel}
-            aria-valuemin="0" aria-valuemax="100"
-            aria-valuenow=${details.percent === null ? nothing : String(details.percent)}
-            aria-valuetext=${details.text} style=${'--video-render-progress: ' + width + '%'}></div>
-        </div>
-        <div class="video-render-details">
-          <span>${details.elapsed} elapsed</span>
-          <span>${details.phase}</span>
+          <strong>${details.label}</strong>
+          <div id="video-render-progress" class="video-render-progress is-indeterminate" role="progressbar"
+            aria-label=${details.label} aria-valuemin="0" aria-valuemax="100"
+            aria-valuetext=${details.elapsed}></div>
         </div>
       </section>`;
-  }
-
-  renderTimelineView() {
-    const previous = this.querySelector('#video-timeline-root');
-    if (!previous) return;
-    const activeElement = previous.contains(document.activeElement) ? document.activeElement : null;
-    const activeMarker = activeElement?.classList.contains('timeline-reference-marker')
-      ? activeElement.dataset.referenceId
-      : null;
-    const activeAction = activeMarker ? null : activeElement?.dataset.action;
-    const timeline = document.createElement('div');
-    timeline.id = 'video-timeline-root';
-    previous.replaceWith(timeline);
-    renderTemplate(this.renderTimeline(), timeline);
-    if (activeMarker) {
-      const marker = Array.from(this.querySelectorAll('.timeline-reference-marker'))
-        .find((item) => item.dataset.referenceId === activeMarker);
-      marker?.focus();
-    } else if (activeAction) {
-      const action = Array.from(this.querySelectorAll('#video-timeline-root [data-action]'))
-        .find((item) => item.dataset.action === activeAction);
-      action?.focus();
-    }
+    return this.renderMonitor(
+      status,
+      this.outputModelName,
+      this.nextVideoSerial(),
+      this.outputWidth / this.outputHeight,
+      details.elapsed,
+    );
   }
 
   renderVideoGallery() {
     const gallery = this.querySelector('#video-gallery-root');
-    if (gallery) renderTemplate(this.renderGallery(), gallery);
+    if (!gallery) return;
+    const outputs = this.clips.filter((clip) => clip.kind === 'generated');
+    this.classList.toggle('has-video-gallery', Boolean(outputs.length || this.pendingRender));
+    renderTemplate(this.renderGallery(), gallery);
   }
 
   renderError() {
@@ -1276,9 +1222,26 @@ class VideoStudio extends LitElement {
 
   renderGallery() {
     const outputs = this.clips.filter((clip) => clip.kind === 'generated');
+    const downloadable = outputs.filter((clip) => !clip.stub && clip.url);
+    const kept = outputs.filter((clip) => clip.keptInBrowser).length;
+    const videoCount = outputs.length + (outputs.length === 1 ? ' video' : ' videos');
+    const note = !outputs.length
+      ? this.keepEnabled ? 'Videos are kept in this browser.' : 'Videos stay in this tab only.'
+      : kept === outputs.length ? videoCount + ', kept in this browser.'
+        : downloadable.length ? videoCount + ' in this tab. Download the ones you want to keep.'
+          : (outputs.length === 1 ? 'A stub result' : outputs.length + ' stub results') + ' in this tab.';
     return html`
-      <section class="video-gallery strip-wrap" id="video-gallery" aria-label="Video gallery">
-        <div class="video-gallery-head"><strong>Video gallery</strong><span>${outputs.length}${outputs.length === 1 ? ' clip' : ' clips'}</span></div>
+      <section class="video-gallery strip-wrap" id="video-gallery" aria-label="Video gallery"
+        ?hidden=${!outputs.length && !this.pendingRender}>
+        <div class="strip-head video-gallery-head">
+          <span id="video-gallery-note">${note}</span>
+          <span class="strip-actions">
+            <button class="text-btn" type="button" id="video-gallery-download"
+              data-action="download-all-videos" ?hidden=${!downloadable.length}>Download all</button>
+            <button class="text-btn" type="button" id="video-gallery-clear"
+              data-action="clear-video-gallery" ?hidden=${!outputs.length}>Clear all</button>
+          </span>
+        </div>
         <div class="strip video-clips" role="group" aria-label="Generated videos">
           ${this.pendingRender ? html`
             <div class="video-gallery-item video-gallery-pending frame pending" role="status" aria-label="Video render pending">
@@ -1303,7 +1266,7 @@ class VideoStudio extends LitElement {
                 </span>
                 <span class="no">${String(index + 1).padStart(2, '0')}</span>
               </button>
-            </div>`) : this.pendingRender ? '' : html`<span class="video-gallery-empty">Generated clips appear here.</span>`}
+            </div>`) : ''}
         </div>
       </section>`;
   }
@@ -1314,10 +1277,9 @@ class VideoStudio extends LitElement {
         <div class="video-empty-mark">VIDEO</div>
         <strong>Preview a video</strong>
         <span>Select a source video or generated clip.</span>
-        <span>Capture a still to add it as a keyframe.</span>
       </div>`;
     }
-    return html`<div class="video-preview-pane">
+    const preview = html`<div class="video-preview-pane">
       <video id="video-preview" src=${clip.url} ?hidden=${clip.stub} controls playsinline preload="metadata"></video>
       <div class="video-preview-stub" ?hidden=${!clip.stub}>
         <div class="video-empty-mark">STUB</div>
@@ -1325,6 +1287,10 @@ class VideoStudio extends LitElement {
         <span>The stub returns metadata only. It does not create a video file.</span>
       </div>
     </div>`;
+    const width = Number(clip.metadata?.width || clip.width) || 16;
+    const height = Number(clip.metadata?.height || clip.height) || 9;
+    const modelName = clip.kind === 'generated' ? clip.metadata?.modelName || 'Video' : 'SOURCE VIDEO';
+    return this.renderMonitor(preview, modelName, this.videoSerial(clip), width / height);
   }
 
   render() {
@@ -1335,7 +1301,6 @@ class VideoStudio extends LitElement {
         </div>
         <div id="video-output-details-root"></div>
         <div class="video-editing-area">
-          <div id="video-timeline-root"></div>
           <div id="video-error-root"></div>
           <div id="video-gallery-root"></div>
         </div>
