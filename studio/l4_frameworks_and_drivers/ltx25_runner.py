@@ -37,9 +37,15 @@ from ltx_pipelines.utils.constants import DISTILLED_SIGMA_VALUES, STAGE_2_DISTIL
 # the schedule it samples with. The page shows one percentage for the whole
 # render, so the two stages have to arrive as one count, and the count has to be
 # known before the first step: the schedules are read from the pipeline rather
-# than guessed, and one window is what the runner's own flags ask for. A step is
-# printed after the denoiser has run it, so a count of 11 steps means 11 steps
-# are done.
+# than guessed, and one window is what the runner's own flags ask for.
+#
+# A step is reported as it starts, not as it ends. The sampler breaks out of its
+# loop on the terminal sigma instead of running the iterator dry, so the loop is
+# gone before the generator would resume after its last yield. A report written
+# after the yield never fires for a stage's last step, which left the bar parked
+# at 10 of 11 and a render that never reached the end of its own count. Measured
+# on the office machine: two calls, the pipeline logging 8 then 3 steps, and 7
+# then 2 resumes, which is one short each.
 stage_steps = (len(DISTILLED_SIGMA_VALUES) - 1, len(STAGE_2_DISTILLED_SIGMA_VALUES) - 1)
 total_steps = sum(stage_steps)
 state = {"stage": 0}
@@ -49,8 +55,8 @@ def report_steps(iterable, *args, **kwargs):
     state["stage"] = stage + 1
     done_before = sum(stage_steps[:stage])
     for step, value in enumerate(iterable, 1):
-        yield value
         print(f"STUDIO_STEP 1 {done_before + step} {total_steps}", file=sys.stderr, flush=True)
+        yield value
 
 samplers.tqdm = report_steps
 from ltx_pipelines.distilled import main

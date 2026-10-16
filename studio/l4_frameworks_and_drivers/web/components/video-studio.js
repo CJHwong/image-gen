@@ -1288,8 +1288,9 @@ class VideoStudio extends LitElement {
   // distilled pipeline denoises the clip in two stages and a number that reset
   // between them read as if the render were about to finish. So the bar fills to
   // the share of the whole render that is done, and the page shows that share as
-  // one percentage. Before the engine reports a step there is nothing to fill to,
-  // and the bar sweeps instead.
+  // one percentage. A step arrives as it starts, so the count reads as the step
+  // the engine is on. Before the engine reports a step there is nothing to fill
+  // to, and the bar sweeps instead.
   generationProgressDetails(progress) {
     const label = progress.stopping ? 'Stopping video' : 'Generating video';
     const elapsed = formatTime(progress.elapsedSeconds);
