@@ -1207,6 +1207,7 @@ function holdPanel(reason, on) {
 function applyHold() {
   const reason = Array.from(holds).join(' ');
   held = [];
+  page.el.form.dataset.panelHeld = 'true';
   page.el.form.querySelectorAll('input, textarea, select, button').forEach(function (control) {
     // The Run button is Cancel while a run is going, and the rewrite button is
     // Cancel while a rewrite is writing, so holding either would trap the user
@@ -1227,6 +1228,7 @@ function applyHold() {
 }
 
 function releaseHold() {
+  delete page.el.form.dataset.panelHeld;
   held.forEach(function (entry) {
     const control = entry[0];
     if (entry[1] === 'readOnly') control.readOnly = false;

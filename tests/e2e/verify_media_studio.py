@@ -132,6 +132,8 @@ with sync_playwright() as playwright:
     console_errors = []
     posts = []
     video_posts = []
+    downloads = []
+    page.on("download", lambda download: downloads.append(download.suggested_filename))
     page.on("pageerror", lambda error: errors.append(error.stack or str(error)))
     page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
     page.on(
@@ -158,6 +160,62 @@ with sync_playwright() as playwright:
         and page.locator("#form #workspace-tabs").count() == 0
         and page.locator("#image-controls .modes").is_visible(),
     )
+    image_mode_layout = page.evaluate(
+        """() => {
+          const controls = document.querySelector('#image-controls');
+          const modes = controls.querySelector('.modes');
+          const prompt = controls.querySelector('.prompt-field');
+          const label = modes.querySelector('label').getBoundingClientRect();
+          return {
+            selectorBeforePrompt: Boolean(modes.compareDocumentPosition(prompt)
+              & Node.DOCUMENT_POSITION_FOLLOWING),
+            selectorHeight: label.height,
+            videoHasImageSelector: Boolean(document.querySelector('#video-controls .modes')),
+          };
+        }"""
+    )
+    switch_workspace(page, "video")
+    switch_workspace(page, "image")
+    check(
+        "Image Generate and Edit keep their original selector above Prompt",
+        image_mode_layout["selectorBeforePrompt"]
+        and image_mode_layout["selectorHeight"] == 32
+        and not image_mode_layout["videoHasImageSelector"],
+        str(image_mode_layout),
+    )
+    page.set_viewport_size({"width": 1024, "height": 844})
+    page.locator("label[for=mode-edit]").click()
+    page.locator("#templates-toggle").evaluate("button => { button.hidden = false; }")
+    page.locator("#rewrite-toggle").evaluate("button => { button.hidden = false; button.disabled = false; }")
+    narrow_prompt_head = page.evaluate(
+        """() => {
+          const head = document.querySelector('#image-controls .prompt-field .field-head');
+          const bounds = head.getBoundingClientRect();
+          const controls = [...head.querySelectorAll('.head-actions, #templates-toggle, #rewrite-toggle')];
+          const left = Math.min(...controls.map(control => control.getBoundingClientRect().left));
+          const right = Math.max(...controls.map(control => control.getBoundingClientRect().right));
+          const label = head.querySelector(':scope > label').getBoundingClientRect();
+          const actions = head.querySelector('.head-actions').getBoundingClientRect();
+          const overlaps = (first, second) => first.left < second.right && first.right > second.left
+            && first.top < second.bottom && first.bottom > second.top;
+          const modes = document.querySelector('#image-controls .modes');
+          return {width: bounds.width, clientWidth: head.clientWidth, scrollWidth: head.scrollWidth,
+            left, headerLeft: bounds.left, right, headerRight: bounds.right,
+            labelActionsOverlap: overlaps(label, actions),
+            modeFitsSidebar: modes.getBoundingClientRect().right <= bounds.right + 1};
+        }"""
+    )
+    check(
+        "Edit prompt controls fit in a narrow sidebar",
+        narrow_prompt_head["scrollWidth"] <= narrow_prompt_head["clientWidth"]
+        and narrow_prompt_head["left"] >= narrow_prompt_head["headerLeft"] - 1
+        and narrow_prompt_head["right"] <= narrow_prompt_head["headerRight"] + 1
+        and not narrow_prompt_head["labelActionsOverlap"]
+        and narrow_prompt_head["modeFitsSidebar"],
+        str(narrow_prompt_head),
+    )
+    page.locator("label[for=mode-generate]").click()
+    page.set_viewport_size({"width": 1440, "height": 1000})
     stable_switch = page.evaluate(
         """() => {
           const name = document.querySelector('#backend-toggle .name');
@@ -232,18 +290,44 @@ with sync_playwright() as playwright:
     )
     page.get_by_role("button", name="Share references with Video").click()
     page.wait_for_function("() => document.querySelector('#media-video-mode').getAttribute('aria-pressed') === 'true'")
-    page.locator("#video-reference-track").wait_for(state="visible")
+    page.locator("#video-references .video-reference").wait_for(state="visible")
     check(
         "image references transfer to the video workspace",
         page.locator("#video-source-panel .video-reference").get_attribute("title") == "reference.png",
         page.locator("#video-source-panel .video-reference").get_attribute("title") or "no reference",
     )
+    reference_options = page.locator("#video-source-panel .video-reference-options").first
+    check(
+        "reference influence stays out of the default controls",
+        reference_options.count() == 1
+        and reference_options.evaluate("element => !element.open")
+        and page.locator("#video-source-panel [data-action='reference-frame']").count() == 0,
+        "captured source frames keep their source time",
+    )
+    if reference_options.count():
+        reference_options.locator("summary").click()
+    reference_options_open = reference_options.count() and reference_options.evaluate("element => element.open")
+    check(
+        "reference options explain the influence control",
+        reference_options_open
+        and "Reference influence" in reference_options.inner_text()
+        and "Adjust only when an image needs more or less influence." in reference_options.inner_text(),
+        reference_options.inner_text() if reference_options.count() else "missing options",
+    )
+    if reference_options.count() and reference_options.evaluate("element => element.open"):
+        reference_options.locator("summary").click()
     check(
         "Video mode shows its own selected model",
         page.locator("#backend-toggle .name").inner_text() == "LTX-2.5"
         and page.locator(".dial .badge").inner_text() == "24 fps"
         and page.locator("#backend-toggle").is_disabled(),
         page.locator("#backend-toggle").inner_text().replace("\n", " "),
+    )
+    check(
+        "Video uses the shared Prompt label",
+        page.locator("#video-controls label[for='video-prompt']").inner_text() == "Prompt"
+        and page.locator("#video-controls").get_by_text("Video prompt", exact=True).count() == 0,
+        page.locator("#video-controls .prompt-field").inner_text(),
     )
     video_switch_position = page.evaluate(
         """() => {
@@ -305,9 +389,11 @@ with sync_playwright() as playwright:
           videoStudio.addImageReference(reference);
           videoStudio.addImageReference({...reference, id: 'model-limit-two'});
           const referenceLimitError = videoStudio.error;
-          const defaultReferenceStrength = document.querySelectorAll(
-            '#video-source-panel .video-reference-settings input[type=range]'
-          )[1].value;
+          const referenceStrengths = document.querySelectorAll(
+            '#video-source-panel .video-reference-options input[type=range]'
+          );
+          const referenceOptions = document.querySelector('.video-reference-options');
+          const defaultReferenceStrength = referenceStrengths[1]?.value ?? null;
           videoStudio.removeImageReference(reference.id);
           videoStudio.clearError();
           const state = {
@@ -332,9 +418,13 @@ with sync_playwright() as playwright:
             referenceLimit: videoStudio.maxReferences,
             referenceLimitError: referenceLimitError,
             defaultReferenceStrength: defaultReferenceStrength,
+            referenceOptionsClosed: referenceOptions ? !referenceOptions.open : null,
+            outputFrameControls: document.querySelectorAll(
+              '#video-source-panel [data-action="reference-frame"]'
+            ).length,
             referenceStrength: (() => {
-              const control = document.querySelector('#video-source-panel .video-reference-settings input[type=range]');
-              return [control.min, control.max, control.step, control.value];
+              const control = document.querySelector('#video-source-panel .video-reference-options input[type=range]');
+              return control ? [control.min, control.max, control.step, control.value] : null;
             })(),
             seedRange: [
               document.querySelector('#video-seed').min,
@@ -398,6 +488,8 @@ with sync_playwright() as playwright:
             "referenceLimit": 2,
             "referenceLimitError": "This video model accepts at most 2 image references.",
             "defaultReferenceStrength": "0.4",
+            "referenceOptionsClosed": True,
+            "outputFrameControls": 0,
             "referenceStrength": ["0.2", "0.8", "0.2", "0.8"],
             "seedRange": ["17", "99", False, False],
             "unsupportedSeed": [True, True, "Not supported", "This video model does not support a seed."],
@@ -410,56 +502,107 @@ with sync_playwright() as playwright:
         str(model_settings["unsupportedSeed"]),
     )
     check(
-        "Video keeps one mode selector and places references on its output timeline",
+        "Video keeps one mode selector and places references in the sidebar",
         page.locator("#image-controls .modes").is_hidden()
         and page.locator("#video-controls .modes").count() == 0
-        and page.locator("#video-reference-track [data-action='select-reference']").count() == 1,
+        and page.locator("#video-reference-tray[aria-label='Image references']").count() == 1
+        and page.locator("#video-reference-track").count() == 0,
+    )
+    output_controls = page.evaluate(
+        """() => {
+          const duration = document.querySelector('#video-duration').closest('.field').getBoundingClientRect();
+          const shape = document.querySelector('.video-ratios').closest('.field').getBoundingClientRect();
+          return {durationWidth: duration.width, shapeWidth: shape.width,
+            durationTop: duration.top, shapeTop: shape.top};
+        }"""
     )
     check(
-        "video timeline shows one useful reference track",
-        page.locator(".video-studio-head").count() == 0
-        and page.locator("#video-timeline .source-track").count() == 0
-        and page.locator("#video-reference-track .track-label").text_content() == "Reference frames"
-        and "Output timeline" in page.locator("#video-timeline").inner_text()
-        and "1 reference" in page.locator("#video-timeline").inner_text()
-        and "121 frames" in page.locator("#video-timeline").inner_text()
-        and "Images" not in page.locator("#video-timeline").inner_text()
-        and page.locator("#video-timeline .render-track").count() == 0
-        and "VIDEO WORKSPACE" not in page.locator("#video-timeline").inner_text()
-        and "Sequence" not in page.locator("#video-timeline").inner_text()
-        and "V1" not in page.locator("#video-timeline").inner_text()
-        and "K1" not in page.locator("#video-timeline").inner_text(),
-        page.locator("#video-timeline").inner_text(),
+        "duration and frame shape use balanced full-width groups",
+        abs(output_controls["durationWidth"] - output_controls["shapeWidth"]) < 1
+        and output_controls["shapeTop"] > output_controls["durationTop"],
+        str(output_controls),
     )
-    empty_reference_track = page.evaluate(
+    empty_reference_list = page.evaluate(
         """() => {
           const studio = document.getElementById('video-studio');
           const saved = {...studio.imageReferences[0]};
           studio.clearImageReferences();
-          const visibleWhenEmpty = Boolean(document.querySelector('#video-timeline #video-reference-track'));
-          const explainsEmptyState = document.querySelector('#video-timeline .timeline-empty')
-            ?.textContent.includes('Add a reference frame');
+          const timelineCount = document.querySelectorAll('#video-timeline, #video-reference-track').length;
+          const emptyState = document.querySelector('#video-media-empty');
+          const sourceGroup = document.querySelector('.video-source-group');
+          const referenceTray = document.querySelector('#video-reference-tray');
+          const explainsEmptyState = emptyState?.textContent.includes('Add an image reference or a source clip');
+          const emptyMedia = {
+            hidden: Boolean(emptyState?.hidden),
+            sourceGroupHidden: Boolean(sourceGroup?.hidden),
+            referenceTrayHidden: Boolean(referenceTray?.hidden),
+          };
           studio.addImageReference(saved);
-          return {visibleWhenEmpty, explainsEmptyState};
+          return {timelineCount, explainsEmptyState: Boolean(explainsEmptyState), emptyMedia};
         }"""
     )
     check(
-        "empty output timeline stays visible and explains how to use it",
-        empty_reference_track == {"visibleWhenEmpty": True, "explainsEmptyState": True},
-        str(empty_reference_track),
+        "one media empty state replaces two empty lists",
+        empty_reference_list
+        == {
+            "timelineCount": 0,
+            "explainsEmptyState": True,
+            "emptyMedia": {"hidden": False, "sourceGroupHidden": True, "referenceTrayHidden": True},
+        },
+        str(empty_reference_list),
     )
     check(
         "video sources stay beside the prompt in the right sidebar",
         page.locator("aside #video-source-panel").count() == 1
         and page.locator(".work #video-source-panel").count() == 0
-        and page.locator("#video-timeline").is_visible(),
+        and page.locator("#video-timeline").count() == 0,
     )
     check(
-        "image references explain their role in the generated clip",
-        "anchor the scene at their selected output frame" in page.locator("#video-source-panel").inner_text()
-        and "LTX generates motion between those images" in page.locator("#video-source-panel").inner_text(),
+        "media panel explains that source clips only provide frames",
+        "Image references guide the generated video" in page.locator("#video-source-panel").inner_text()
+        and "Source clips help you pick frames" in page.locator("#video-source-panel").inner_text(),
         page.locator("#video-source-panel").inner_text(),
     )
+    desktop_footer = page.evaluate(
+        """() => {
+          const footer = document.querySelector('#video-footer');
+          const form = footer.closest('form');
+          const button = document.querySelector('#video-generate');
+          return {footerBottom: footer.getBoundingClientRect().bottom,
+            formBottom: form.getBoundingClientRect().bottom,
+            visible: !footer.hidden && button.getBoundingClientRect().height > 0,
+            disabled: button.disabled};
+        }"""
+    )
+    check(
+        "video action stays pinned and disabled with an empty prompt",
+        desktop_footer["visible"]
+        and desktop_footer["disabled"]
+        and abs(desktop_footer["footerBottom"] - desktop_footer["formBottom"]) < 2,
+        str(desktop_footer),
+    )
+    page.fill("#video-prompt", "   ")
+    check("whitespace does not enable video generation", page.locator("#video-generate").is_disabled())
+    page.fill("#video-prompt", "A short camera move")
+    check("video prompt enables the generate action", page.locator("#video-generate").is_enabled())
+    page.fill("#video-prompt", "")
+    page.set_viewport_size({"width": 390, "height": 844})
+    mobile_footer = page.evaluate(
+        """() => {
+          const footer = document.querySelector('#video-footer');
+          return {position: getComputedStyle(footer).position,
+            bottom: footer.getBoundingClientRect().bottom,
+            viewportBottom: window.innerHeight, visible: !footer.hidden};
+        }"""
+    )
+    check(
+        "video action stays fixed to the screen on narrow layouts",
+        mobile_footer["visible"]
+        and mobile_footer["position"] == "fixed"
+        and abs(mobile_footer["viewportBottom"] - mobile_footer["bottom"]) < 2,
+        str(mobile_footer),
+    )
+    page.set_viewport_size({"width": 1440, "height": 1000})
     paste_prevented = paste_file(page, REFERENCE.read_bytes(), "clipboard.png", "image/png")
     page.wait_for_function("() => document.querySelectorAll('#video-source-panel .video-reference').length === 2")
     check(
@@ -512,6 +655,27 @@ with sync_playwright() as playwright:
     page.locator("label[for=mode-generate]").click()
     switch_workspace(page, "video")
     check(
+        "an empty video gallery stays out of the workspace",
+        page.locator("#video-gallery").is_hidden(),
+    )
+    stage_surfaces = page.evaluate(
+        """() => {
+          const root = document.documentElement;
+          const original = root.dataset.theme;
+          root.dataset.theme = 'kodak';
+          const image = getComputedStyle(document.querySelector('#image-stage')).backgroundColor;
+          const video = getComputedStyle(document.querySelector('.video-preview-area')).backgroundColor;
+          if (original) root.dataset.theme = original;
+          else delete root.dataset.theme;
+          return {image, video};
+        }"""
+    )
+    check(
+        "Image and Video share the same stage surface in each mode",
+        stage_surfaces["image"] == stage_surfaces["video"],
+        str(stage_surfaces),
+    )
+    check(
         "video duration starts at the documented 121-frame example",
         page.locator("#video-duration").input_value() == "121"
         and "5.04 seconds" in page.locator("#video-frame-count").inner_text(),
@@ -562,11 +726,17 @@ with sync_playwright() as playwright:
         " && Number.isFinite(video.duration) && video.duration > 0; }",
         timeout=30000,
     )
+    source_details = page.locator("#video-output-details").inner_text()
     check(
-        "imported video files stay in source assets with a timeline",
+        "source caption refreshes with loaded video metadata",
+        "Source clip" in source_details and "Duration" in source_details and "96 \u00d7 64" in source_details,
+        source_details,
+    )
+    check(
+        "imported video files stay in source assets without a timeline",
         page.locator("#video-source-list .video-source").count() == 1
         and page.locator("#video-gallery .video-clip").count() == 0
-        and page.locator("#video-timeline").is_visible(),
+        and page.locator("#video-timeline").count() == 0,
         f"{page.locator('#video-source-list .video-source').count()} sources",
     )
 
@@ -579,7 +749,7 @@ with sync_playwright() as playwright:
     check(
         "source footage uses its own player scrubber",
         page.locator("#video-preview").get_attribute("controls") is not None
-        and page.locator("#video-timeline .source-track").count() == 0,
+        and page.locator("#video-timeline").count() == 0,
         f"current time {page.locator('#video-preview').evaluate('video => video.currentTime'):.2f}s",
     )
     resume_time = page.evaluate(
@@ -606,7 +776,7 @@ with sync_playwright() as playwright:
         ),
         f"restored {resume_time:.2f}s",
     )
-    capture_button = page.get_by_role("button", name="Add current frame to output")
+    capture_button = page.get_by_role("button", name="Add frame as keyframe")
     expected_capture = page.evaluate(
         """async () => {
           const studio = document.getElementById('video-studio');
@@ -633,70 +803,29 @@ with sync_playwright() as playwright:
           };
         }"""
     )
-    capture_button.focus()
-    page.keyboard.press("Enter")
+    capture_button.click()
     page.wait_for_function("() => document.querySelectorAll('#video-source-panel .video-reference').length === 2")
+    captured_frame_index = page.evaluate("() => document.getElementById('video-studio').imageReferences[1].frameIndex")
     check(
         "captured pixels and frame metadata use the same source time",
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value()
-        == str(expected_capture["frame"])
+        captured_frame_index == expected_capture["frame"]
         and page.locator("#video-source-panel .video-reference").nth(1).get_attribute("title")
         == expected_capture["name"],
-        f"expected {expected_capture}, got {page.locator('#video-source-panel .video-reference input[type=number]').nth(1).input_value()}",
+        f"expected {expected_capture}, got frame {captured_frame_index}",
     )
     check(
-        "capturing a frame keeps keyboard focus on the capture action",
-        page.evaluate("() => document.activeElement?.dataset.action === 'capture-video-frame'"),
+        "the player action adds a source frame at its output time",
+        captured_frame_index == expected_capture["frame"]
+        and page.locator("#video-source-panel .video-reference").nth(1).get_attribute("title")
+        == expected_capture["name"],
+        f"frame {captured_frame_index}",
     )
-    frame_index = int(page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value())
-    marker = page.locator("#video-reference-track [data-action='select-reference']").nth(1)
-    marker_position = float(marker.evaluate("element => element.style.left.replace('%', '')"))
-    check(
-        "reference markers follow their output frame positions",
-        page.locator("#video-reference-track [data-action='select-reference']").count() == 2
-        and abs(marker_position - frame_index / 120 * 100) < 0.05
-        and marker.get_attribute("aria-pressed") == "false",
-        f"frame {frame_index} at {marker_position:.2f}%",
-    )
-    marker.click()
-    check(
-        "selecting a timeline marker also selects its reference",
-        marker.get_attribute("aria-pressed") == "true"
-        and "selected" in (page.locator("#video-source-panel .video-reference").nth(1).get_attribute("class") or ""),
-    )
-    before_keyboard_move = int(
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value()
-    )
-    marker.focus()
-    page.keyboard.press("ArrowRight")
-    after_keyboard_move = int(
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value()
-    )
-    check(
-        "keyboard arrows move a selected reference frame",
-        after_keyboard_move == min(120, before_keyboard_move + 1),
-        f"frame {before_keyboard_move} to {after_keyboard_move}",
-    )
-    marker = page.locator("#video-reference-track [data-action='select-reference']").nth(1)
-    marker_box = marker.bounding_box()
-    rail_box = page.locator("#video-reference-track .timeline-rail").bounding_box()
-    page.mouse.move(marker_box["x"] + marker_box["width"] / 2, marker_box["y"] + marker_box["height"] / 2)
-    page.mouse.down()
-    page.mouse.move(rail_box["x"] + rail_box["width"] * 0.7, marker_box["y"] + marker_box["height"] / 2)
-    page.mouse.up()
-    after_pointer_move = int(
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value()
-    )
-    check(
-        "dragging a reference marker changes its output frame",
-        after_pointer_move >= 80,
-        f"frame {after_pointer_move}",
-    )
-    page.get_by_role("button", name="Use current frame in Image").click()
+    page.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Use current frame in Image").click()
     page.wait_for_function("() => document.querySelector('#media-image-mode').getAttribute('aria-pressed') === 'true'")
     page.locator("#thumbs img[alt^='demo.webm frame']").wait_for(state="visible", timeout=10000)
     check(
-        "a video timeline frame becomes an image reference",
+        "the player frame action becomes an image reference",
         page.locator("#thumbs img").count() == 1
         and page.locator("#thumbs img").first.get_attribute("alt").startswith("demo.webm frame"),
         page.locator("#thumbs img").first.get_attribute("alt") or "no image reference",
@@ -737,23 +866,7 @@ with sync_playwright() as playwright:
         f"state: {page.locator('#video-studio').evaluate('element => element.imageReferences.map(item => item.name)')}, "
         f"toast: {page.locator('#toasts').inner_text()}",
     )
-    page.locator("#video-source-panel .video-reference input[type=number]").nth(1).fill("300")
-    page.locator("#video-source-panel .video-reference input[type=number]").nth(1).dispatch_event("change")
-    page.get_by_role("button", name="Generate video").click()
-    page.wait_for_function(
-        "() => document.querySelector('#video-request-status').textContent === 'Video generation failed.'",
-        timeout=10000,
-    )
-    check(
-        "keyframes outside the selected duration are stopped before the request",
-        not video_posts
-        and page.locator("#video-studio .video-error").inner_text()
-        == "Image reference frames must be between 0 and 120.",
-        page.locator("#video-studio .video-error").inner_text(),
-    )
-    page.locator("#video-source-panel .video-reference input[type=number]").nth(1).fill("9")
-    page.locator("#video-source-panel .video-reference input[type=number]").nth(1).dispatch_event("change")
-    page.locator("#video-source-panel .video-reference input[type=range]").nth(1).evaluate(
+    page.locator("#video-source-panel .video-reference-options input[type=range]").nth(1).evaluate(
         "element => { element.value = '0.55'; element.dispatchEvent(new Event('input', {bubbles: true})); }"
     )
     page.fill("#video-prompt", "A kite rises as the camera pans across the shore")
@@ -775,10 +888,11 @@ with sync_playwright() as playwright:
         and "24 fps" in summary,
         summary,
     )
+    sent_frame = page.evaluate("() => document.getElementById('video-studio').imageReferences[1].frameIndex")
     check(
-        "keyframe frame bounds follow the selected duration",
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).get_attribute("max") == "240",
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).get_attribute("max"),
+        "captured source time remains inside the selected video duration",
+        0 <= sent_frame < 241,
+        f"frame {sent_frame} of 240",
     )
     page.locator("#video-advanced summary").click()
     page.fill("#video-seed", "4294967296")
@@ -860,11 +974,20 @@ with sync_playwright() as playwright:
         """() => ({
           disabled: document.querySelector('#video-generate').disabled,
           label: document.querySelector('#video-generate').textContent,
+          panelHeld: document.querySelector('#form').dataset.panelHeld === 'true',
+          durationPointerLocked: document.querySelector('#video-duration').style.pointerEvents === 'none',
+          controlsOpacity: getComputedStyle(document.querySelector('.controls')).opacity,
+          statusVisuallyHidden: document.querySelector('#video-request-status').classList.contains('visually-hidden'),
         })"""
     )
     check(
-        "video cancel waits until the server confirms that the run started",
-        starting_locked["disabled"] and starting_locked["label"] == "Starting render…",
+        "video shows one status and a visible lock while cancel waits for the server",
+        starting_locked["disabled"]
+        and starting_locked["label"] == "Cancel render"
+        and starting_locked["panelHeld"]
+        and starting_locked["durationPointerLocked"]
+        and float(starting_locked["controlsOpacity"]) < 1
+        and starting_locked["statusVisuallyHidden"],
         str(starting_locked),
     )
     page.evaluate("() => { window.__studioProgressReady = true; }")
@@ -878,11 +1001,15 @@ with sync_playwright() as playwright:
     )
     check(
         "another tab cannot unlock this request's cancel button",
-        foreign_run_state["disabled"] and foreign_run_state["label"] == "Starting render…",
+        foreign_run_state["disabled"] and foreign_run_state["label"] == "Cancel render",
         str(foreign_run_state),
     )
     page.evaluate("() => { window.__studioForeignRequestId = null; }")
     page.get_by_role("button", name="Cancel render").wait_for(state="visible", timeout=10000)
+    page.wait_for_function(
+        "() => !document.querySelector('#video-generate').disabled",
+        timeout=10000,
+    )
     cancel_locked = page.evaluate(
         """() => ({
           promptReadOnly: document.querySelector('#video-prompt').readOnly,
@@ -953,6 +1080,7 @@ with sync_playwright() as playwright:
           references: document.querySelectorAll('#video-source-panel .video-reference').length,
           pending: document.querySelectorAll('#video-gallery .video-gallery-pending').length,
           released: !document.body.classList.contains('video-busy'),
+          panelReleased: document.querySelector('#form').dataset.panelHeld !== 'true',
         })"""
     )
     check(
@@ -961,13 +1089,36 @@ with sync_playwright() as playwright:
         and cancel_retained["prompt"]
         and cancel_retained["references"] == 3
         and cancel_retained["pending"] == 0
-        and cancel_retained["released"],
+        and cancel_retained["released"]
+        and cancel_retained["panelReleased"],
         str(cancel_retained),
     )
     page.evaluate("() => { window.fetch = window.__studioOriginalFetch; }")
     page.fill("#video-seed", "")
-    sent_frame = int(page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value())
-    sent_strength = float(page.locator("#video-source-panel .video-reference input[type=range]").nth(1).input_value())
+    duration_reference = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          const reference = studio.imageReferences.at(-1);
+          const duration = document.getElementById('video-duration');
+          reference.frameIndex = Number(duration.value) + 40;
+          duration.dispatchEvent(new Event('input', {bubbles: true}));
+          return {frameIndex: studio.imageReferences.at(-1).frameIndex,
+            lastFrame: Number(duration.value) - 1};
+        }"""
+    )
+    check(
+        "shortening duration keeps keyframe references inside the output",
+        duration_reference["frameIndex"] == duration_reference["lastFrame"] == 240,
+        str(duration_reference),
+    )
+    check(
+        "duration change explains when a reference moves to the last frame",
+        "moved to frame 241" in page.locator("#toasts").inner_text(),
+        page.locator("#toasts").inner_text(),
+    )
+    sent_strength = float(
+        page.locator("#video-source-panel .video-reference-options input[type=range]").nth(1).input_value()
+    )
     page.get_by_role("button", name="Generate video").click()
     page.wait_for_function(
         "() => ['Stub response added. No video file was generated.', 'Video generation failed.']"
@@ -984,7 +1135,7 @@ with sync_playwright() as playwright:
     )
     request = video_posts[-1] if video_posts else {}
     check(
-        "video generation sends selected settings and shared keyframes",
+        "video generation sends selected settings and shared references",
         request.get("num_frames") == 241
         and request.get("width") == 576
         and request.get("height") == 1024
@@ -992,8 +1143,12 @@ with sync_playwright() as playwright:
         and request.get("seed") is None
         and isinstance(request.get("request_id"), str)
         and len(request.get("request_id", "")) >= 16
-        and request["references"][1].get("frame_index") == sent_frame == 9
+        and request["references"][1].get("frame_index") == sent_frame == captured_frame_index
         and request["references"][1].get("strength") == sent_strength == 0.55
+        and all(
+            0 <= reference.get("frame_index", -1) < request.get("num_frames", 0)
+            for reference in request.get("references", [])
+        )
         and all(len(reference.get("image", "")) > 100 for reference in request.get("references", [])),
         json.dumps({key: value for key, value in request.items() if key != "references"})
         + f", references: {len(request.get('references', []))}",
@@ -1008,8 +1163,9 @@ with sync_playwright() as playwright:
     check(
         "a successful video run clears its prompt and image references",
         page.locator("#video-prompt").input_value() == ""
+        and page.locator("#video-generate").is_disabled()
         and page.locator("#video-source-panel .video-reference").count() == 0
-        and page.locator("#video-reference-count").inner_text() == "0 images"
+        and page.locator("#video-reference-count").text_content() == "0 images"
         and page.locator("#video-source-list .video-source").count() == 1
         and page.locator("#video-duration").input_value() == "241"
         and page.locator("#video-seed").input_value() == "",
@@ -1021,17 +1177,131 @@ with sync_playwright() as playwright:
     stub_details = stub_card.inner_text()
     seed_match = re.search(r"Seed\s+(\d+)", page.locator("#video-output-details").inner_text())
     check(
-        "selected stub output shows its metadata below the preview",
+        "selected stub output uses the image-style caption and metadata row",
         "A kite rises as the camera pans across the shore" in page.locator("#video-output-details").inner_text()
         and "576 \u00d7 1024" in page.locator("#video-output-details").inner_text()
         and "24 fps" in page.locator("#video-output-details").inner_text()
-        and re.search(r"Frames\s+241", page.locator("#video-output-details").inner_text()) is not None
+        and re.search(r"241 frames", page.locator("#video-output-details").inner_text()) is not None
         and seed_match is not None
         and 0 <= int(seed_match.group(1)) <= 4294967295
-        and "3 images" in page.locator("#video-output-details").inner_text()
+        and "3 image references" in page.locator("#video-output-details").inner_text()
         and "Request time" in page.locator("#video-output-details").inner_text()
+        and page.locator("#video-output-details.stage-bar .prompt-line").count() == 1
+        and page.locator("#video-output-details .facts").count() == 1
+        and page.locator("#video-output-details .actions").count() == 1
         and "A kite rises as the camera pans across the shore" not in stub_details,
         page.locator("#video-output-details").inner_text(),
+    )
+    page.locator("#video-output-details .video-output-prompt").click()
+    short_prompt_state = page.evaluate(
+        """() => {
+          const prompt = document.querySelector('#video-output-details .video-output-prompt');
+          return {tag: prompt.tagName, role: prompt.getAttribute('role'),
+            tabIndex: prompt.getAttribute('tabindex'), sheetOpen: Boolean(document.querySelector('#video-prompt-sheet'))};
+        }"""
+    )
+    check(
+        "a short video prompt stays plain text and does not open a sheet",
+        short_prompt_state == {"tag": "P", "role": None, "tabIndex": None, "sheetOpen": False},
+        str(short_prompt_state),
+    )
+    page.evaluate("() => document.getElementById('video-studio').closeOutputPromptSheet(false)")
+    original_stub_prompt = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          const clip = studio.selectedClip();
+          const prompt = clip.metadata.prompt;
+          clip.metadata.prompt = 'A detailed scene description '.repeat(18);
+          studio.renderOutputDetails();
+          return prompt;
+        }"""
+    )
+    page.locator("#video-output-details .video-output-prompt[role=button]").focus()
+    page.keyboard.press("Enter")
+    prompt_sheet = page.locator("#video-prompt-sheet")
+    prompt_sheet.wait_for(state="visible")
+    full_prompt = ("A detailed scene description " * 18).strip()
+    check(
+        "keyboard opens the complete video prompt over the preview",
+        full_prompt in prompt_sheet.inner_text()
+        and page.locator("#video-prompt-sheet").get_attribute("aria-label") == "The whole prompt"
+        and page.locator("#video-prompt-sheet dl dt").inner_text() == "Prompt"
+        and page.locator("#video-prompt-sheet dl dd").inner_text() == full_prompt
+        and page.locator(".video-output-prompt").get_attribute("aria-controls") == "video-prompt-sheet"
+        and page.evaluate("() => document.activeElement?.getAttribute('aria-label')") == "Close",
+        json.dumps(
+            {
+                "sheet": prompt_sheet.inner_text(),
+                "label": prompt_sheet.get_attribute("aria-label"),
+                "term": page.locator("#video-prompt-sheet dl dt").inner_text(),
+                "value": page.locator("#video-prompt-sheet dl dd").inner_text(),
+                "controls": page.locator(".video-output-prompt").get_attribute("aria-controls"),
+                "focus": page.evaluate("() => document.activeElement?.getAttribute('aria-label')"),
+            }
+        ),
+    )
+    page.locator("#video-source-list .video-source").first.click()
+    check(
+        "selecting another clip closes the old prompt sheet",
+        page.locator("#video-prompt-sheet").count() == 0
+        and "demo.webm" in page.locator("#video-output-details").inner_text(),
+    )
+    page.locator("#video-gallery .video-clip").first.click()
+    page.locator("#video-output-details .video-output-prompt[role=button]").focus()
+    page.keyboard.press("Enter")
+    check(
+        "the selected clip can open its own prompt sheet",
+        full_prompt in page.locator("#video-prompt-sheet").inner_text(),
+        json.dumps(
+            {
+                "sheet": page.locator("#video-prompt-sheet").inner_text(),
+                "prompt": page.locator(".video-output-prompt").inner_text(),
+                "role": page.locator(".video-output-prompt").get_attribute("role"),
+            }
+        ),
+    )
+    page.keyboard.press("Escape")
+    check(
+        "Escape closes the full prompt and restores caption focus",
+        page.locator("#video-prompt-sheet").count() == 0
+        and page.evaluate("() => document.activeElement?.matches('.video-output-prompt[role=button]')"),
+    )
+    resize_prompt = ("A detailed scene description " * 10).strip()
+    page.evaluate(
+        """prompt => {
+          const studio = document.getElementById('video-studio');
+          studio.selectedClip().metadata.prompt = prompt;
+          studio.renderOutputDetails();
+        }""",
+        resize_prompt,
+    )
+    page.wait_for_function(
+        "() => document.querySelector('.video-output-prompt')?.getAttribute('role') === 'button'",
+        timeout=10000,
+    )
+    page.set_viewport_size({"width": 2560, "height": 1000})
+    page.wait_for_function(
+        "() => !document.querySelector('.video-output-prompt')?.hasAttribute('role')",
+        timeout=10000,
+    )
+    page.locator("#video-output-details .video-output-prompt").click()
+    check(
+        "a prompt stops acting as a control when the full text fits",
+        page.locator(".video-output-prompt").get_attribute("role") is None
+        and page.locator("#video-prompt-sheet").count() == 0,
+    )
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    page.wait_for_function(
+        "() => document.querySelector('.video-output-prompt')?.getAttribute('role') === 'button'",
+        timeout=10000,
+    )
+    page.evaluate(
+        """prompt => {
+          const studio = document.getElementById('video-studio');
+          studio.selectedClip().metadata.prompt = prompt;
+          studio.renderOutputDetails();
+        }""",
+        original_stub_prompt,
     )
     page.evaluate(
         """({videoBytes}) => {
@@ -1063,19 +1333,115 @@ with sync_playwright() as playwright:
         pass
     generated_card = page.locator("#video-gallery .video-gallery-item").nth(1)
     generated_details = page.locator("#video-output-details").inner_text()
-    gallery_geometry = page.evaluate(
+    video_presentation = page.evaluate(
         """() => {
-          const timeline = document.querySelector('#video-timeline').getBoundingClientRect();
-          const gallery = document.querySelector('#video-gallery').getBoundingClientRect();
-          const card = document.querySelector('#video-gallery .video-gallery-item').getBoundingClientRect();
-          return {timelineWidth: timeline.width, galleryWidth: gallery.width, cardWidth: card.width};
+          const monitor = document.querySelector('#video-preview-content-root .video-tv-frame');
+          const edge = monitor?.querySelector('.video-tv-edge');
+          const actions = document.querySelector('#video-output-details .video-output-actions');
+          const actionOrder = actions ? Array.from(actions.children).flatMap(item => {
+            if (item.classList.contains('rule')) return [];
+            const label = item.matches('a, button') ? item.getAttribute('aria-label')
+              : item.querySelector('button')?.getAttribute('aria-label');
+            return label ? [label] : [];
+          }) : [];
+          const facts = document.querySelector('#video-output-details .video-output-facts');
+          const screen = monitor?.querySelector('.video-tv-screen');
+          const details = document.querySelector('#video-output-details');
+          const directVideoFrameAction = Boolean(actions?.querySelector('[data-action="capture-video-frame"]'));
+          return {
+            isMonitorFrame: Boolean(monitor && screen && monitor.querySelector('#video-preview')),
+            detailsInStage: Boolean(details?.closest('#video-preview-root')
+              && details.classList.contains('stage-bar')),
+            model: edge?.querySelector('.video-tv-model')?.textContent,
+            serial: edge?.querySelector('.video-tv-serial')?.textContent,
+            actionOrder,
+            hasActionDivider: Boolean(actions?.querySelector('.rule')),
+            facts: facts?.innerText,
+            referenceDetailCount: document.querySelectorAll('.video-output-references').length,
+            directFrameAction: Boolean(actions?.querySelector('[data-action="capture-image-frame"]')),
+            directVideoFrameAction,
+          };
         }"""
     )
+    gallery_geometry = page.evaluate(
+        """() => {
+          const gallery = document.querySelector('#video-gallery').getBoundingClientRect();
+          const card = document.querySelector('#video-gallery .video-gallery-item').getBoundingClientRect();
+          const thumbnail = document.querySelector('#video-gallery .video-clip-thumb').getBoundingClientRect();
+          return {galleryWidth: gallery.width, galleryHeight: gallery.height,
+            cardWidth: card.width, thumbnailHeight: thumbnail.height};
+        }"""
+    )
+    output_actions = page.evaluate(
+        """() => ({
+          downloads: document.querySelectorAll('#video-output-details .video-output-actions a[download]').length,
+          downloadName: document.querySelector('#video-output-details .video-output-actions a[download]')?.download,
+          more: document.querySelectorAll('#video-output-details .video-output-actions [aria-label="More actions"]').length,
+          frameToImage: [...document.querySelectorAll('#video-output-menu [role="menuitem"]')]
+            .some(item => item.textContent.includes('Use current frame in Image')),
+          menus: document.querySelectorAll('#video-output-menu').length,
+          menuItems: document.querySelectorAll('#video-output-menu [role="menuitem"]')
+            .length,
+        })"""
+    )
     check(
-        "video gallery spans the workspace with larger thumbnail cards",
-        gallery_geometry["galleryWidth"] >= gallery_geometry["timelineWidth"] * 0.95
-        and gallery_geometry["cardWidth"] >= 220,
+        "video gallery uses the Image filmstrip scale",
+        gallery_geometry["cardWidth"] <= 120
+        and gallery_geometry["thumbnailHeight"] <= 65
+        and gallery_geometry["galleryHeight"] <= 152
+        and page.locator("#video-gallery .video-clips.strip").count() == 1
+        and page.locator("#video-gallery .video-clip.frame").count() == 2
+        and page.locator("#video-gallery .video-clip-remove").count() == 0,
         str(gallery_geometry),
+    )
+    gallery_actions = page.evaluate(
+        """() => ({
+          note: document.querySelector('#video-gallery-note')?.textContent,
+          downloadVisible: !document.querySelector('#video-gallery-download').hidden,
+          clearVisible: !document.querySelector('#video-gallery-clear').hidden,
+          videos: document.querySelectorAll('#video-gallery .video-clip').length,
+        })"""
+    )
+    check(
+        "video gallery shows its browser state and bulk actions",
+        gallery_actions
+        == {
+            "note": "2 videos in this tab. Download the ones you want to keep.",
+            "downloadVisible": True,
+            "clearVisible": True,
+            "videos": 2,
+        },
+        str(gallery_actions),
+    )
+    page.locator("#video-gallery .video-clip").nth(1).focus()
+    page.keyboard.press("ArrowLeft")
+    previous_clip = page.evaluate(
+        """() => ({
+          selected: document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId,
+          focused: document.activeElement?.dataset.clipId,
+          clips: [...document.querySelectorAll('#video-gallery .video-clip')].map(clip => clip.dataset.clipId),
+        })"""
+    )
+    page.keyboard.press("ArrowLeft")
+    first_clip_edge = page.evaluate(
+        """() => document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId"""
+    )
+    page.keyboard.press("ArrowRight")
+    next_clip = page.evaluate(
+        """() => ({
+          selected: document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId,
+          focused: document.activeElement?.dataset.clipId,
+        })"""
+    )
+    check(
+        "Video gallery arrows select adjacent clips and keep focus",
+        len(previous_clip["clips"]) == 2
+        and previous_clip["selected"] == previous_clip["clips"][0]
+        and previous_clip["focused"] == previous_clip["clips"][0]
+        and first_clip_edge == previous_clip["clips"][0]
+        and next_clip["selected"] == previous_clip["clips"][1]
+        and next_clip["focused"] == previous_clip["clips"][1],
+        json.dumps({"previous": previous_clip, "edge": first_clip_edge, "next": next_clip}),
     )
     check(
         "generated gallery thumbnail and output metadata appear with the clip",
@@ -1083,19 +1449,133 @@ with sync_playwright() as playwright:
         and generated_card.locator(".video-clip-thumb img").count() == 1
         and "96 \u00d7 64" in generated_details
         and "12 fps" in generated_details
-        and re.search(r"Frames\s+12", generated_details) is not None
+        and re.search(r"12 frames", generated_details) is not None
         and re.search(r"Seed\s+7", generated_details) is not None
-        and "2 images" in generated_details
-        and "Render time" in generated_details
+        and "2 image references" in generated_details
+        and "Took 01:23.2" in generated_details
         and "01:23.2" in generated_details
         and "An amber kite crosses a blue sky" in generated_details
-        and "start.png at frame 0" in generated_details
-        and "end.png at frame 11" in generated_details
-        and page.locator("#video-output-details .video-output-references").get_attribute("title")
-        == "start.png, frame 0, strength 0.40, end.png, frame 11, strength 0.60"
-        and page.locator("#video-timeline .source-track").count() == 0,
-        generated_details,
+        and "start.png" not in generated_details
+        and "end.png" not in generated_details
+        and "Generated" not in generated_details
+        and "LTX-2.5" not in (video_presentation.get("facts") or "")
+        and video_presentation.get("isMonitorFrame")
+        and video_presentation.get("detailsInStage")
+        and video_presentation.get("model") == "LTX-2.5"
+        and video_presentation.get("serial") == "02"
+        and video_presentation.get("referenceDetailCount") == 0
+        and video_presentation.get("directFrameAction") is False
+        and video_presentation.get("actionOrder")
+        == ["More actions", "Download video", "Remove video LTX-2.5 1s", "Full screen", "Add frame as keyframe"]
+        and video_presentation.get("hasActionDivider")
+        and video_presentation.get("directVideoFrameAction")
+        and page.locator("#video-output-details .video-output-actions a[download]").count() == 1
+        and page.locator("#video-output-details .video-output-actions a[download]").get_attribute("download")
+        == "LTX-2.5 1s.webm"
+        and page.locator("#video-output-details .video-output-actions [aria-label='More actions']").count() == 1
+        and page.get_by_role("button", name="Remove video LTX-2.5 1s").is_visible()
+        and page.get_by_role("button", name="Full screen").is_visible()
+        and page.locator("#video-gallery .video-gallery-head").count() == 1
+        and page.locator("#video-timeline").count() == 0,
+        generated_details
+        + "\n"
+        + json.dumps(video_presentation)
+        + "\n"
+        + json.dumps(
+            {
+                **output_actions,
+                "thumbnailReady": thumbnail_ready,
+                "thumbnailCount": generated_card.locator(".video-clip-thumb img").count(),
+            }
+        ),
     )
+    thumbnail_color = generated_card.locator(".video-clip-thumb img").evaluate(
+        """image => {
+          const canvas = document.createElement('canvas');
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          const context = canvas.getContext('2d');
+          context.drawImage(image, 0, 0);
+          const pixel = context.getImageData(
+            Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1
+          ).data;
+          return {red: pixel[0], blue: pixel[2]};
+        }"""
+    )
+    check(
+        "video gallery thumbnail shows a representative middle frame",
+        thumbnail_color["blue"] > thumbnail_color["red"] + 30,
+        str(thumbnail_color),
+    )
+    video_gallery_box = page.locator("#video-gallery").bounding_box()
+    switch_workspace(page, "image")
+    image_gallery_box = page.locator("#strip-wrap").bounding_box()
+    switch_workspace(page, "video")
+    check(
+        "video gallery matches the image gallery width and height",
+        video_gallery_box is not None
+        and image_gallery_box is not None
+        and abs(video_gallery_box["x"] - image_gallery_box["x"]) < 1
+        and abs(video_gallery_box["width"] - image_gallery_box["width"]) < 1
+        and abs(video_gallery_box["height"] - image_gallery_box["height"]) < 1,
+        f"Image: {image_gallery_box}, Video: {video_gallery_box}",
+    )
+    page.get_by_role("button", name="More actions").click()
+    check(
+        "video more actions match the image action menu",
+        page.get_by_role("menuitem", name="Reuse prompt").is_visible()
+        and page.get_by_role("menuitem", name="Reuse seed 7").is_visible()
+        and page.get_by_role("menuitem", name="Use current frame in Image").is_visible()
+        and page.get_by_role("menuitem", name="Add frame as keyframe").count() == 0
+        and page.get_by_role("menuitem", name="Remove video LTX-2.5 1s").count() == 0,
+        page.locator("#video-output-menu").inner_text(),
+    )
+    fullscreen_entered = False
+    page.get_by_role("button", name="Full screen").click()
+    fullscreen_exit = page.get_by_role("button", name="Exit full screen")
+    try:
+        fullscreen_exit.wait_for(state="visible", timeout=10000)
+        fullscreen_entered = page.evaluate(
+            """() => {
+              const studio = document.querySelector('#video-studio');
+              const bounds = studio.getBoundingClientRect();
+              return document.fullscreenElement === studio
+                && Math.abs(bounds.width - innerWidth) < 2
+                && Math.abs(bounds.height - innerHeight) < 2
+                && document.querySelector('#video-studio .video-editing-area').getClientRects().length === 0;
+            }"""
+        )
+        fullscreen_exit.click()
+        page.wait_for_function("() => !document.fullscreenElement", timeout=10000)
+    except PlaywrightTimeoutError:
+        pass
+    check(
+        "video full screen keeps metadata actions available and returns to the studio",
+        fullscreen_entered and page.get_by_role("button", name="Full screen").is_visible(),
+    )
+    page.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Reuse prompt").click()
+    check(
+        "video prompt can be reused from its selected output",
+        page.locator("#video-prompt").input_value() == "An amber kite crosses a blue sky",
+        page.locator("#video-prompt").input_value(),
+    )
+    page.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Reuse seed 7").click()
+    check(
+        "video seed can be reused from its selected output",
+        page.locator("#video-seed").input_value() == "7"
+        and page.locator("#video-advanced").evaluate("element => element.open"),
+        page.locator("#video-seed").input_value(),
+    )
+    page.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Use current frame in Image").click()
+    page.wait_for_function("() => document.querySelector('#media-image-mode').getAttribute('aria-pressed') === 'true'")
+    check(
+        "the more menu sends the current video frame to Image",
+        page.locator("#thumbs img[alt^='LTX-2.5 1s frame']").count() == 1,
+    )
+    switch_workspace(page, "video")
     progress_result = page.evaluate(
         """() => {
           const studio = document.getElementById('video-studio');
@@ -1111,21 +1591,31 @@ with sync_playwright() as playwright:
           const previewStatus = document.querySelector('#video-preview-root #video-render-status');
           const previewProgress = document.querySelector('#video-preview-root #video-render-progress');
           const preview = document.querySelector('#video-preview');
-          const timeline = document.querySelector('#video-timeline .render-track');
           const pendingTile = document.querySelector('#video-gallery .video-gallery-pending');
           const previewStatusStyle = previewStatus && getComputedStyle(previewStatus);
+          const noise = previewStatus && getComputedStyle(previewStatus, '::after');
           const stage = document.querySelector('#video-preview-root');
           const statusBox = previewStatus && previewStatus.getBoundingClientRect();
           const stageBox = stage && stage.getBoundingClientRect();
+          const headline = previewStatus?.querySelector('.video-render-content strong')?.textContent;
+          const elapsed = document.querySelector('#video-preview-content-root .video-tv-elapsed')?.textContent;
           const result = {
             supported: true,
             preparingText,
             preparingIndeterminate,
             preparingHasNoPercent,
             previewStatus: previewStatus && previewStatus.innerText,
-            previewModel: previewStatus && previewStatus.querySelector('.video-render-brand').innerText,
+            headline,
+            previewModel: document.querySelector('#video-preview-content-root .video-tv-model')?.textContent,
+            previewSerial: document.querySelector('#video-preview-content-root .video-tv-serial')?.textContent,
+            elapsed,
+            noise: noise?.backgroundImage,
             previewPercent: previewProgress && previewProgress.getAttribute('aria-valuenow'),
+            progressName: previewProgress && previewProgress.getAttribute('aria-label'),
+            progressText: previewProgress && previewProgress.getAttribute('aria-valuetext'),
             hasPlaybackIcon: Boolean(previewStatus && previewStatus.querySelector('.video-render-mark')),
+            hasPhaseLabels: Boolean(previewStatus && previewStatus.querySelector('.video-render-stages')),
+            hasBrandLabel: Boolean(previewStatus && previewStatus.querySelector('.video-render-brand')),
             pendingTile: Boolean(pendingTile && pendingTile.innerText.includes('Rendering')),
             pendingGalleryCount: document.querySelectorAll('#video-gallery .video-gallery-pending').length,
             previewReplaced: !preview,
@@ -1134,7 +1624,6 @@ with sync_playwright() as playwright:
               && statusBox.left >= stageBox.left && statusBox.right <= stageBox.right
               && statusBox.top >= stageBox.top && statusBox.bottom <= stageBox.bottom),
             thumbnailRatio: statusBox && statusBox.width / statusBox.height,
-            timelineHasRenderTrack: Boolean(timeline),
           };
           studio.setGenerationProgress(null);
           result.previewStatusCleared = !document.querySelector('#video-preview-root #video-render-status');
@@ -1144,31 +1633,35 @@ with sync_playwright() as playwright:
         }"""
     )
     check(
-        "video model loading uses indeterminate progress",
-        (progress_result.get("preparingText") or "").startswith("Loading LTX-2.5")
+        "video loading uses one clear status and an elapsed timer",
+        progress_result.get("preparingText") == "00:05.2 elapsed"
         and progress_result.get("preparingIndeterminate")
         and progress_result.get("preparingHasNoPercent"),
         str(progress_result),
     )
     check(
-        "video preview displays named stage progress without playback controls",
+        "video preview uses a quiet status, grain texture, and player-edge timer",
         progress_result.get("supported")
-        and (progress_result.get("preparingText") or "").startswith("Loading LTX-2.5")
+        and progress_result.get("headline") == "Generating video"
+        and progress_result.get("elapsed") == "00:06.4 elapsed"
         and "LTX-2.5" in progress_result.get("previewModel", "")
-        and "Upscaling and refining" in progress_result.get("previewStatus", "")
+        and progress_result.get("previewSerial") == "03"
+        and "Loading LTX-2.5" not in progress_result.get("previewStatus", "")
+        and "Upscaling" not in progress_result.get("previewStatus", "")
+        and "Stage" not in progress_result.get("previewStatus", "")
         and "Pass" not in progress_result.get("previewStatus", "")
-        and progress_result.get("previewPercent") == "50"
+        and progress_result.get("previewPercent") is None
+        and progress_result.get("progressName") == "Generating video"
+        and progress_result.get("progressText") == "00:06.4 elapsed"
+        and "svg" in progress_result.get("noise", "")
+        and not progress_result.get("hasPhaseLabels")
+        and not progress_result.get("hasBrandLabel")
         and not progress_result.get("hasPlaybackIcon")
         and progress_result.get("pendingTile")
         and progress_result.get("pendingGalleryCount") == 1
         and progress_result.get("previewReplaced")
         and progress_result.get("statusIsThumbnail")
         and abs(progress_result.get("thumbnailRatio", 0) - 0.8) < 0.02,
-        str(progress_result),
-    )
-    check(
-        "video timeline has no duplicate render progress track",
-        not progress_result.get("timelineHasRenderTrack"),
         str(progress_result),
     )
     check(
@@ -1255,20 +1748,36 @@ with sync_playwright() as playwright:
         video_saved
         and restored_count == 1
         and "An amber kite crosses a blue sky" in restored_details
-        and "Render time" in restored_details
+        and "Took 01:23.2" in restored_details
         and "01:23.2" in restored_details
         and restored_thumbnail
         and restored_video,
         f"saved: {video_saved}, restored clips: {restored_count}, details: {restored_details}",
     )
-    page.get_by_role("button", name="Remove video LTX-2.5 1s").click()
+    check(
+        "saved video gallery matches the image gallery count and actions",
+        page.locator("#video-gallery-note").inner_text() == "1 video, kept in this browser."
+        and page.get_by_role("button", name="Download all").is_visible()
+        and page.get_by_role("button", name="Clear all").is_visible(),
+        page.locator("#video-gallery-note").inner_text(),
+    )
+    download_start = len(downloads)
+    page.get_by_role("button", name="Download all").click()
+    page.wait_for_timeout(1000)
+    video_downloads = downloads[download_start:]
+    check(
+        "Download all saves each video and its useful metadata",
+        "LTX-2.5 1s.webm" in video_downloads and "studio-video-metadata.json" in video_downloads,
+        str(video_downloads),
+    )
+    page.get_by_role("button", name="Clear all").click()
     page.wait_for_function("() => document.querySelector('#video-gallery .video-clip') === null", timeout=10000)
     page.reload()
     switch_workspace(page, "video")
     page.wait_for_function("() => document.querySelector('#video-gallery .video-clip') === null", timeout=10000)
     check(
-        "removing a video also removes its saved copy",
-        page.locator("#video-gallery .video-clip").count() == 0,
+        "Clear all removes every generated video and its saved copy",
+        page.locator("#video-gallery .video-clip").count() == 0 and page.locator("#video-gallery").is_hidden(),
     )
     switch_workspace(page, "image")
     check(

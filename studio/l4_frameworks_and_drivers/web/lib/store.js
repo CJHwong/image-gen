@@ -170,6 +170,15 @@ function removeVideo(id) {
   });
 }
 
+function clearVideos() {
+  return inVideoStore('readwrite', function (clips) { return clips.clear(); }).then(function () {
+    return true;
+  }).catch(function (error) {
+    page.notify('error', 'The saved videos were not removed: ' + error.message);
+    return false;
+  });
+}
+
 // Delete from the store, then tell the other tabs. The work is the caller's,
 // because what goes is the caller's to name. With keeping off there is nothing
 // stored, and each tab's strip is its own.
@@ -230,6 +239,7 @@ const handle = {
   load: load,
   loadVideos: loadVideos,
   removeVideo: removeVideo,
+  clearVideos: clearVideos,
   announce: announce,
   blobOf: blobOf,
   fields: function () { return KEPT_FIELDS; },
