@@ -518,9 +518,21 @@
   .video-render-content > strong { font-size: 21px; font-weight: 550; letter-spacing: -.02em; }
   .video-render-progress { position: relative; width: min(100%, 320px); height: 5px; overflow: hidden; border-radius: 4px;
     background: rgba(255, 255, 255, .18); }
-  .video-render-progress.is-indeterminate::after { position: absolute; top: 0; bottom: 0; left: 0; width: 32%;
-    border-radius: inherit; background: var(--accent-fill); content: ""; animation: video-render-sweep 1.3s ease-in-out infinite; }
+  /* The sweep is drawn inside the render panel, and that panel is the same near
+     black in every theme: it is a screen, not chrome. `--accent-fill` is chosen
+     against chrome, where it is dark on a light surface, so on leica and
+     polaroid it painted #1b1a18 and #111111 onto a dark screen and the run looked
+     like it had no progress at all. `--marker` is the ink this design already
+     draws on film, and the same ink as the busy dot in the status bar, so it
+     reads on the screen in every theme. The bar is the same ink filled to the
+     share the engine reports, and the sweep is what it does until a step lands. */
+  .video-render-progress::after { position: absolute; top: 0; bottom: 0; left: 0; width: var(--rendered, 0%);
+    border-radius: inherit; background: var(--marker); content: ""; transition: width .3s linear; }
+  .video-render-progress.is-indeterminate::after { width: 32%; transition: none;
+    animation: video-render-sweep 1.3s ease-in-out infinite; }
   @keyframes video-render-sweep { from { transform: translateX(-110%); } to { transform: translateX(320%); } }
+  .video-render-percent { color: #b7aaa0; font: 12px/1 var(--mono); letter-spacing: .14em;
+    font-variant-numeric: tabular-nums; }
   .video-preview-pane { display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 8px; width: 100%; height: 100%; min-height: 0; }
   .video-preview-pane video { display: block; max-width: 100%; max-height: 100%; background: #0b0b0b;
@@ -536,7 +548,13 @@
     color: #f1ece7; text-align: center; }
   .video-preview-stub > span:not(.video-source-label) { color: #b7aaa0; font-size: 12px; }
   #video-output-details-root { min-width: 0; margin: 0 -18px -18px; }
-  .video-stage-bar { min-height: 82px; padding: 0 28px 18px; border: 0; background: transparent; gap: 24px; }
+  /* The caption sits under the picture, so it needs the same air above it that
+     the picture has around it. The image stage gets that air from the canvas
+     padding, but this bar cancels the preview area's padding on three sides to
+     reach the edges, and the top is the side it does not cancel. So the bar
+     carries its own top space, and its min-height grows with it rather than
+     squeezing the caption back into the picture. */
+  .video-stage-bar { min-height: 92px; padding: 10px 28px 18px; border: 0; background: transparent; gap: 24px; }
   .video-output-prompt { width: 100%; max-width: 100%; padding: 0; border: 0; background: transparent;
     text-align: left; }
   .video-output-facts { gap: 2px 14px; }
@@ -565,8 +583,15 @@
     border-radius: 3px; background: rgba(0, 0, 0, .76); color: #fff; font: 10px var(--mono); }
   .video-clip .no { color: #6e6e6e; }
   .video-clip.selected .no { color: #d4d4d4; }
-  .video-gallery-pending .pending-thumb { display: grid; align-content: center; gap: 7px;
-    border: 1px dashed var(--line-strong); color: var(--text-2); }
+  /* The tile carries `frame pending` so it inherits the film noise a run in
+     flight gets on the strip. That inheritance also brings `.frame.pending
+     .still { display: block }`, which outranks a two-class selector and left the
+     tile a block box: the label ran from the left edge, and the spinner stayed
+     `display: inline`, where width and height do nothing and the ring collapsed
+     to its borders. Four classes beat that rule, so the tile is a grid again and
+     the ring is blockified into its 16px box. */
+  .video-gallery-item.video-gallery-pending.frame.pending .still { display: grid; align-content: center;
+    justify-items: center; gap: 7px; border: 1px dashed var(--line-strong); color: var(--text-2); }
   .video-pending-indicator { width: 16px; height: 16px; border: 2px solid var(--line-strong); border-top-color: var(--accent-fill);
     border-radius: 50%; animation: video-pending-spin .9s linear infinite; }
   .video-clip-state { padding: 0 4px; color: var(--text-3); font-size: 9px; }

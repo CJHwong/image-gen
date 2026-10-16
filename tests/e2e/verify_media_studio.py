@@ -776,7 +776,7 @@ with sync_playwright() as playwright:
         ),
         f"restored {resume_time:.2f}s",
     )
-    capture_button = page.get_by_role("button", name="Add frame as keyframe")
+    capture_button = page.get_by_role("button", name="Add this frame as an image reference")
     expected_capture = page.evaluate(
         """async () => {
           const studio = document.getElementById('video-studio');
@@ -983,7 +983,7 @@ with sync_playwright() as playwright:
     check(
         "video shows one status and a visible lock while cancel waits for the server",
         starting_locked["disabled"]
-        and starting_locked["label"] == "Cancel render"
+        and starting_locked["label"] == "Cancel"
         and starting_locked["panelHeld"]
         and starting_locked["durationPointerLocked"]
         and float(starting_locked["controlsOpacity"]) < 1
@@ -1001,11 +1001,11 @@ with sync_playwright() as playwright:
     )
     check(
         "another tab cannot unlock this request's cancel button",
-        foreign_run_state["disabled"] and foreign_run_state["label"] == "Cancel render",
+        foreign_run_state["disabled"] and foreign_run_state["label"] == "Cancel",
         str(foreign_run_state),
     )
     page.evaluate("() => { window.__studioForeignRequestId = null; }")
-    page.get_by_role("button", name="Cancel render").wait_for(state="visible", timeout=10000)
+    page.get_by_role("button", name="Cancel", exact=True).wait_for(state="visible", timeout=10000)
     page.wait_for_function(
         "() => !document.querySelector('#video-generate').disabled",
         timeout=10000,
@@ -1064,7 +1064,7 @@ with sync_playwright() as playwright:
         and page.locator("#video-source-panel").get_by_text("late-shortcut.png").count() == 0,
         f"references: {page.locator('#video-source-panel .video-reference').count()}",
     )
-    page.get_by_role("button", name="Cancel render").click()
+    page.get_by_role("button", name="Cancel", exact=True).click()
     check(
         "video cancellation carries this render's request id",
         page.evaluate("() => window.__studioCancelRequestId === window.__studioRequestId"),
@@ -1466,7 +1466,13 @@ with sync_playwright() as playwright:
         and video_presentation.get("referenceDetailCount") == 0
         and video_presentation.get("directFrameAction") is False
         and video_presentation.get("actionOrder")
-        == ["More actions", "Download video", "Remove video LTX-2.5 1s", "Full screen", "Add frame as keyframe"]
+        == [
+            "Add this frame as an image reference",
+            "More actions",
+            "Download video",
+            "Remove video LTX-2.5 1s",
+            "Full screen",
+        ]
         and video_presentation.get("hasActionDivider")
         and video_presentation.get("directVideoFrameAction")
         and page.locator("#video-output-details .video-output-actions a[download]").count() == 1
@@ -1526,7 +1532,7 @@ with sync_playwright() as playwright:
         page.get_by_role("menuitem", name="Reuse prompt").is_visible()
         and page.get_by_role("menuitem", name="Reuse seed 7").is_visible()
         and page.get_by_role("menuitem", name="Use current frame in Image").is_visible()
-        and page.get_by_role("menuitem", name="Add frame as keyframe").count() == 0
+        and page.get_by_role("menuitem", name="Add this frame as an image reference").count() == 0
         and page.get_by_role("menuitem", name="Remove video LTX-2.5 1s").count() == 0,
         page.locator("#video-output-menu").inner_text(),
     )
@@ -1611,6 +1617,9 @@ with sync_playwright() as playwright:
             elapsed,
             noise: noise?.backgroundImage,
             previewPercent: previewProgress && previewProgress.getAttribute('aria-valuenow'),
+            previewIndeterminate: Boolean(previewProgress && previewProgress.classList.contains('is-indeterminate')),
+            previewFill: previewProgress && previewProgress.style.getPropertyValue('--rendered'),
+            previewPercentLabel: previewStatus?.querySelector('.video-render-percent')?.textContent,
             progressName: previewProgress && previewProgress.getAttribute('aria-label'),
             progressText: previewProgress && previewProgress.getAttribute('aria-valuetext'),
             hasPlaybackIcon: Boolean(previewStatus && previewStatus.querySelector('.video-render-mark')),
@@ -1650,9 +1659,12 @@ with sync_playwright() as playwright:
         and "Upscaling" not in progress_result.get("previewStatus", "")
         and "Stage" not in progress_result.get("previewStatus", "")
         and "Pass" not in progress_result.get("previewStatus", "")
-        and progress_result.get("previewPercent") is None
+        and progress_result.get("previewPercent") == "50"
+        and not progress_result.get("previewIndeterminate")
+        and progress_result.get("previewFill") == "50%"
+        and progress_result.get("previewPercentLabel") == "50%"
         and progress_result.get("progressName") == "Generating video"
-        and progress_result.get("progressText") == "00:06.4 elapsed"
+        and progress_result.get("progressText") == "50%, 00:06.4 elapsed"
         and "svg" in progress_result.get("noise", "")
         and not progress_result.get("hasPhaseLabels")
         and not progress_result.get("hasBrandLabel")

@@ -95,7 +95,14 @@ def test_runner_wraps_the_distilled_sampler_when_progress_is_requested(tmp_path,
     assert command[1].endswith("ltx25_progress.py")
     assert command[2:4] == ["--transformer-path", str(model_dir / FILES[0])]
     assert "samplers.tqdm = report_steps" in wrapper
-    assert 'phase_state["number"] += 1' in wrapper
+    # The wrapper reports the whole render as one count, so the page has one
+    # percentage to show. It reads both schedules from the pipeline, and the
+    # total is their sum, which is only true while each stage samples once.
+    assert "from ltx_pipelines.utils.constants import DISTILLED_SIGMA_VALUES" in wrapper
+    assert "stage_steps = (len(DISTILLED_SIGMA_VALUES) - 1" in wrapper
+    assert "total_steps = sum(stage_steps)" in wrapper
+    assert "done_before = sum(stage_steps[:stage])" in wrapper
+    assert 'f"STUDIO_STEP 1 {done_before + step} {total_steps}"' in wrapper
     assert received_callback is callback
     assert reports == []
     assert result.mp4 == b"mp4 with progress"
