@@ -1,4 +1,4 @@
-import { LitElement, html, render as renderTemplate } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import { LitElement, html, nothing, render as renderTemplate } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 
 let nextClipId = 1;
 
@@ -237,6 +237,7 @@ class VideoStudio extends LitElement {
         elapsedSeconds: elapsedSeconds,
       };
     }
+    this.renderPreviewStatus();
     this.renderTimelineView(this.selectedClip());
   }
 
@@ -777,15 +778,7 @@ class VideoStudio extends LitElement {
     const quarter = duration / 4;
     const frameSpan = Math.max(1, (this.frameLimit || 1) - 1);
     const progress = this.generationProgress;
-    const progressPercent = progress && progress.total > 0
-      ? Math.round(Math.min(1, progress.step / progress.total) * 100) : 0;
-    const passLabel = progress && progress.phase > 0 ? 'Pass ' + progress.phase + ', ' : '';
-    const progressLabel = progress && progress.stage === 'preparing'
-      ? 'Loading model'
-      : progress && progress.step > 0
-        ? passLabel + 'step ' + progress.step + ' of ' + progress.total
-        : 'Preparing video';
-    const progressText = progressLabel + ', ' + formatTime(progress ? progress.elapsedSeconds : 0) + ' elapsed';
+    const progressDetails = progress ? this.generationProgressDetails(progress) : null;
     return html`
       <section class="video-timeline" id="video-timeline" aria-label="Video timeline">
         <header class="timeline-head">
@@ -811,16 +804,14 @@ class VideoStudio extends LitElement {
           </div>
         </div>
         ${progress ? html`
-          <div class="timeline-track render-track">
+          <div class="timeline-track render-track" aria-hidden="true">
             <span class="track-label">Render</span>
             <div class="timeline-rail render-rail">
-              <div class="render-progress" role="progressbar" aria-label="Video generation progress"
-                aria-valuemin="0" aria-valuemax="100" aria-valuenow=${progressPercent}
-                aria-valuetext=${progressText}>
-                <span class="render-progress-fill" style=${'width: ' + progressPercent + '%'}></span>
+              <div class="render-progress${progressDetails.percent === null ? ' render-progress-indeterminate' : ''}">
+                <span class="render-progress-fill" style=${'width: ' + (progressDetails.percent || 0) + '%'}></span>
               </div>
-              <span class="render-progress-copy">${progressText}</span>
-              <span class="render-progress-percent">${progressPercent}%</span>
+              <span class="render-progress-percent">${progressDetails.percent === null
+                ? 'Loading' : progressDetails.percent + '%'}</span>
             </div>
           </div>` : ''}
         <header class="keyframes-head">
@@ -856,10 +847,57 @@ class VideoStudio extends LitElement {
 
   renderSelectedClip() {
     const clip = this.selectedClip();
-    const preview = this.querySelector('#video-preview-root');
+    const preview = this.querySelector('#video-preview-content-root');
     if (preview) renderTemplate(this.renderClip(clip), preview);
+    this.renderPreviewStatus();
     this.renderTimelineView(clip);
     this.renderVideoGallery();
+  }
+
+  generationProgressDetails(progress) {
+    let label = 'Preparing video';
+    if (progress.stage === 'preparing') {
+      label = 'Loading model';
+    } else if (progress.step > 0 && progress.total > 0) {
+      const pass = progress.phase > 0 ? 'Pass ' + progress.phase + ', ' : '';
+      label = pass + 'step ' + progress.step + ' of ' + progress.total;
+    }
+    const percent = progress.total > 0
+      ? Math.round(Math.min(1, progress.step / progress.total) * 100)
+      : null;
+    const elapsed = formatTime(progress.elapsedSeconds);
+    return {label: label, percent: percent, elapsed: elapsed, text: label + ', ' + elapsed + ' elapsed'};
+  }
+
+  renderPreviewStatus() {
+    const status = this.querySelector('#video-render-status-root');
+    if (!status) return;
+    const progress = this.generationProgress;
+    if (!progress) {
+      renderTemplate('', status);
+      return;
+    }
+    const details = this.generationProgressDetails(progress);
+    const width = details.percent === null ? 0 : details.percent;
+    renderTemplate(html`
+      <section id="video-render-status" class="video-render-status" role="status"
+        aria-label="Video render status" aria-atomic="true">
+        <span class="eyebrow">VIDEO RENDER</span>
+        <strong>Rendering new clip</strong>
+        <span class="video-render-phase">${details.label}</span>
+        <div id="video-render-progress" class="video-render-progress${details.percent === null
+          ? ' is-indeterminate' : ''}" role="progressbar" aria-label="Video render progress"
+          aria-valuemin="0" aria-valuemax="100"
+          aria-valuenow=${details.percent === null ? nothing : String(details.percent)}
+          aria-valuetext=${details.text}>
+          <span class="video-render-progress-fill" style=${'width: ' + width + '%'}></span>
+        </div>
+        <div class="video-render-details">
+          <span>${details.elapsed} elapsed</span>
+          <span>${details.percent === null ? 'Sampling progress appears here' : details.percent + '% complete'}</span>
+        </div>
+      </section>
+    `, status);
   }
 
   renderTimelineView(clip) {
@@ -949,7 +987,10 @@ class VideoStudio extends LitElement {
   render() {
     return html`
       <div class="video-studio-shell">
-        <div class="video-preview-area" id="video-preview-root"></div>
+        <div class="video-preview-area" id="video-preview-root">
+          <div id="video-preview-content-root"></div>
+          <div id="video-render-status-root"></div>
+        </div>
         <div class="video-editing-area">
           <div id="video-timeline-root"></div>
           <div id="video-error-root"></div>

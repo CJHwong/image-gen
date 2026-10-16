@@ -720,31 +720,93 @@ with sync_playwright() as playwright:
           const studio = document.getElementById('video-studio');
           if (typeof studio.setGenerationProgress !== 'function') return {supported: false};
           studio.setGenerationProgress({running: true, stage: 'preparing', step: 0, total: 0}, 5.2);
-          const preparing = document.querySelector('#video-timeline .render-progress');
+          const preparing = document.querySelector('#video-preview-root #video-render-progress');
           const preparingText = preparing && preparing.getAttribute('aria-valuetext');
+          const preparingIndeterminate = Boolean(preparing && preparing.classList.contains('is-indeterminate'));
+          const preparingHasNoPercent = Boolean(preparing && !preparing.hasAttribute('aria-valuenow'));
           studio.setGenerationProgress({running: true, stage: 'running', step: 4, total: 8, phase: 2}, 6.4);
           const active = document.querySelector('#video-timeline .render-progress');
+          const previewStatus = document.querySelector('#video-preview-root #video-render-status');
+          const previewProgress = document.querySelector('#video-preview-root #video-render-progress');
+          const preview = document.querySelector('#video-preview');
+          const timeline = document.querySelector('#video-timeline .render-track');
           const result = {
             supported: true,
             preparingText,
-            stepText: active && active.getAttribute('aria-valuetext'),
-            percent: active && active.getAttribute('aria-valuenow'),
+            preparingIndeterminate,
+            preparingHasNoPercent,
             fill: active && active.querySelector('.render-progress-fill').style.width,
             trackLabel: document.querySelector('#video-timeline .render-track .track-label')?.textContent,
+            previewStatus: previewStatus && previewStatus.innerText,
+            previewPercent: previewProgress && previewProgress.getAttribute('aria-valuenow'),
+            previewVisible: Boolean(preview && !preview.hidden && preview.getAttribute('src')),
+            timelineText: timeline && timeline.innerText,
+            timelineHiddenFromAssistiveTech: timeline && timeline.getAttribute('aria-hidden'),
+          };
+          studio.setGenerationProgress(null);
+          result.previewStatusCleared = !document.querySelector('#video-preview-root #video-render-status');
+          result.previewStillVisible = Boolean(document.querySelector('#video-preview')
+            && !document.querySelector('#video-preview').hidden);
+          return result;
+        }"""
+    )
+    check(
+        "video model loading uses indeterminate progress",
+        (progress_result.get("preparingText") or "").startswith("Loading model")
+        and progress_result.get("preparingIndeterminate")
+        and progress_result.get("preparingHasNoPercent"),
+        str(progress_result),
+    )
+    check(
+        "video preview displays model and step progress",
+        progress_result.get("supported")
+        and (progress_result.get("preparingText") or "").startswith("Loading model")
+        and "Pass 2, step 4 of 8" in progress_result.get("previewStatus", "")
+        and progress_result.get("previewPercent") == "50"
+        and progress_result.get("previewVisible"),
+        str(progress_result),
+    )
+    check(
+        "video timeline keeps a compact secondary render indicator",
+        progress_result.get("trackLabel") == "Render"
+        and progress_result.get("fill") == "50%"
+        and "50%" in progress_result.get("timelineText", "")
+        and "elapsed" not in progress_result.get("timelineText", "").lower()
+        and progress_result.get("timelineHiddenFromAssistiveTech") == "true",
+        str(progress_result),
+    )
+    check(
+        "video preview status clears after render while the clip stays visible",
+        progress_result.get("previewStatusCleared") and progress_result.get("previewStillVisible"),
+        str(progress_result),
+    )
+    page.set_viewport_size({"width": 390, "height": 844})
+    mobile_status = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          studio.setGenerationProgress({running: true, stage: 'running', step: 4, total: 8, phase: 2}, 6.4);
+          const status = document.querySelector('#video-render-status');
+          const preview = document.querySelector('#video-preview-root');
+          const statusBox = status.getBoundingClientRect();
+          const previewBox = preview.getBoundingClientRect();
+          const result = {
+            visible: Boolean(status && statusBox.width > 0 && statusBox.height > 0),
+            insidePreview: statusBox.left >= previewBox.left
+              && statusBox.right <= previewBox.right
+              && statusBox.top >= previewBox.top
+              && statusBox.bottom <= previewBox.bottom,
+            width: statusBox.width,
+            previewWidth: previewBox.width,
           };
           studio.setGenerationProgress(null);
           return result;
         }"""
     )
+    page.set_viewport_size({"width": 1440, "height": 1000})
     check(
-        "video timeline displays model and step progress",
-        progress_result.get("supported")
-        and progress_result.get("preparingText", "").startswith("Loading model")
-        and "Pass 2, step 4 of 8" in progress_result.get("stepText", "")
-        and progress_result.get("percent") == "50"
-        and progress_result.get("fill") == "50%"
-        and progress_result.get("trackLabel") == "Render",
-        str(progress_result),
+        "video render status fits the preview on a phone viewport",
+        mobile_status.get("visible") and mobile_status.get("insidePreview"),
+        str(mobile_status),
     )
     try:
         page.wait_for_function(
