@@ -36,7 +36,7 @@ class FakeVideoBackend(FakeVideoBackendGateway):
         if self.failure is not None:
             raise self.failure
         if progress:
-            progress(4, 8)
+            progress(4, 8, 1)
         if self.result is not None:
             return self.result
         return VideoResult(b"fake mp4 bytes", job.width, job.height, job.num_frames, job.frame_rate, job.seed)
@@ -103,7 +103,7 @@ def test_the_video_progress_route_returns_json(served):
     status, content_type, body = call(served[1], "/video/progress")
 
     assert status == 200 and content_type == "application/json"
-    assert json.loads(body) == {"running": False, "stage": "", "step": 0, "total": 0, "kind": ""}
+    assert json.loads(body) == {"running": False, "stage": "", "step": 0, "total": 0, "phase": 0, "kind": ""}
 
 
 def test_a_get_to_an_unknown_path_is_a_plain_not_found(served):

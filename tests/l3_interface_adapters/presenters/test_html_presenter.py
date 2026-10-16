@@ -207,6 +207,21 @@ def test_progress_carries_numbers_and_the_next_poll():
     assert presenter().progress(RunProgress()).startswith("<div hx-get")
 
 
+def test_video_progress_includes_the_sampler_pass():
+    body = presenter().video_progress(
+        RunProgress(running=True, stage="running", step=2, total=3, kind="video", phase=2)
+    )
+
+    assert json.loads(body) == {
+        "running": True,
+        "stage": "running",
+        "step": 2,
+        "total": 3,
+        "phase": 2,
+        "kind": "video",
+    }
+
+
 def test_the_chain_remembers_that_each_image_is_edited_on_its_own():
     """The chain re-posts what it needs, and the meaning of several references is part of it:
     without this the second image of a one-each batch would compose them instead."""

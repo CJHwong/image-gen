@@ -19,9 +19,16 @@ def test_the_page_sees_the_run_start_before_its_first_step(progress):
 
 def test_a_step_keeps_the_label_of_the_image_it_belongs_to(progress):
     progress.begin("2 of 4")
-    progress.set_step(7, 25)
+    progress.set_step(7, 25, 2)
     state = progress.snapshot()
-    assert (state.running, state.stage, state.step, state.total, state.label) == (True, "running", 7, 25, "2 of 4")
+    assert (state.running, state.stage, state.step, state.total, state.label, state.phase) == (
+        True,
+        "running",
+        7,
+        25,
+        "2 of 4",
+        2,
+    )
 
 
 def test_finish_puts_the_state_back_to_idle(progress):

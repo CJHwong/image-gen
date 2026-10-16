@@ -174,6 +174,7 @@ class HtmlPresenter:
                 "stage": state.stage,
                 "step": state.step,
                 "total": state.total,
+                "phase": state.phase,
                 "kind": state.kind,
             }
         )

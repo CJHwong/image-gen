@@ -28,19 +28,23 @@ RUN_TIMEOUT_SECONDS = 3600
 PROGRESS_WRAPPER = """import sys
 import ltx_pipelines.utils.samplers as samplers
 
+phase_state = {"number": 0}
+
 def report_steps(iterable, *args, **kwargs):
+    phase_state["number"] += 1
+    phase = phase_state["number"]
     total = kwargs.get("total")
     if total is None:
         total = len(iterable)
     for step, value in enumerate(iterable, 1):
         yield value
-        print(f"STUDIO_STEP {step} {total}", file=sys.stderr, flush=True)
+        print(f"STUDIO_STEP {phase} {step} {total}", file=sys.stderr, flush=True)
 
 samplers.tqdm = report_steps
 from ltx_pipelines.distilled import main
 main()
 """
-PROGRESS_RECORD = re.compile(r"STUDIO_STEP (\d+) (\d+)")
+PROGRESS_RECORD = re.compile(r"STUDIO_STEP (\d+) (\d+) (\d+)")
 
 
 class Ltx25Runner:
@@ -60,7 +64,7 @@ class Ltx25Runner:
     def run(
         self,
         job: VideoJob,
-        progress: Callable[[int, int], None] | None = None,
+        progress: Callable[[int, int, int], None] | None = None,
     ) -> VideoResult:
         python = self._python()
         model_paths = self._model_paths()
@@ -161,7 +165,7 @@ class Ltx25Runner:
             command.extend(("--image", str(image_path), str(frame_index), str(strength)))
         return command
 
-    def _execute(self, command: list[str], progress: Callable[[int, int], None] | None = None) -> None:
+    def _execute(self, command: list[str], progress: Callable[[int, int, int], None] | None = None) -> None:
         try:
             if progress:
                 self._execute_with_progress(command, progress)
@@ -181,7 +185,7 @@ class Ltx25Runner:
             raise StudioError("The LTX-2.5 pipeline timed out after one hour.") from None
 
     @staticmethod
-    def _execute_with_progress(command: list[str], progress: Callable[[int, int], None]) -> None:
+    def _execute_with_progress(command: list[str], progress: Callable[[int, int, int], None]) -> None:
         with subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, bufsize=0) as process:
             stderr = cast(BinaryIO, process.stderr)
             started = time.monotonic()
@@ -210,14 +214,15 @@ class Ltx25Runner:
                 raise subprocess.CalledProcessError(return_code, command)
 
 
-def _report_progress_lines(pending: str, progress: Callable[[int, int], None]) -> str:
+def _report_progress_lines(pending: str, progress: Callable[[int, int, int], None]) -> str:
     lines = pending.split("\n")
     for line in lines[:-1]:
         _report_progress_line(line, progress)
     return lines[-1]
 
 
-def _report_progress_line(line: str, progress: Callable[[int, int], None]) -> None:
+def _report_progress_line(line: str, progress: Callable[[int, int, int], None]) -> None:
     match = PROGRESS_RECORD.fullmatch(line.strip())
     if match:
-        progress(int(match.group(1)), int(match.group(2)))
+        phase, step, total = (int(value) for value in match.groups())
+        progress(step, total, phase)

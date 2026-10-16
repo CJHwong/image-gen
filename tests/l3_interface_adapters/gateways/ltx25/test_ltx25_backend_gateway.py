@@ -13,22 +13,22 @@ def test_ltx25_gateway_passes_the_job_to_the_pipeline_runner():
             self.job = job
             self.progress = progress
             if progress:
-                progress(2, 4)
+                progress(2, 4, 2)
             return expected
 
     runner = FakeRunner()
     job = VideoJob("moving clouds", 960, 544, 145, 24, 7)
     reports = []
 
-    def progress(step, total):
-        reports.append((step, total))
+    def progress(step, total, phase):
+        reports.append((step, total, phase))
 
     gateway = Ltx25BackendGateway(runner)
     result = gateway.run(job, progress)
 
     assert runner.job == job
     assert runner.progress is progress
-    assert reports == [(2, 4)]
+    assert reports == [(2, 4, 2)]
     assert result is expected
     assert gateway.capabilities().backend_id == "ltx25"
     gateway.release()

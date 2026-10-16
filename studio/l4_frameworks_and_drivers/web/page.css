@@ -469,8 +469,40 @@
   .video-studio-shell { display: grid; grid-template-rows: minmax(0, 1fr) auto; width: 100%; height: 100%;
     min-height: 0; overflow: hidden; background: var(--chrome); color: var(--text); }
   .eyebrow { color: var(--text-3); font: 10px/1 var(--mono); letter-spacing: .1em; }
-  .video-preview-area { display: grid; place-items: center; min-height: 0; padding: 18px;
+  .video-preview-area { position: relative; display: grid; place-items: center; min-height: 0; padding: 18px;
     background: radial-gradient(ellipse 70% 90% at 50% 45%, #49423c, #211e1b 75%); }
+  #video-preview-content-root { grid-area: 1 / 1; display: grid; place-items: center; width: 100%; height: 100%;
+    min-width: 0; min-height: 0; }
+  .video-render-placeholder { position: relative; display: grid; grid-template-rows: auto 1fr auto;
+    align-self: center; justify-self: center; align-items: center; width: min(100%, 1200px);
+    height: auto; max-height: 100%; aspect-ratio: var(--video-render-ratio);
+    padding: 24px; overflow: hidden; border: 8px solid #181615; border-radius: 3px;
+    background: radial-gradient(ellipse at center, #554b43 0, #39332e 54%, #272321 100%);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, .42); color: #f4eee8; text-align: center; }
+  .video-render-placeholder::before { position: absolute; inset: 12px; border: 1px solid rgba(244, 238, 232, .16);
+    background: repeating-linear-gradient(0deg, transparent 0 24px, rgba(255, 255, 255, .018) 25px 26px);
+    content: ""; pointer-events: none; }
+  .video-render-brand, .video-render-content, .video-render-details { position: relative; z-index: 1; }
+  .video-render-brand { display: flex; justify-content: space-between; gap: 12px; color: #c9bdb3;
+    font: 10px/1 var(--mono); letter-spacing: .12em; }
+  .video-render-content { display: grid; justify-items: center; gap: 10px; width: min(100%, 380px); margin: auto; }
+  .video-render-content > strong { font-size: 18px; font-weight: 600; }
+  .video-render-phase { color: #ddd4cd; font-size: 12px; }
+  .video-render-mark { position: relative; display: block; width: 54px; height: 42px; margin-bottom: 2px;
+    border: 1px solid rgba(244, 238, 232, .5); border-radius: 5px; background: rgba(0, 0, 0, .12); }
+  .video-render-mark::before { position: absolute; top: 12px; left: 22px; width: 0; height: 0;
+    border-top: 8px solid transparent; border-bottom: 8px solid transparent;
+    border-left: 11px solid rgba(244, 238, 232, .76); content: ""; }
+  .video-render-progress { position: relative; width: 100%; height: 5px; overflow: hidden; border-radius: 4px;
+    background: rgba(255, 255, 255, .18); }
+  .video-render-progress::before { display: block; width: var(--video-render-progress, 0%); height: 100%;
+    border-radius: inherit; background: var(--accent-fill); content: ""; transition: width .2s ease; }
+  .video-render-progress.is-indeterminate::before { display: none; }
+  .video-render-progress.is-indeterminate::after { position: absolute; top: 0; bottom: 0; left: 0; width: 32%;
+    border-radius: inherit; background: var(--accent-fill); content: ""; animation: video-render-sweep 1.3s ease-in-out infinite; }
+  .video-render-details { display: flex; justify-content: space-between; gap: 12px; color: #bdb1a8;
+    font: 10px var(--mono); font-variant-numeric: tabular-nums; }
+  @keyframes video-render-sweep { from { transform: translateX(-110%); } to { transform: translateX(320%); } }
   .video-preview-pane { display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 8px; width: 100%; height: 100%; min-height: 0; }
   .video-preview-pane video { display: block; max-width: 100%; max-height: 100%; background: #0b0b0b;
@@ -511,15 +543,6 @@
     font-size: 11px; overflow: hidden; }
   .timeline-clip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .timeline-clip-empty { border-style: dashed; border-color: var(--line-strong); background: transparent; color: var(--text-3); }
-  .render-track { min-height: 44px; margin-top: 8px; }
-  .render-rail { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: center;
-    align-items: center; gap: 4px 10px; height: auto; min-height: 40px; padding: 5px 8px; }
-  .render-progress { grid-column: 1; position: relative; height: 5px; overflow: hidden;
-    border-radius: 3px; background: var(--chrome-3); }
-  .render-progress-fill { display: block; height: 100%; border-radius: inherit; background: var(--accent-fill);
-    transition: width .2s ease; }
-  .render-progress-copy { grid-column: 1; color: var(--text-2); font: 9px var(--mono); }
-  .render-progress-percent { grid-column: 2; grid-row: 1 / span 2; color: var(--text-2); font: 10px var(--mono); }
   .timeline-rail input[type=range] { position: absolute; z-index: 2; inset: 0; width: 100%;
     height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
   .timeline-track input[type=range]:focus-visible { opacity: .08; outline: 1px solid var(--accent-fill); }
@@ -537,7 +560,6 @@
   .keyframe-marker img { display: block; width: 100%; height: 100%; border-radius: 2px; object-fit: cover; }
   .keyframe-marker span { position: absolute; right: 2px; bottom: 2px; padding: 1px 3px;
     border-radius: 2px; background: rgba(0, 0, 0, .72); color: #fff; font: 8px var(--mono); }
-  .keyframe-empty { display: flex; align-items: center; height: 100%; color: var(--text-3); font-size: 10px; }
   .video-gallery { min-width: 0; overflow: hidden; }
   .video-reference-head, .video-gallery-head { min-height: 22px; color: var(--text-2); font-size: 11px; }
   .video-reference-head > div { display: flex; gap: 8px; align-items: baseline; }
@@ -867,6 +889,7 @@
     .work { grid-template-rows: auto 62vh auto; }
     #video-studio { grid-row: 2 / span 2; min-height: 720px; }
     .video-studio-shell { min-height: 720px; }
+    .video-render-placeholder { padding: 16px; border-width: 6px; }
     .video-editing-area { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; overflow-y: auto; }
     .video-timeline { grid-column: 1; grid-row: 1; }
     .video-gallery { grid-column: 1; grid-row: 2; border-left: 0; border-top: 1px solid var(--line); padding: 8px 0 0; }

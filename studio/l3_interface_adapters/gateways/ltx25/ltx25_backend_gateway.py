@@ -12,7 +12,7 @@ class Ltx25BackendGateway(VideoBackendGateway):
     def capabilities(self):
         return ltx25_capabilities()
 
-    def run(self, job: VideoJob, progress: Callable[[int, int], None] | None = None) -> VideoResult:
+    def run(self, job: VideoJob, progress: Callable[[int, int, int], None] | None = None) -> VideoResult:
         return self._runner.run(job, progress)
 
     def release(self) -> None:

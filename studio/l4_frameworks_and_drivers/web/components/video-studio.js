@@ -1,4 +1,4 @@
-import { LitElement, html, render as renderTemplate } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import { LitElement, html, nothing, render as renderTemplate } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 
 let nextClipId = 1;
 
@@ -100,6 +100,7 @@ class VideoStudio extends LitElement {
   galleryStore = null;
   keepEnabled = true;
   generationProgress = null;
+  previewResume = null;
   sourcePanel = null;
   selectedReferenceId = null;
   selectedClipId = null;
@@ -111,6 +112,10 @@ class VideoStudio extends LitElement {
   currentTime = 0;
   duration = 0;
   frameLimit = null;
+  outputWidth = 16;
+  outputHeight = 9;
+  outputModelName = 'Video';
+  previewResizeObserver = null;
   error = '';
   handleSourceClick = (event) => this.onComponentClick(event);
   handleSourceChange = (event) => this.onComponentChange(event);
@@ -156,6 +161,7 @@ class VideoStudio extends LitElement {
       this.sourcePanel.removeEventListener('dragleave', this.handleSourceDragLeave);
       this.sourcePanel.removeEventListener('drop', this.handleSourceDrop);
     }
+    if (this.previewResizeObserver) this.previewResizeObserver.disconnect();
     super.disconnectedCallback();
     this.clips.forEach(releaseClipUrls);
   }
@@ -165,6 +171,11 @@ class VideoStudio extends LitElement {
     this.renderSourceVideos();
     this.renderSelectedClip();
     this.renderError();
+    const preview = this.querySelector('#video-preview-root');
+    if (preview) {
+      this.previewResizeObserver = new ResizeObserver(() => this.fitProgressPlaceholder());
+      this.previewResizeObserver.observe(preview);
+    }
   }
 
   async setGalleryStore(store, keeping) {
@@ -225,7 +236,16 @@ class VideoStudio extends LitElement {
     });
   }
 
-  setGenerationProgress(state, elapsedSeconds) {
+  setGenerationProgress(state, elapsedSeconds, outputShape) {
+    if (state?.running && !this.generationProgress) {
+      const video = this.querySelector('#video-preview');
+      if (video) this.previewResume = {clipId: this.selectedClipId, time: video.currentTime};
+    }
+    if (outputShape && outputShape.width > 0 && outputShape.height > 0) {
+      this.outputWidth = outputShape.width;
+      this.outputHeight = outputShape.height;
+      this.outputModelName = outputShape.modelName || this.outputModelName;
+    }
     if (!state) {
       this.generationProgress = null;
     } else if (state.running) {
@@ -233,10 +253,11 @@ class VideoStudio extends LitElement {
         stage: state.stage,
         step: state.step,
         total: state.total,
+        phase: state.phase,
         elapsedSeconds: elapsedSeconds,
       };
     }
-    this.renderTimelineView(this.selectedClip());
+    this.renderPreview();
   }
 
   addImageReference(reference) {
@@ -334,7 +355,7 @@ class VideoStudio extends LitElement {
     if (!this.imageReferences.length) {
       const empty = document.createElement('span');
       empty.className = 'video-ref-empty';
-      empty.textContent = 'Add an image or paste with ⌘V. Set the output frame for each image.';
+      empty.textContent = 'Add an image or paste with ⌘V. Each image guides its selected frame.';
       list.append(empty);
       return;
     }
@@ -513,6 +534,7 @@ class VideoStudio extends LitElement {
   addClip(clip) {
     this.clips = this.clips.concat(clip);
     this.selectedClipId = clip.id;
+    this.previewResume = null;
     this.currentTime = 0;
     this.duration = clip.duration || 0;
     this.error = '';
@@ -666,6 +688,7 @@ class VideoStudio extends LitElement {
 
   selectClip(id) {
     this.selectedClipId = id;
+    this.previewResume = null;
     this.currentTime = 0;
     const clip = this.selectedClip();
     this.duration = clip ? clip.duration || 0 : 0;
@@ -686,6 +709,7 @@ class VideoStudio extends LitElement {
     this.clips = this.clips.filter(function (clip) { return clip.id !== id; });
     if (this.selectedClipId === id) {
       this.selectedClipId = this.clips.length ? this.clips[0].id : null;
+      this.previewResume = null;
       this.currentTime = 0;
       const selected = this.selectedClip();
       this.duration = selected ? selected.duration || 0 : 0;
@@ -700,6 +724,10 @@ class VideoStudio extends LitElement {
     if (!clip) return;
     const video = event.target;
     clip.duration = Number.isFinite(video.duration) ? video.duration : 0;
+    if (this.previewResume?.clipId === clip.id) {
+      video.currentTime = Math.min(this.previewResume.time, clip.duration);
+      this.previewResume = null;
+    }
     this.duration = clip.duration;
     this.currentTime = video.currentTime || 0;
     this.renderTimelineView(clip);
@@ -775,15 +803,6 @@ class VideoStudio extends LitElement {
     const duration = clip ? this.duration || clip.duration || 1 : 0;
     const quarter = duration / 4;
     const frameSpan = Math.max(1, (this.frameLimit || 1) - 1);
-    const progress = this.generationProgress;
-    const progressPercent = progress && progress.total > 0
-      ? Math.round(Math.min(1, progress.step / progress.total) * 100) : 0;
-    const progressLabel = progress && progress.stage === 'preparing'
-      ? 'Loading model'
-      : progress && progress.step > 0
-        ? 'Step ' + progress.step + ' of ' + progress.total
-        : 'Preparing video';
-    const progressText = progressLabel + ', ' + formatTime(progress ? progress.elapsedSeconds : 0) + ' elapsed';
     return html`
       <section class="video-timeline" id="video-timeline" aria-label="Video timeline">
         <header class="timeline-head">
@@ -808,56 +827,104 @@ class VideoStudio extends LitElement {
               .value=${String(Math.min(this.currentTime, duration))} aria-label="Timeline playhead">` : ''}
           </div>
         </div>
-        ${progress ? html`
-          <div class="timeline-track render-track">
-            <span class="track-label">Render</span>
-            <div class="timeline-rail render-rail">
-              <div class="render-progress" role="progressbar" aria-label="Video generation progress"
-                aria-valuemin="0" aria-valuemax="100" aria-valuenow=${progressPercent}
-                aria-valuetext=${progressText}>
-                <span class="render-progress-fill" style=${'width: ' + progressPercent + '%'}></span>
-              </div>
-              <span class="render-progress-copy">${progressText}</span>
-              <span class="render-progress-percent">${progressPercent}%</span>
+        ${this.imageReferences.length ? html`
+          <header class="keyframes-head">
+            <div><strong>Reference keyframes</strong></div>
+            <span>${this.imageReferences.length} ${this.imageReferences.length === 1 ? 'image' : 'images'},
+              ${this.frameLimit || 0} output frames</span>
+          </header>
+          <div class="timeline-ruler keyframe-ruler" aria-hidden="true">
+            <span>F000</span><span>F${String(Math.round(frameSpan / 4)).padStart(3, '0')}</span>
+            <span>F${String(Math.round(frameSpan / 2)).padStart(3, '0')}</span>
+            <span>F${String(Math.round(frameSpan * 3 / 4)).padStart(3, '0')}</span>
+            <span>F${String(frameSpan).padStart(3, '0')}</span>
+          </div>
+          <div class="timeline-track keyframe-track image-reference-track" id="video-keyframe-track" aria-label="Reference keyframes">
+            <span class="track-label">Keyframes</span>
+            <div class="keyframe-rail">
+              ${this.imageReferences.map((reference) => {
+                const frameIndex = Number.isFinite(reference.frameIndex) ? reference.frameIndex : 0;
+                const position = Math.min(100, Math.max(0, frameIndex / frameSpan * 100));
+                const selected = reference.id === this.selectedReferenceId;
+                return html`<button class="keyframe-marker" type="button"
+                  style=${'left: ' + position + '%'} data-action="select-reference" data-reference-id=${reference.id}
+                  aria-label=${'Select ' + reference.name + ' at output frame ' + frameIndex}
+                  aria-pressed=${selected}>
+                  <img src=${reference.src} alt="">
+                  <span>F${String(frameIndex).padStart(3, '0')}</span>
+                </button>`;
+              })}
             </div>
           </div>` : ''}
-        <header class="keyframes-head">
-          <div><strong>Image references</strong></div>
-          <span>${this.imageReferences.length} images, ${this.frameLimit || 0} output frames</span>
-        </header>
-        <div class="timeline-ruler keyframe-ruler" aria-hidden="true">
-          <span>F000</span><span>F${String(Math.round(frameSpan / 4)).padStart(3, '0')}</span>
-          <span>F${String(Math.round(frameSpan / 2)).padStart(3, '0')}</span>
-          <span>F${String(Math.round(frameSpan * 3 / 4)).padStart(3, '0')}</span>
-          <span>F${String(frameSpan).padStart(3, '0')}</span>
-        </div>
-        <div class="timeline-track keyframe-track image-reference-track" id="video-keyframe-track" aria-label="Image reference track">
-          <span class="track-label">Images</span>
-          <div class="keyframe-rail">
-            ${this.imageReferences.length ? this.imageReferences.map((reference) => {
-              const frameIndex = Number.isFinite(reference.frameIndex) ? reference.frameIndex : 0;
-              const position = Math.min(100, Math.max(0, frameIndex / frameSpan * 100));
-              const selected = reference.id === this.selectedReferenceId;
-              return html`<button class="keyframe-marker" type="button"
-                style=${'left: ' + position + '%'} data-action="select-reference" data-reference-id=${reference.id}
-                aria-label=${'Select ' + reference.name + ' at output frame ' + frameIndex}
-                aria-pressed=${selected}>
-                <img src=${reference.src} alt="">
-                <span>F${String(frameIndex).padStart(3, '0')}</span>
-              </button>`;
-            }) : html`<span class="keyframe-empty">Add an image in the right panel and set its output frame.</span>`}
-          </div>
-        </div>
       </section>
     `;
   }
 
   renderSelectedClip() {
     const clip = this.selectedClip();
-    const preview = this.querySelector('#video-preview-root');
-    if (preview) renderTemplate(this.renderClip(clip), preview);
+    this.renderPreview();
     this.renderTimelineView(clip);
     this.renderVideoGallery();
+  }
+
+  renderPreview() {
+    const preview = this.querySelector('#video-preview-content-root');
+    if (!preview) return;
+    const content = this.generationProgress
+      ? this.renderProgressPlaceholder(this.generationProgress)
+      : this.renderClip(this.selectedClip());
+    renderTemplate(content, preview);
+    if (this.generationProgress) this.fitProgressPlaceholder();
+  }
+
+  fitProgressPlaceholder() {
+    const status = this.querySelector('#video-render-status');
+    const preview = this.querySelector('#video-preview-content-root');
+    if (!status || !preview || !preview.clientWidth || !preview.clientHeight) return;
+    const ratio = this.outputWidth / this.outputHeight;
+    const width = Math.min(1200, preview.clientWidth, preview.clientHeight * ratio);
+    status.style.width = Math.floor(width) + 'px';
+    status.style.height = Math.floor(width / ratio) + 'px';
+  }
+
+  generationProgressDetails(progress) {
+    let label = 'Preparing video';
+    if (progress.stage === 'preparing') {
+      label = 'Loading model';
+    } else if (progress.step > 0 && progress.total > 0) {
+      const pass = progress.phase > 0 ? 'Pass ' + progress.phase + ', ' : '';
+      label = pass + 'step ' + progress.step + ' of ' + progress.total;
+    }
+    const percent = progress.total > 0
+      ? Math.round(Math.min(1, progress.step / progress.total) * 100)
+      : null;
+    const elapsed = formatTime(progress.elapsedSeconds);
+    return {label: label, percent: percent, elapsed: elapsed, text: label + ', ' + elapsed + ' elapsed'};
+  }
+
+  renderProgressPlaceholder(progress) {
+    const details = this.generationProgressDetails(progress);
+    const width = details.percent === null ? 0 : details.percent;
+    return html`
+      <section id="video-render-status" class="video-render-placeholder" role="status"
+        aria-label="Video render status" aria-atomic="true"
+        style=${'--video-render-ratio: ' + this.outputWidth + ' / ' + this.outputHeight}>
+        <div class="video-render-brand"><span>VIDEO STUDIO</span><span>${this.outputModelName}</span></div>
+        <div class="video-render-content">
+          <span class="video-render-mark" aria-hidden="true"></span>
+          <strong>Rendering new clip</strong>
+          <span class="video-render-phase">${details.label}</span>
+          <div id="video-render-progress" class="video-render-progress${details.percent === null
+            ? ' is-indeterminate' : ''}" role="progressbar" aria-label="Video render progress"
+            aria-valuemin="0" aria-valuemax="100"
+            aria-valuenow=${details.percent === null ? nothing : String(details.percent)}
+            aria-valuetext=${details.text} style=${'--video-render-progress: ' + width + '%'}></div>
+        </div>
+        <div class="video-render-details">
+          <span>${details.elapsed} elapsed</span>
+          <span>${details.percent === null ? 'Step progress starts after model load' : details.percent + '% complete'}</span>
+        </div>
+      </section>`;
   }
 
   renderTimelineView(clip) {
@@ -947,7 +1014,9 @@ class VideoStudio extends LitElement {
   render() {
     return html`
       <div class="video-studio-shell">
-        <div class="video-preview-area" id="video-preview-root"></div>
+        <div class="video-preview-area" id="video-preview-root">
+          <div id="video-preview-content-root"></div>
+        </div>
         <div class="video-editing-area">
           <div id="video-timeline-root"></div>
           <div id="video-error-root"></div>
