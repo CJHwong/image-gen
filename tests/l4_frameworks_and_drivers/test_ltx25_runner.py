@@ -103,6 +103,10 @@ def test_runner_wraps_the_distilled_sampler_when_progress_is_requested(tmp_path,
     assert "total_steps = sum(stage_steps)" in wrapper
     assert "done_before = sum(stage_steps[:stage])" in wrapper
     assert 'f"STUDIO_STEP 1 {done_before + step} {total_steps}"' in wrapper
+    # The sampler breaks on the terminal sigma, so a report after the yield
+    # never fires for a stage's last step. The report must come before it.
+    report = wrapper.index('f"STUDIO_STEP 1 {done_before + step} {total_steps}"')
+    assert report < wrapper.index("        yield value"), "the report must precede the yield"
     assert received_callback is callback
     assert reports == []
     assert result.mp4 == b"mp4 with progress"
