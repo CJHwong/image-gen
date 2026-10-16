@@ -238,12 +238,38 @@ with sync_playwright() as playwright:
         page.locator("#video-source-panel .video-reference").get_attribute("title") == "reference.png",
         page.locator("#video-source-panel .video-reference").get_attribute("title") or "no reference",
     )
+    reference_options = page.locator("#video-source-panel .video-reference-options").first
+    check(
+        "reference influence stays out of the default controls",
+        reference_options.count() == 1
+        and reference_options.evaluate("element => !element.open")
+        and page.locator("#video-source-panel [data-action='reference-frame']").count() == 0,
+        "keyframe timing stays on the timeline",
+    )
+    if reference_options.count():
+        reference_options.locator("summary").click()
+    reference_options_open = reference_options.count() and reference_options.evaluate("element => element.open")
+    check(
+        "reference options explain the influence control",
+        reference_options_open
+        and "Reference influence" in reference_options.inner_text()
+        and "Adjust only when an image needs more or less influence." in reference_options.inner_text(),
+        reference_options.inner_text() if reference_options.count() else "missing options",
+    )
+    if reference_options.count() and reference_options.evaluate("element => element.open"):
+        reference_options.locator("summary").click()
     check(
         "Video mode shows its own selected model",
         page.locator("#backend-toggle .name").inner_text() == "LTX-2.5"
         and page.locator(".dial .badge").inner_text() == "24 fps"
         and page.locator("#backend-toggle").is_disabled(),
         page.locator("#backend-toggle").inner_text().replace("\n", " "),
+    )
+    check(
+        "Video uses the shared Prompt label",
+        page.locator("#video-controls label[for='video-prompt']").inner_text() == "Prompt"
+        and page.locator("#video-controls").get_by_text("Video prompt", exact=True).count() == 0,
+        page.locator("#video-controls .prompt-field").inner_text(),
     )
     video_switch_position = page.evaluate(
         """() => {
@@ -305,9 +331,11 @@ with sync_playwright() as playwright:
           videoStudio.addImageReference(reference);
           videoStudio.addImageReference({...reference, id: 'model-limit-two'});
           const referenceLimitError = videoStudio.error;
-          const defaultReferenceStrength = document.querySelectorAll(
-            '#video-source-panel .video-reference-settings input[type=range]'
-          )[1].value;
+          const referenceStrengths = document.querySelectorAll(
+            '#video-source-panel .video-reference-options input[type=range]'
+          );
+          const referenceOptions = document.querySelector('.video-reference-options');
+          const defaultReferenceStrength = referenceStrengths[1]?.value ?? null;
           videoStudio.removeImageReference(reference.id);
           videoStudio.clearError();
           const state = {
@@ -332,9 +360,13 @@ with sync_playwright() as playwright:
             referenceLimit: videoStudio.maxReferences,
             referenceLimitError: referenceLimitError,
             defaultReferenceStrength: defaultReferenceStrength,
+            referenceOptionsClosed: referenceOptions ? !referenceOptions.open : null,
+            outputFrameControls: document.querySelectorAll(
+              '#video-source-panel [data-action="reference-frame"]'
+            ).length,
             referenceStrength: (() => {
-              const control = document.querySelector('#video-source-panel .video-reference-settings input[type=range]');
-              return [control.min, control.max, control.step, control.value];
+              const control = document.querySelector('#video-source-panel .video-reference-options input[type=range]');
+              return control ? [control.min, control.max, control.step, control.value] : null;
             })(),
             seedRange: [
               document.querySelector('#video-seed').min,
@@ -398,6 +430,8 @@ with sync_playwright() as playwright:
             "referenceLimit": 2,
             "referenceLimitError": "This video model accepts at most 2 image references.",
             "defaultReferenceStrength": "0.4",
+            "referenceOptionsClosed": True,
+            "outputFrameControls": 0,
             "referenceStrength": ["0.2", "0.8", "0.2", "0.8"],
             "seedRange": ["17", "99", False, False],
             "unsupportedSeed": [True, True, "Not supported", "This video model does not support a seed."],
@@ -414,6 +448,20 @@ with sync_playwright() as playwright:
         page.locator("#image-controls .modes").is_hidden()
         and page.locator("#video-controls .modes").count() == 0
         and page.locator("#video-reference-track [data-action='select-reference']").count() == 1,
+    )
+    output_controls = page.evaluate(
+        """() => {
+          const duration = document.querySelector('#video-duration').closest('.field').getBoundingClientRect();
+          const shape = document.querySelector('.video-ratios').closest('.field').getBoundingClientRect();
+          return {durationWidth: duration.width, shapeWidth: shape.width,
+            durationTop: duration.top, shapeTop: shape.top};
+        }"""
+    )
+    check(
+        "duration and frame shape use balanced full-width groups",
+        abs(output_controls["durationWidth"] - output_controls["shapeWidth"]) < 1
+        and output_controls["shapeTop"] > output_controls["durationTop"],
+        str(output_controls),
     )
     check(
         "keyframe timeline shows one image-anchor track",
@@ -605,6 +653,12 @@ with sync_playwright() as playwright:
         " && Number.isFinite(video.duration) && video.duration > 0; }",
         timeout=30000,
     )
+    source_details = page.locator("#video-output-details").inner_text()
+    check(
+        "source caption refreshes with loaded video metadata",
+        "Source clip" in source_details and "Duration" in source_details and "96 \u00d7 64" in source_details,
+        source_details,
+    )
     check(
         "imported video files stay in source assets with a timeline",
         page.locator("#video-source-list .video-source").count() == 1
@@ -679,19 +733,21 @@ with sync_playwright() as playwright:
     capture_button.focus()
     page.keyboard.press("Enter")
     page.wait_for_function("() => document.querySelectorAll('#video-source-panel .video-reference').length === 2")
+    captured_marker = page.locator("#video-reference-track [data-action='select-reference']").nth(1)
+    captured_frame_match = re.search(r"Frame (\d+) of", captured_marker.get_attribute("aria-valuetext") or "")
+    captured_frame_index = int(captured_frame_match.group(1)) if captured_frame_match else -1
     check(
         "captured pixels and frame metadata use the same source time",
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value()
-        == str(expected_capture["frame"])
+        captured_frame_index == expected_capture["frame"]
         and page.locator("#video-source-panel .video-reference").nth(1).get_attribute("title")
         == expected_capture["name"],
-        f"expected {expected_capture}, got {page.locator('#video-source-panel .video-reference input[type=number]').nth(1).input_value()}",
+        f"expected {expected_capture}, got frame {captured_frame_index}",
     )
     check(
         "capturing a frame keeps keyboard focus on the capture action",
         page.evaluate("() => document.activeElement?.dataset.action === 'capture-video-frame'"),
     )
-    frame_index = int(page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value())
+    frame_index = captured_frame_index
     marker = page.locator("#video-reference-track [data-action='select-reference']").nth(1)
     marker_position = float(marker.evaluate("element => element.style.left.replace('%', '')"))
     check(
@@ -707,14 +763,14 @@ with sync_playwright() as playwright:
         marker.get_attribute("aria-pressed") == "true"
         and "selected" in (page.locator("#video-source-panel .video-reference").nth(1).get_attribute("class") or ""),
     )
-    before_keyboard_move = int(
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value()
-    )
     marker.focus()
+    before_keyboard_label = marker.get_attribute("aria-valuetext") or ""
+    before_keyboard_match = re.search(r"Frame (\d+) of", before_keyboard_label)
+    before_keyboard_move = int(before_keyboard_match.group(1)) if before_keyboard_match else -1
     page.keyboard.press("ArrowRight")
-    after_keyboard_move = int(
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value()
-    )
+    after_keyboard_label = marker.get_attribute("aria-valuetext") or ""
+    after_keyboard_match = re.search(r"Frame (\d+) of", after_keyboard_label)
+    after_keyboard_move = int(after_keyboard_match.group(1)) if after_keyboard_match else -1
     check(
         "keyboard arrows move a selected reference frame",
         after_keyboard_move == min(120, before_keyboard_move + 1),
@@ -727,9 +783,9 @@ with sync_playwright() as playwright:
     page.mouse.down()
     page.mouse.move(rail_box["x"] + rail_box["width"] * 0.7, marker_box["y"] + marker_box["height"] / 2)
     page.mouse.up()
-    after_pointer_move = int(
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value()
-    )
+    pointer_label = marker.get_attribute("aria-valuetext") or ""
+    pointer_match = re.search(r"Frame (\d+) of", pointer_label)
+    after_pointer_move = int(pointer_match.group(1)) if pointer_match else -1
     check(
         "dragging a reference marker changes its output frame",
         after_pointer_move >= 80,
@@ -780,8 +836,12 @@ with sync_playwright() as playwright:
         f"state: {page.locator('#video-studio').evaluate('element => element.imageReferences.map(item => item.name)')}, "
         f"toast: {page.locator('#toasts').inner_text()}",
     )
-    page.locator("#video-source-panel .video-reference input[type=number]").nth(1).fill("300")
-    page.locator("#video-source-panel .video-reference input[type=number]").nth(1).dispatch_event("change")
+    page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          studio.setReferenceFrame(studio.imageReferences[1].id, 300);
+        }"""
+    )
     page.fill("#video-prompt", "Check the keyframe range")
     page.get_by_role("button", name="Generate video").click()
     page.wait_for_function(
@@ -795,9 +855,13 @@ with sync_playwright() as playwright:
         == "Image reference frames must be between 0 and 120.",
         page.locator("#video-studio .video-error").inner_text(),
     )
-    page.locator("#video-source-panel .video-reference input[type=number]").nth(1).fill("9")
-    page.locator("#video-source-panel .video-reference input[type=number]").nth(1).dispatch_event("change")
-    page.locator("#video-source-panel .video-reference input[type=range]").nth(1).evaluate(
+    page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          studio.setReferenceFrame(studio.imageReferences[1].id, 9);
+        }"""
+    )
+    page.locator("#video-source-panel .video-reference-options input[type=range]").nth(1).evaluate(
         "element => { element.value = '0.55'; element.dispatchEvent(new Event('input', {bubbles: true})); }"
     )
     page.fill("#video-prompt", "A kite rises as the camera pans across the shore")
@@ -821,8 +885,9 @@ with sync_playwright() as playwright:
     )
     check(
         "keyframe frame bounds follow the selected duration",
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).get_attribute("max") == "240",
-        page.locator("#video-source-panel .video-reference input[type=number]").nth(1).get_attribute("max"),
+        page.locator("#video-reference-track [data-action='select-reference']").nth(1).get_attribute("aria-valuetext")
+        == "Frame 9 of 240",
+        page.locator("#video-reference-track [data-action='select-reference']").nth(1).get_attribute("aria-valuetext"),
     )
     page.locator("#video-advanced summary").click()
     page.fill("#video-seed", "4294967296")
@@ -1010,8 +1075,15 @@ with sync_playwright() as playwright:
     )
     page.evaluate("() => { window.fetch = window.__studioOriginalFetch; }")
     page.fill("#video-seed", "")
-    sent_frame = int(page.locator("#video-source-panel .video-reference input[type=number]").nth(1).input_value())
-    sent_strength = float(page.locator("#video-source-panel .video-reference input[type=range]").nth(1).input_value())
+    sent_frame_match = re.search(
+        r"Frame (\d+) of",
+        page.locator("#video-reference-track [data-action='select-reference']").nth(1).get_attribute("aria-valuetext")
+        or "",
+    )
+    sent_frame = int(sent_frame_match.group(1)) if sent_frame_match else -1
+    sent_strength = float(
+        page.locator("#video-source-panel .video-reference-options input[type=range]").nth(1).input_value()
+    )
     page.get_by_role("button", name="Generate video").click()
     page.wait_for_function(
         "() => ['Stub response added. No video file was generated.', 'Video generation failed.']"
@@ -1066,17 +1138,68 @@ with sync_playwright() as playwright:
     stub_details = stub_card.inner_text()
     seed_match = re.search(r"Seed\s+(\d+)", page.locator("#video-output-details").inner_text())
     check(
-        "selected stub output shows its metadata below the preview",
+        "selected stub output uses the image-style caption and metadata row",
         "A kite rises as the camera pans across the shore" in page.locator("#video-output-details").inner_text()
         and "576 \u00d7 1024" in page.locator("#video-output-details").inner_text()
         and "24 fps" in page.locator("#video-output-details").inner_text()
-        and re.search(r"Frames\s+241", page.locator("#video-output-details").inner_text()) is not None
+        and re.search(r"241 frames", page.locator("#video-output-details").inner_text()) is not None
         and seed_match is not None
         and 0 <= int(seed_match.group(1)) <= 4294967295
         and "3 images" in page.locator("#video-output-details").inner_text()
         and "Request time" in page.locator("#video-output-details").inner_text()
+        and page.locator("#video-output-details.stage-bar .prompt-line").count() == 1
+        and page.locator("#video-output-details .facts").count() == 1
+        and page.locator("#video-output-details .actions").count() == 1
         and "A kite rises as the camera pans across the shore" not in stub_details,
         page.locator("#video-output-details").inner_text(),
+    )
+    original_stub_prompt = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          const clip = studio.selectedClip();
+          const prompt = clip.metadata.prompt;
+          clip.metadata.prompt = 'A detailed scene description '.repeat(18);
+          studio.renderOutputDetails();
+          return prompt;
+        }"""
+    )
+    prompt_button = page.get_by_role("button", name="Read full prompt")
+    prompt_button.focus()
+    page.keyboard.press("Enter")
+    prompt_sheet = page.locator("#video-prompt-sheet")
+    prompt_sheet.wait_for(state="visible")
+    full_prompt = "A detailed scene description " * 18
+    check(
+        "keyboard opens the complete video prompt over the preview",
+        full_prompt in prompt_sheet.inner_text()
+        and page.evaluate("() => document.activeElement?.getAttribute('aria-label')") == "Close full prompt",
+    )
+    page.locator("#video-source-list .video-source").first.click()
+    check(
+        "selecting another clip closes the old prompt sheet",
+        page.locator("#video-prompt-sheet").count() == 0
+        and "demo.webm" in page.locator("#video-output-details").inner_text(),
+    )
+    page.locator("#video-gallery .video-clip").first.click()
+    page.get_by_role("button", name="Read full prompt").focus()
+    page.keyboard.press("Enter")
+    check(
+        "the selected clip can open its own prompt sheet",
+        full_prompt in page.locator("#video-prompt-sheet").inner_text(),
+    )
+    page.keyboard.press("Escape")
+    check(
+        "Escape closes the full prompt and restores caption focus",
+        page.locator("#video-prompt-sheet").count() == 0
+        and page.evaluate("() => document.activeElement?.getAttribute('aria-label')") == "Read full prompt",
+    )
+    page.evaluate(
+        """prompt => {
+          const studio = document.getElementById('video-studio');
+          studio.selectedClip().metadata.prompt = prompt;
+          studio.renderOutputDetails();
+        }""",
+        original_stub_prompt,
     )
     page.evaluate(
         """({videoBytes}) => {
@@ -1117,11 +1240,27 @@ with sync_playwright() as playwright:
             cardWidth: card.width, thumbnailHeight: thumbnail.height};
         }"""
     )
+    output_actions = page.evaluate(
+        """() => ({
+          downloads: document.querySelectorAll('#video-output-details .video-output-actions a[download]').length,
+          downloadName: document.querySelector('#video-output-details .video-output-actions a[download]')?.download,
+          more: document.querySelectorAll('#video-output-details .video-output-actions [aria-label="More actions"]').length,
+          frameToImage: [...document.querySelectorAll('#video-output-details button')]
+            .some(button => button.textContent.includes('Use current frame in Image')),
+          referenceTitle: document.querySelector('#video-output-details .video-output-references')?.title,
+          menus: document.querySelectorAll('#video-output-menu').length,
+          menuItems: document.querySelectorAll('#video-output-menu [role="menuitem"]')
+            .length,
+        })"""
+    )
     check(
-        "video gallery stays compact and leaves room for the preview",
-        gallery_geometry["cardWidth"] <= 160
-        and gallery_geometry["thumbnailHeight"] <= 90
-        and gallery_geometry["galleryHeight"] <= 170,
+        "video gallery uses the compact Image filmstrip scale",
+        gallery_geometry["cardWidth"] <= 120
+        and gallery_geometry["thumbnailHeight"] <= 65
+        and gallery_geometry["galleryHeight"] <= 132
+        and page.locator("#video-gallery .video-clips.strip").count() == 1
+        and page.locator("#video-gallery .video-clip.frame").count() == 2
+        and page.locator("#video-gallery .video-clip-remove").count() == 0,
         str(gallery_geometry),
     )
     check(
@@ -1130,18 +1269,53 @@ with sync_playwright() as playwright:
         and generated_card.locator(".video-clip-thumb img").count() == 1
         and "96 \u00d7 64" in generated_details
         and "12 fps" in generated_details
-        and re.search(r"Frames\s+12", generated_details) is not None
+        and re.search(r"12 frames", generated_details) is not None
         and re.search(r"Seed\s+7", generated_details) is not None
         and "2 images" in generated_details
-        and "Render time" in generated_details
+        and "Took 01:23.2" in generated_details
         and "01:23.2" in generated_details
         and "An amber kite crosses a blue sky" in generated_details
         and "start.png at frame 0" in generated_details
         and "end.png at frame 11" in generated_details
+        and page.locator("#video-output-details .video-output-actions a[download]").count() == 1
+        and page.locator("#video-output-details .video-output-actions a[download]").get_attribute("download")
+        == "LTX-2.5 1s.webm"
+        and page.locator("#video-output-details .video-output-actions [aria-label='More actions']").count() == 1
+        and page.get_by_role("button", name="Use current frame in Image").is_visible()
         and page.locator("#video-output-details .video-output-references").get_attribute("title")
         == "start.png, frame 0, strength 0.40, end.png, frame 11, strength 0.60"
         and page.locator("#video-timeline .source-track").count() == 0,
-        generated_details,
+        generated_details
+        + "\n"
+        + json.dumps(
+            {
+                **output_actions,
+                "thumbnailReady": thumbnail_ready,
+                "thumbnailCount": generated_card.locator(".video-clip-thumb img").count(),
+            }
+        ),
+    )
+    page.get_by_role("button", name="More actions").click()
+    check(
+        "video more actions match the image action menu",
+        page.get_by_role("menuitem", name="Reuse prompt").is_visible()
+        and page.get_by_role("menuitem", name="Reuse seed 7").is_visible()
+        and page.get_by_role("menuitem", name="Remove video LTX-2.5 1s").is_visible(),
+        page.locator("#video-output-menu").inner_text(),
+    )
+    page.get_by_role("menuitem", name="Reuse prompt").click()
+    check(
+        "video prompt can be reused from its selected output",
+        page.locator("#video-prompt").input_value() == "An amber kite crosses a blue sky",
+        page.locator("#video-prompt").input_value(),
+    )
+    page.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Reuse seed 7").click()
+    check(
+        "video seed can be reused from its selected output",
+        page.locator("#video-seed").input_value() == "7"
+        and page.locator("#video-advanced").evaluate("element => element.open"),
+        page.locator("#video-seed").input_value(),
     )
     progress_result = page.evaluate(
         """() => {
@@ -1302,13 +1476,14 @@ with sync_playwright() as playwright:
         video_saved
         and restored_count == 1
         and "An amber kite crosses a blue sky" in restored_details
-        and "Render time" in restored_details
+        and "Took 01:23.2" in restored_details
         and "01:23.2" in restored_details
         and restored_thumbnail
         and restored_video,
         f"saved: {video_saved}, restored clips: {restored_count}, details: {restored_details}",
     )
-    page.get_by_role("button", name="Remove video LTX-2.5 1s").click()
+    page.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Remove video LTX-2.5 1s").click()
     page.wait_for_function("() => document.querySelector('#video-gallery .video-clip') === null", timeout=10000)
     page.reload()
     switch_workspace(page, "video")

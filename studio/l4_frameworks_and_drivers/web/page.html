@@ -267,7 +267,7 @@
 
         <div id="video-controls" class="mode-controls video-controls" hidden>
           <div class="field prompt-field">
-            <div class="field-head"><label for="video-prompt">Video prompt</label></div>
+            <div class="field-head"><label for="video-prompt">Prompt</label></div>
           <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."></textarea>
           </div>
           <section id="video-source-panel" class="video-source-panel" aria-label="Video media">
@@ -568,6 +568,22 @@
       showToast('error', 'The video frame could not be read as an image reference.');
     };
     reader.readAsDataURL(event.detail.blob);
+  });
+  document.addEventListener('video-output-reuse', function (event) {
+    const detail = event.detail || {};
+    const prompt = document.getElementById('video-prompt');
+    const seed = document.getElementById('video-seed');
+    if (typeof detail.prompt === 'string') {
+      prompt.value = detail.prompt;
+      syncVideoGenerateButton();
+      prompt.focus();
+    }
+    if (Number.isInteger(detail.seed) && !seed.disabled) {
+      seed.value = String(detail.seed);
+      document.getElementById('video-advanced').open = true;
+      syncVideoSeedSummary();
+      seed.focus();
+    }
   });
 
   function videoCapabilities() {

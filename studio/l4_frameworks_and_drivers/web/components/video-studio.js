@@ -1,4 +1,5 @@
 import { LitElement, html, nothing, render as renderTemplate } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import { closeMenus, menuItem, toggleMenu } from './popup-menu.js';
 
 let nextClipId = 1;
 
@@ -94,6 +95,11 @@ function releaseClipUrls(clip) {
   if (clip.thumbnailUrl) URL.revokeObjectURL(clip.thumbnailUrl);
 }
 
+function videoDownloadName(clip) {
+  const extension = clip.mp4Blob?.type.includes('webm') ? 'webm' : 'mp4';
+  return clip.name.replace(/\.(mp4|webm)$/i, '') + '.' + extension;
+}
+
 class VideoStudio extends LitElement {
   clips = [];
   imageReferences = [];
@@ -111,6 +117,7 @@ class VideoStudio extends LitElement {
   maxReferenceStrength = null;
   referenceStrengthStep = null;
   defaultReferenceStrength = null;
+  supportsSeed = false;
   currentTime = 0;
   duration = 0;
   frameLimit = null;
@@ -140,6 +147,7 @@ class VideoStudio extends LitElement {
     super.connectedCallback();
     this.sourcePanel = document.getElementById('video-source-panel');
     this.addEventListener('click', this.onComponentClick);
+    this.addEventListener('keydown', this.onOutputKeydown);
     this.addEventListener('change', this.onComponentChange);
     this.addEventListener('input', this.onComponentInput);
     this.addEventListener('loadedmetadata', this.onMetadata, true);
@@ -163,6 +171,7 @@ class VideoStudio extends LitElement {
 
   disconnectedCallback() {
     this.removeEventListener('click', this.onComponentClick);
+    this.removeEventListener('keydown', this.onOutputKeydown);
     this.removeEventListener('change', this.onComponentChange);
     this.removeEventListener('input', this.onComponentInput);
     this.removeEventListener('loadedmetadata', this.onMetadata, true);
@@ -368,9 +377,6 @@ class VideoStudio extends LitElement {
 
   setFrameLimit(frameCount) {
     this.frameLimit = frameCount;
-    document.querySelectorAll('#video-source-panel [data-action="reference-frame"]').forEach((control) => {
-      control.max = String(frameCount - 1);
-    });
     this.renderTimelineView(this.selectedClip());
   }
 
@@ -381,6 +387,7 @@ class VideoStudio extends LitElement {
     this.maxReferenceStrength = capabilities.max_reference_strength;
     this.referenceStrengthStep = capabilities.reference_strength_step;
     this.defaultReferenceStrength = capabilities.default_reference_strength;
+    this.supportsSeed = capabilities.min_seed !== null && capabilities.max_seed !== null;
     this.imageReferences = this.imageReferences.map((reference) => ({
       ...reference,
       strength: this.normalizeReferenceStrength(reference.strength),
@@ -438,25 +445,17 @@ class VideoStudio extends LitElement {
       remove.dataset.referenceId = reference.id;
       remove.setAttribute('aria-label', 'Remove video reference ' + reference.name);
       remove.textContent = '×';
-      const settings = document.createElement('div');
-      settings.className = 'video-reference-settings';
       const name = document.createElement('span');
       name.className = 'video-reference-name';
       name.textContent = reference.name;
-      const frameLabel = document.createElement('label');
-      frameLabel.textContent = 'Output frame';
-      const frameIndex = document.createElement('input');
-      frameIndex.type = 'number';
-      frameIndex.min = '0';
-      frameIndex.max = String(Math.max(0, (this.frameLimit || 1) - 1));
-      frameIndex.step = '1';
-      frameIndex.value = String(reference.frameIndex);
-      frameIndex.dataset.action = 'reference-frame';
-      frameIndex.dataset.referenceId = reference.id;
-        frameIndex.setAttribute('aria-label', 'Output frame for ' + reference.name);
-      frameLabel.append(frameIndex);
+      const settings = document.createElement('details');
+      settings.className = 'video-reference-options';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Reference options';
       const strengthLabel = document.createElement('label');
-      strengthLabel.textContent = 'Strength';
+      strengthLabel.className = 'video-reference-strength';
+      const strengthName = document.createElement('span');
+      strengthName.textContent = 'Reference influence';
       const strength = document.createElement('input');
       strength.type = 'range';
       strength.min = String(this.minReferenceStrength);
@@ -465,11 +464,14 @@ class VideoStudio extends LitElement {
       strength.value = String(reference.strength);
       strength.dataset.action = 'reference-strength';
       strength.dataset.referenceId = reference.id;
-      strength.setAttribute('aria-label', 'Reference strength for ' + reference.name);
+      strength.setAttribute('aria-label', 'Reference influence for ' + reference.name);
       const strengthValue = document.createElement('output');
       strengthValue.textContent = Number(reference.strength).toFixed(2);
-      strengthLabel.append(strength, strengthValue);
-      settings.append(frameLabel, strengthLabel);
+      const explanation = document.createElement('span');
+      explanation.className = 'caption';
+      explanation.textContent = 'Adjust only when an image needs more or less influence.';
+      strengthLabel.append(strengthName, strength, strengthValue);
+      settings.append(summary, strengthLabel, explanation);
       card.append(select, name, remove, settings);
       list.append(card);
     });
@@ -606,6 +608,12 @@ class VideoStudio extends LitElement {
     const control = event.target.closest('[data-action]');
     if (!control) return;
     const action = control.dataset.action;
+    if (action === 'open-output-prompt') this.openOutputPromptSheet();
+    if (action === 'close-output-prompt') this.closeOutputPromptSheet();
+    if (action === 'toggle-output-menu') {
+      const menu = this.querySelector('#video-output-menu');
+      if (menu) toggleMenu(menu);
+    }
     if (action === 'add-video') document.getElementById('video-upload').click();
     if (action === 'add-image') document.getElementById('video-image-upload').click();
     if (action === 'remove-reference') this.removeImageReference(control.dataset.referenceId);
@@ -616,14 +624,50 @@ class VideoStudio extends LitElement {
     if (action === 'capture-image-frame') this.captureFrameForImage();
   }
 
+  onOutputKeydown(event) {
+    if (event.key !== 'Escape' || !this.querySelector('#video-prompt-sheet')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.closeOutputPromptSheet();
+  }
+
+  openOutputPromptSheet() {
+    const prompt = this.querySelector('.video-output-prompt');
+    const preview = this.querySelector('#video-preview-root');
+    if (!prompt || !preview || this.querySelector('#video-prompt-sheet')) return;
+    const sheet = document.createElement('div');
+    sheet.id = 'video-prompt-sheet';
+    sheet.className = 'sheet video-prompt-sheet';
+    sheet.setAttribute('role', 'region');
+    sheet.setAttribute('aria-label', 'Full prompt');
+    const fullPrompt = document.createElement('p');
+    fullPrompt.textContent = prompt.textContent;
+    const close = document.createElement('button');
+    close.className = 'icon-btn close';
+    close.type = 'button';
+    close.dataset.action = 'close-output-prompt';
+    close.setAttribute('aria-label', 'Close full prompt');
+    close.title = 'Close';
+    close.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>';
+    sheet.append(fullPrompt, close);
+    preview.append(sheet);
+    prompt.setAttribute('aria-expanded', 'true');
+    close.focus();
+  }
+
+  closeOutputPromptSheet(restoreFocus = true) {
+    this.querySelector('#video-prompt-sheet')?.remove();
+    const prompt = this.querySelector('.video-output-prompt');
+    if (!prompt) return;
+    prompt.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) prompt.focus();
+  }
+
   onComponentChange(event) {
     const control = event.target;
     if (!(control instanceof HTMLInputElement)) return;
     if (control.id === 'video-upload') this.onVideoFiles(event);
     if (control.id === 'video-image-upload') this.onImageFiles(event);
-    if (control.dataset.action === 'reference-frame') {
-      this.setReferenceFrame(control.dataset.referenceId, control.value);
-    }
   }
 
   onComponentInput(event) {
@@ -830,9 +874,6 @@ class VideoStudio extends LitElement {
     marker.setAttribute('aria-label', reference.name + ', output frame ' + frameIndex);
     const frameLabel = marker.querySelector('span');
     if (frameLabel) frameLabel.textContent = 'F' + String(frameIndex).padStart(3, '0');
-    const field = Array.from(this.sourcePanel.querySelectorAll('[data-action="reference-frame"]'))
-      .find((input) => input.dataset.referenceId === reference.id);
-    if (field) field.value = String(frameIndex);
   }
 
   onSourceDragOver(event) {
@@ -858,6 +899,7 @@ class VideoStudio extends LitElement {
   }
 
   selectClip(id) {
+    this.closeOutputPromptSheet(false);
     this.selectedClipId = id;
     this.previewResume = null;
     this.currentTime = 0;
@@ -872,6 +914,7 @@ class VideoStudio extends LitElement {
   async removeClip(id) {
     const removed = this.clips.find(function (clip) { return clip.id === id; });
     if (!removed) return;
+    if (this.selectedClipId === id) this.closeOutputPromptSheet(false);
     if (removed.kind === 'generated' && !removed.stub && this.galleryStore && this.keepEnabled) {
       const deleted = await this.galleryStore.removeVideo(id);
       if (!deleted) return;
@@ -904,6 +947,7 @@ class VideoStudio extends LitElement {
     this.renderTimelineView(clip);
     this.renderSourceVideos();
     this.renderVideoGallery();
+    this.renderOutputDetails();
   }
 
   onTimeUpdate(event) {
@@ -973,7 +1017,6 @@ class VideoStudio extends LitElement {
           <div class="timeline-actions">
             ${canCapture ? html`
               <button class="text-btn" type="button" data-action="capture-video-frame">Add frame as keyframe</button>
-              <button class="text-btn" type="button" data-action="capture-image-frame">Use current frame in Image</button>
             ` : ''}
           </div>
         </header>
@@ -1017,41 +1060,103 @@ class VideoStudio extends LitElement {
     const root = this.querySelector('#video-output-details-root');
     if (!root) return;
     const clip = this.selectedClip();
-    const pending = this.generationProgress && this.pendingRender;
+    const pending = Boolean(this.generationProgress && this.pendingRender);
     const metadata = pending ? videoMetadata(this.pendingRender) : clip?.metadata;
-    if (!metadata || (!pending && clip.kind !== 'generated')) {
+    if (!pending && !clip) {
       renderTemplate('', root);
       return;
     }
-    const duration = metadata.numFrames / metadata.frameRate;
-    const seed = Number.isInteger(metadata.seed) ? metadata.seed : pending ? 'Assigned at render' : 'Not recorded';
-    const references = metadata.references || [];
+    const isSource = !pending && clip.kind === 'source';
+    const generated = pending || (!isSource && clip?.kind === 'generated');
+    const references = metadata?.references || [];
+    const duration = metadata?.numFrames && metadata?.frameRate
+      ? metadata.numFrames / metadata.frameRate : Number(clip?.duration) || 0;
+    const seed = Number.isInteger(metadata?.seed) ? metadata.seed : null;
     const referenceSummary = references.length
       ? references.map((reference) => reference.name + ' at frame ' + reference.frameIndex).join(', ')
       : 'No image references';
     const referenceDetails = references.map((reference) =>
       reference.name + ', frame ' + reference.frameIndex + ', strength ' + Number(reference.strength).toFixed(2))
       .join(', ');
-    const timeLabel = pending ? 'Elapsed' : clip.stub ? 'Request time' : 'Render time';
-    return renderTemplate(html`
-      <section class="video-output-details" id="video-output-details" aria-label="Video output details">
-        <div class="video-output-title">
-          <strong>${pending ? 'Current render' : clip.name}</strong>
-          <span>${pending ? 'Render settings' : 'Output details'}</span>
+    const timeLabel = pending
+      ? 'Elapsed ' + formatTime(metadata.elapsedSeconds)
+      : clip.stub ? 'Request time ' + formatTime(metadata.elapsedSeconds)
+        : metadata ? 'Took ' + formatTime(metadata.elapsedSeconds) : '';
+    const preview = this.querySelector('#video-preview');
+    const facts = [];
+    if (metadata) {
+      facts.push(metadata.modelName || 'Video');
+      if (duration) facts.push(duration.toFixed(2) + ' sec');
+      if (metadata.width && metadata.height) facts.push(metadata.width + ' × ' + metadata.height);
+      if (metadata.frameRate) facts.push(metadata.frameRate + ' fps');
+      if (metadata.numFrames) facts.push(metadata.numFrames + ' frames');
+      facts.push(seed === null ? 'Random seed' : 'Seed ' + seed);
+      if (timeLabel) facts.push(timeLabel);
+      facts.push(references.length + (references.length === 1 ? ' image' : ' images'));
+    } else {
+      facts.push('Source clip');
+      if (duration) facts.push('Duration ' + formatTime(duration));
+      if (preview?.videoWidth && preview?.videoHeight) {
+        facts.push(preview.videoWidth + ' × ' + preview.videoHeight);
+      }
+    }
+    const prompt = metadata?.prompt || clip?.name || 'Rendering video';
+    const canCapture = Boolean(!pending && clip && !clip.stub);
+    const canDownload = Boolean(!pending && generated && clip && !clip.stub && clip.url);
+    const renderLabel = pending ? 'Rendering' : isSource ? 'Source clip' : 'Generated';
+    renderTemplate(html`
+      <section class="stage-bar video-stage-bar video-output-details" id="video-output-details"
+        aria-label="Video preview details">
+        <div class="about">
+          <button class="prompt-line video-output-prompt" type="button" data-action="open-output-prompt"
+            aria-label="Read full prompt" aria-controls="video-prompt-sheet" aria-expanded="false"
+            title=${prompt}>${prompt}</button>
+          <div class="facts num video-output-facts" aria-label="Video metadata">
+            <span class="made">${renderLabel}</span>
+            ${facts.map((fact) => html`<span>${fact}</span>`)}
+          </div>
+          ${generated ? html`<p class="video-output-references" title=${referenceDetails}>${referenceSummary}</p>` : nothing}
         </div>
-        <div class="video-output-facts">
-          <span><small>Model</small><b>${metadata.modelName}</b></span>
-          <span><small>Duration</small><b>${duration.toFixed(2)} sec</b></span>
-          <span><small>Resolution</small><b>${metadata.width} × ${metadata.height}</b></span>
-          <span><small>Frame rate</small><b>${metadata.frameRate} fps</b></span>
-          <span><small>Frames</small><b>${metadata.numFrames}</b></span>
-          <span><small>Seed</small><b>${seed}</b></span>
-          <span><small>${timeLabel}</small><b>${formatTime(metadata.elapsedSeconds)}</b></span>
-          <span title=${referenceDetails}><small>References</small><b>${references.length} ${references.length === 1 ? 'image' : 'images'}</b></span>
+        <div class="actions video-output-actions">
+          ${canCapture ? html`
+            <button class="btn quiet" type="button" data-action="capture-image-frame">
+              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>
+              Use current frame in Image
+            </button>` : nothing}
+          ${generated && !pending ? html`
+            <div class="menu-anchor">
+              <button class="icon-btn" type="button" data-action="toggle-output-menu"
+                aria-label="More actions" aria-controls="video-output-menu" aria-expanded="false" title="More actions">
+                <svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>
+              </button>
+              <div class="menu up" id="video-output-menu" role="menu" hidden></div>
+            </div>` : nothing}
+          ${canDownload ? html`
+            <a class="icon-btn" href=${clip.url} download=${videoDownloadName(clip)}
+              aria-label="Download video" title="Download">
+              <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
+            </a>` : nothing}
         </div>
-        <p class="video-output-prompt" title=${metadata.prompt || ''}>${metadata.prompt || 'No prompt recorded'}</p>
-        <p class="video-output-references" title=${referenceDetails}>${referenceSummary}</p>
       </section>`, root);
+    const menu = root.querySelector('#video-output-menu');
+    if (!menu || !clip) return;
+    menu.replaceChildren();
+    if (this.supportsSeed && seed !== null) {
+      menu.append(menuItem('hash', 'Reuse seed ' + seed, () => this.reuseOutput({seed})));
+    }
+    if (metadata?.prompt) {
+      menu.append(menuItem('text', 'Reuse prompt', () => this.reuseOutput({prompt: metadata.prompt})));
+    }
+    menu.append(menuItem('trash', 'Remove video ' + clip.name, () => this.removeClip(clip.id)));
+  }
+
+  reuseOutput(detail) {
+    closeMenus();
+    this.dispatchEvent(new CustomEvent('video-output-reuse', {
+      detail: detail,
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   renderPreview() {
@@ -1172,24 +1277,23 @@ class VideoStudio extends LitElement {
   renderGallery() {
     const outputs = this.clips.filter((clip) => clip.kind === 'generated');
     return html`
-      <section class="video-gallery" id="video-gallery" aria-label="Video gallery">
+      <section class="video-gallery strip-wrap" id="video-gallery" aria-label="Video gallery">
         <div class="video-gallery-head"><strong>Video gallery</strong><span>${outputs.length}${outputs.length === 1 ? ' clip' : ' clips'}</span></div>
-        <div class="video-clips">
+        <div class="strip video-clips" role="group" aria-label="Generated videos">
           ${this.pendingRender ? html`
-            <div class="video-gallery-item video-gallery-pending" role="status" aria-label="Video render pending">
-              <div class="video-clip-thumb pending-thumb">
+            <div class="video-gallery-item video-gallery-pending frame pending" role="status" aria-label="Video render pending">
+              <span class="still video-clip-thumb pending-thumb">
                 <span class="video-pending-indicator" aria-hidden="true"></span>
                 <span>Rendering</span>
-              </div>
-              <span class="video-clip-name">${this.pendingRender.modelName || 'Video render'}</span>
-              <span class="video-clip-state">${this.generationProgress?.stopping ? 'Stopping render' : 'In progress'}</span>
+              </span>
+              <span class="no">${String(outputs.length + 1).padStart(2, '0')}</span>
             </div>` : ''}
-          ${outputs.length ? outputs.map((clip) => html`
+          ${outputs.length ? outputs.map((clip, index) => html`
             <div class="video-gallery-item">
-              <button class="video-clip${clip.id === this.selectedClipId ? ' selected' : ''}"
+              <button class="frame video-clip${clip.id === this.selectedClipId ? ' selected' : ''}"
                 type="button" aria-label=${'Select video ' + clip.name} aria-pressed=${clip.id === this.selectedClipId}
                 data-action="select-clip" data-clip-id=${clip.id}>
-                <span class="video-clip-thumb">
+                <span class="still video-clip-thumb">
                   ${clip.thumbnailUrl
                     ? html`<img src=${clip.thumbnailUrl} alt="">`
                     : html`<span class="video-clip-placeholder" title=${clip.thumbnailError || ''}>
@@ -1197,10 +1301,8 @@ class VideoStudio extends LitElement {
                     </span>`}
                   <span class="video-clip-duration">${formatTime(clip.duration || 0)}</span>
                 </span>
-                <span class="video-clip-name">${clip.name}</span>
+                <span class="no">${String(index + 1).padStart(2, '0')}</span>
               </button>
-              <button class="video-clip-remove" type="button" aria-label=${'Remove video ' + clip.name}
-                data-action="remove-clip" data-clip-id=${clip.id}>Remove</button>
             </div>`) : this.pendingRender ? '' : html`<span class="video-gallery-empty">Generated clips appear here.</span>`}
         </div>
       </section>`;
@@ -1221,9 +1323,7 @@ class VideoStudio extends LitElement {
         <div class="video-empty-mark">STUB</div>
         <strong>Request flow verified</strong>
         <span>The stub returns metadata only. It does not create a video file.</span>
-        <span class="video-source-label">${clip.name}</span>
       </div>
-      <span class="video-source-label" ?hidden=${clip.stub}>${clip.name}</span>
     </div>`;
   }
 
