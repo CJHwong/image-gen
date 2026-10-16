@@ -83,8 +83,8 @@ def test_runner_wraps_the_distilled_sampler_when_progress_is_requested(tmp_path,
     monkeypatch.setattr(Ltx25Runner, "_execute", fake_execute)
     reports = []
 
-    def callback(step, total):
-        reports.append((step, total))
+    def callback(step, total, phase):
+        reports.append((step, total, phase))
 
     result = Ltx25Runner("python", model_dir).run(job(), callback)
 
@@ -92,6 +92,7 @@ def test_runner_wraps_the_distilled_sampler_when_progress_is_requested(tmp_path,
     assert command[1].endswith("ltx25_progress.py")
     assert command[2:4] == ["--transformer-path", str(model_dir / FILES[0])]
     assert "samplers.tqdm = report_steps" in wrapper
+    assert 'phase_state["number"] += 1' in wrapper
     assert received_callback is callback
     assert reports == []
     assert result.mp4 == b"mp4 with progress"
@@ -102,26 +103,26 @@ def test_runner_reads_live_progress_records_from_the_child_process():
     command = [
         sys.executable,
         "-c",
-        "import sys, time; time.sleep(0.3); sys.stderr.write('notice\\nSTUDIO_STEP 1 4\\n'); "
-        "sys.stderr.flush(); sys.stderr.write('STUDIO_STEP 2 4'); sys.stderr.flush()",
+        "import sys, time; time.sleep(0.3); sys.stderr.write('notice\\nSTUDIO_STEP 1 1 4\\n'); "
+        "sys.stderr.flush(); sys.stderr.write('STUDIO_STEP 2 2 3'); sys.stderr.flush()",
     ]
 
-    Ltx25Runner._execute_with_progress(command, lambda step, total: reports.append((step, total)))
+    Ltx25Runner._execute_with_progress(command, lambda step, total, phase: reports.append((step, total, phase)))
 
-    assert reports == [(1, 4), (2, 4)]
+    assert reports == [(1, 4, 1), (2, 3, 2)]
 
 
 def test_runner_reports_a_streamed_pipeline_failure():
     command = [sys.executable, "-c", "raise SystemExit(2)"]
 
     with pytest.raises(StudioError, match="pipeline failed with exit status 2"):
-        Ltx25Runner("python", ".")._execute(command, lambda _step, _total: None)
+        Ltx25Runner("python", ".")._execute(command, lambda _step, _total, _phase: None)
 
 
 def test_runner_returns_after_streaming_progress():
     runner = Ltx25Runner("python", ".", process_runner=lambda *_args, **_options: pytest.fail())
 
-    def callback(_step, _total):
+    def callback(_step, _total, _phase):
         return None
 
     runner._execute([sys.executable, "-c", "pass"], callback)
@@ -132,7 +133,7 @@ def test_runner_reports_a_streamed_pipeline_timeout(monkeypatch):
     command = [sys.executable, "-c", "import time; time.sleep(5)"]
 
     with pytest.raises(StudioError, match="timed out after one hour"):
-        Ltx25Runner("python", ".")._execute(command, lambda _step, _total: None)
+        Ltx25Runner("python", ".")._execute(command, lambda _step, _total, _phase: None)
 
 
 def test_runner_downloads_missing_weights_once_on_first_generation(tmp_path):

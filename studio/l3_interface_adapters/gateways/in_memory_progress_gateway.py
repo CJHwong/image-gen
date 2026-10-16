@@ -20,7 +20,7 @@ class InMemoryProgressGateway(ProgressGateway):
         with self._lock:
             self._state = RunProgress(running=True, stage="preparing", label=label, kind=kind)
 
-    def set_step(self, step, total):
+    def set_step(self, step, total, phase=0):
         with self._lock:
             state = self._state
             self._state = RunProgress(
@@ -28,6 +28,7 @@ class InMemoryProgressGateway(ProgressGateway):
                 stage="running",
                 step=step,
                 total=total,
+                phase=phase,
                 label=state.label,
                 kind=state.kind,
             )
@@ -61,6 +62,7 @@ class InMemoryProgressGateway(ProgressGateway):
                 stage=state.stage,
                 step=state.step,
                 total=state.total,
+                phase=state.phase,
                 label=state.label,
                 stopping=self._cancel,
                 kind=state.kind,

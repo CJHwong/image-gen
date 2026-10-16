@@ -233,6 +233,7 @@ class VideoStudio extends LitElement {
         stage: state.stage,
         step: state.step,
         total: state.total,
+        phase: state.phase,
         elapsedSeconds: elapsedSeconds,
       };
     }
@@ -778,10 +779,11 @@ class VideoStudio extends LitElement {
     const progress = this.generationProgress;
     const progressPercent = progress && progress.total > 0
       ? Math.round(Math.min(1, progress.step / progress.total) * 100) : 0;
+    const passLabel = progress && progress.phase > 0 ? 'Pass ' + progress.phase + ', ' : '';
     const progressLabel = progress && progress.stage === 'preparing'
       ? 'Loading model'
       : progress && progress.step > 0
-        ? 'Step ' + progress.step + ' of ' + progress.total
+        ? passLabel + 'step ' + progress.step + ' of ' + progress.total
         : 'Preparing video';
     const progressText = progressLabel + ', ' + formatTime(progress ? progress.elapsedSeconds : 0) + ' elapsed';
     return html`

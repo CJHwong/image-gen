@@ -722,7 +722,7 @@ with sync_playwright() as playwright:
           studio.setGenerationProgress({running: true, stage: 'preparing', step: 0, total: 0}, 5.2);
           const preparing = document.querySelector('#video-timeline .render-progress');
           const preparingText = preparing && preparing.getAttribute('aria-valuetext');
-          studio.setGenerationProgress({running: true, stage: 'running', step: 4, total: 8}, 6.4);
+          studio.setGenerationProgress({running: true, stage: 'running', step: 4, total: 8, phase: 2}, 6.4);
           const active = document.querySelector('#video-timeline .render-progress');
           const result = {
             supported: true,
@@ -740,7 +740,7 @@ with sync_playwright() as playwright:
         "video timeline displays model and step progress",
         progress_result.get("supported")
         and progress_result.get("preparingText", "").startswith("Loading model")
-        and "Step 4 of 8" in progress_result.get("stepText", "")
+        and "Pass 2, step 4 of 8" in progress_result.get("stepText", "")
         and progress_result.get("percent") == "50"
         and progress_result.get("fill") == "50%"
         and progress_result.get("trackLabel") == "Render",

@@ -14,7 +14,7 @@ class StubVideoBackendGateway(VideoBackendGateway):
     def capabilities(self) -> VideoCapabilities:
         return self._capabilities
 
-    def run(self, job: VideoJob, progress: Callable[[int, int], None] | None = None) -> VideoResult:
+    def run(self, job: VideoJob, progress: Callable[[int, int, int], None] | None = None) -> VideoResult:
         return VideoResult(
             mp4=None,
             width=job.width,

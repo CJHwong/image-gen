@@ -56,8 +56,8 @@ def test_video_run_reports_prepare_and_model_steps():
             super().begin(label, kind)
             observed.append(self.snapshot())
 
-        def set_step(self, step, total):
-            super().set_step(step, total)
+        def set_step(self, step, total, phase=0):
+            super().set_step(step, total, phase)
             observed.append(self.snapshot())
 
         def finish(self):
@@ -71,7 +71,7 @@ def test_video_run_reports_prepare_and_model_steps():
 
     assert observed == [
         RunProgress(running=True, stage="preparing", kind="video"),
-        RunProgress(running=True, stage="running", step=4, total=8, kind="video"),
+        RunProgress(running=True, stage="running", step=4, total=8, kind="video", phase=1),
         RunProgress(),
     ]
 

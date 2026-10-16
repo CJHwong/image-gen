@@ -127,7 +127,7 @@ class FakeVideoBackendGateway(VideoBackendGateway):
         if self.failure:
             raise self.failure
         if progress:
-            progress(4, 8)
+            progress(4, 8, 1)
         return VideoResult(b"mp4", job.width, job.height, job.num_frames, job.frame_rate, job.seed)
 
     def release(self) -> None:
