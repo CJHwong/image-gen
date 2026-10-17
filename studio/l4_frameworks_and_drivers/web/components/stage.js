@@ -489,13 +489,27 @@ export function toggleFullscreen() {
   change.catch(function (error) { page.notify('error', 'Full screen failed: ' + error.message); });
 }
 
+// The moment a frame or a clip was made, in the shape a file name can carry. The two
+// modules that name a download share it, so both names read the same way.
+export function fileStamp(at) {
+  const when = new Date(at);
+  const two = function (value) { return String(value).padStart(2, '0'); };
+  return when.getFullYear() + two(when.getMonth() + 1) + two(when.getDate())
+    + '-' + two(when.getHours()) + two(when.getMinutes()) + two(when.getSeconds());
+}
+
 function fileName(entry) {
   // The model that made this frame, not the one selected now: downloading an older
   // frame used to name the file after whatever model the page was on. The id, not
   // the edge's name, because a file name cannot carry capitals and spaces. A record
   // written before a frame carried its model falls back to the selected one, which
   // is what every file name was before.
-  return (entry.backendId || page.backendId) + '-' + entry.mode + '-' + entry.seed + '.png';
+  //
+  // The moment goes last, so two frames off the same model and seed do not land on one
+  // file name. A record stored before a frame carried its moment has none, and it keeps
+  // the name that every file name had before.
+  const stamp = entry.at ? '-' + fileStamp(entry.at) : '';
+  return (entry.backendId || page.backendId) + '-' + entry.mode + '-' + entry.seed + stamp + '.png';
 }
 
 const handle = {

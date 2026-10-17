@@ -322,7 +322,6 @@ def main():
         check("the caret stays with three backends", page.locator("#backend-toggle .icon").is_visible())
         check("an undeclared mode is disabled", page.is_disabled("#mode-edit"))
         check("the mode takes its label from the spec", page.inner_text("label[for=mode-generate]").strip() == "Draw")
-        check("the badge comes from the backend", page.inner_text(".badge") == "int4")
         check("the prompt hint comes from the spec", page.get_attribute("#prompt", "placeholder") == "Tiny prompt hint")
         check("no templates button without templates", not visible(page, "#templates-toggle"))
         check("no Look without Looks", not visible(page, "#look"))

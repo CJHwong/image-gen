@@ -8,6 +8,7 @@ from studio.l1_entities.errors import StudioError
 from studio.l1_entities.image_job import ImageJob
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l3_interface_adapters.gateways.qwen21_turbo.capabilities import qwen21_turbo_capabilities
+from studio.l3_interface_adapters.gateways.qwen21_turbo_schedule import official_turbo_schedule, register_schedule
 
 CHECKPOINT_FILES = (
     "model_index.json",
@@ -53,9 +54,16 @@ class OfficialQwenTurboBackendGateway(ImageBackendGateway):
 
     def run(self, job: ImageJob, on_step, should_stop):
         self._ensure_checkpoint()
+        # The registry entry has to exist before mflux builds its Config, which is
+        # here and not at build time: the stub builds this backend on hosts that
+        # cannot import mflux at all.
+        register_schedule()
         if job.mode == "edit":
             self._generator.release()
-            return self._edit.run(job, on_step, should_stop)
+            # The edit call takes no scheduler argument, so the schedule has to be
+            # supplied through Config's own default. Same patch as the viggle gateway.
+            with official_turbo_schedule():
+                return self._edit.run(job, on_step, should_stop)
         self._edit.release()
         return self._generator.run(job, on_step, should_stop)
 

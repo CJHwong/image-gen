@@ -1,5 +1,6 @@
 import { LitElement, html, nothing, render as renderTemplate } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { closeMenus, menuItem, toggleMenu } from './popup-menu.js';
+import { fileStamp } from './stage.js';
 
 let nextClipId = 1;
 
@@ -118,7 +119,10 @@ function releaseClipUrls(clip) {
 
 function videoDownloadName(clip) {
   const extension = clip.mp4Blob?.type.includes('webm') ? 'webm' : 'mp4';
-  return clip.name.replace(/\.(mp4|webm)$/i, '') + '.' + extension;
+  // The name carries the moment the clip was made, and it holds no space: two renders
+  // of the same length landed on one file name, and the browser renamed the second.
+  const stem = clip.name.replace(/\.(mp4|webm)$/i, '').replace(/\s+/g, '-');
+  return stem + '-' + fileStamp(clip.createdAt || Date.now()) + '.' + extension;
 }
 
 function saveFile(url, name) {
@@ -302,17 +306,26 @@ class VideoStudio extends LitElement {
   }
 
   createThumbnail(clip) {
+    // A source clip wants one too, and a redraw arrives per state change, so the flag
+    // keeps a second capture off a clip whose first one is still running.
+    if (clip.thumbnailPending) return;
+    clip.thumbnailPending = true;
     createVideoThumbnail(clip.url).then((thumbnail) => {
+      clip.thumbnailPending = false;
       if (!this.isConnected || !this.clips.includes(clip)) return;
       clip.thumbnailBlob = thumbnail;
       clip.thumbnailUrl = URL.createObjectURL(thumbnail);
-      this.renderVideoGallery();
-      if (this.keepEnabled && this.galleryStore) {
+      if (clip.kind === 'source') this.renderSourceVideos();
+      else this.renderVideoGallery();
+      // Only a generated clip is kept, so only it has a stored thumbnail to write.
+      if (clip.kind === 'generated' && this.keepEnabled && this.galleryStore) {
         this.galleryStore.keepVideoThumbnail(clip.id, thumbnail);
       }
     }).catch((error) => {
+      clip.thumbnailPending = false;
       clip.thumbnailError = error.message;
-      this.renderVideoGallery();
+      if (clip.kind === 'source') this.renderSourceVideos();
+      else this.renderVideoGallery();
     });
   }
 
@@ -531,17 +544,26 @@ class VideoStudio extends LitElement {
     sources.forEach((clip) => {
       const item = document.createElement('div');
       item.className = 'video-source-item';
+      // The highlight covers the whole row, the delete button included. It sat on the
+      // select alone, and that button is a column beside it, so the colour stopped short.
+      if (clip.id === this.selectedClipId) item.classList.add('selected');
       const select = document.createElement('button');
       select.type = 'button';
       select.className = 'video-source';
-      if (clip.id === this.selectedClipId) select.classList.add('selected');
       select.dataset.action = 'select-clip';
       select.dataset.clipId = clip.id;
       select.setAttribute('aria-label', 'Select source video ' + clip.name);
       select.setAttribute('aria-pressed', String(clip.id === this.selectedClipId));
       const thumbnail = document.createElement('span');
       thumbnail.className = 'video-source-thumb';
-      thumbnail.textContent = 'VIDEO';
+      if (clip.thumbnailUrl) {
+        const picture = document.createElement('img');
+        picture.src = clip.thumbnailUrl;
+        picture.alt = '';
+        thumbnail.append(picture);
+      } else {
+        thumbnail.textContent = 'VIDEO';
+      }
       const name = document.createElement('span');
       name.className = 'video-source-name';
       name.textContent = clip.name;
@@ -558,6 +580,8 @@ class VideoStudio extends LitElement {
       remove.textContent = '×';
       item.append(select, remove);
       list.append(item);
+      // The first frame of an added video, once its metadata lets the element seek.
+      if (!clip.thumbnailUrl && !clip.thumbnailError) this.createThumbnail(clip);
     });
     this.renderMediaEmptyState();
   }
@@ -809,6 +833,8 @@ class VideoStudio extends LitElement {
         url: URL.createObjectURL(file),
         objectUrl: true,
         duration: 0,
+        // An added clip downloads under its own name too, so it carries its moment.
+        createdAt: Date.now(),
       };
       this.clips = this.clips.concat(clip);
       if (index === 0) this.selectedClipId = clip.id;
@@ -985,7 +1011,9 @@ class VideoStudio extends LitElement {
 
   stepClip(delta) {
     const gallery = this.querySelector('#video-gallery');
-    const outputs = this.clips.filter((clip) => clip.kind === 'generated');
+    // The strip draws newest first, and this walks it in the order it draws, so the
+    // arrow keys move the way the frames do.
+    const outputs = this.clips.filter((clip) => clip.kind === 'generated').reverse();
     const current = outputs.findIndex((clip) => clip.id === this.selectedClipId);
     const next = outputs[current + delta];
     if (!next) return false;
@@ -1172,9 +1200,8 @@ class VideoStudio extends LitElement {
     const preview = this.querySelector('#video-preview');
     const facts = [];
     if (metadata) {
-      if (duration) facts.push(duration.toFixed(2) + ' sec');
+      if (duration) facts.push(duration.toFixed(1) + ' sec');
       if (metadata.width && metadata.height) facts.push(metadata.width + ' × ' + metadata.height);
-      if (metadata.frameRate) facts.push(metadata.frameRate + ' fps');
       if (metadata.numFrames) facts.push(metadata.numFrames + ' frames');
       facts.push(seed === null ? 'Random seed' : 'Seed ' + seed);
       if (timeLabel) facts.push(timeLabel);
@@ -1207,10 +1234,9 @@ class VideoStudio extends LitElement {
         </div>
         <div class="actions video-output-actions">
           ${canCapture ? html`
-            <button class="icon-btn" type="button" data-action="capture-video-frame"
-              aria-label="Add this frame as an image reference" title="Add this frame as an image reference">
-              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>
-            </button>` : nothing}
+            <button class="btn quiet" type="button" data-action="capture-video-frame"
+              aria-label="Add reference" title="Add this frame as an image reference">
+              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>Add reference</button>` : nothing}
           ${canShowMore ? html`
             <div class="menu-anchor">
               <button class="icon-btn" type="button" data-action="toggle-output-menu"
@@ -1292,29 +1318,42 @@ class VideoStudio extends LitElement {
   // the engine is on. Before the engine reports a step there is nothing to fill
   // to, and the bar sweeps instead.
   generationProgressDetails(progress) {
-    const label = progress.stopping ? 'Stopping video' : 'Generating video';
     const elapsed = formatTime(progress.elapsedSeconds);
     const total = Number(progress.total) || 0;
     const step = Number(progress.step) || 0;
     const percent = total > 0 ? Math.max(0, Math.min(100, Math.round(step / total * 100))) : null;
+    // The progress bar keeps one name for the whole render: a name that changes under a
+    // screen reader is read twice. The headline under it names the moment instead.
+    const name = progress.stopping ? 'Stopping video' : 'Generating video';
     return {
-      label,
+      name,
+      label: this.progressHeadline(progress, step, total),
       elapsed: elapsed + ' elapsed',
       percent,
       readout: percent === null ? elapsed + ' elapsed' : percent + '%, ' + elapsed + ' elapsed',
     };
   }
 
+  // What the run is on. The model loads, the pipeline denoises step by step, and the
+  // clip is decoded once the last step has started. No stage number and no pass number
+  // is named here, because the runner reports both denoise stages as one count.
+  progressHeadline(progress, step, total) {
+    if (progress.stopping) return 'Stopping video';
+    if (!step) return 'Preparing the clip';
+    if (total > 0 && step >= total) return 'Decoding the clip';
+    return total > 0 ? 'Denoising, step ' + step + ' of ' + total : 'Denoising, step ' + step;
+  }
+
   renderProgressPlaceholder(progress) {
     const details = this.generationProgressDetails(progress);
     const status = html`
       <section id="video-render-status" class="video-render-placeholder" role="status"
-        aria-label=${details.label} aria-atomic="true">
+        aria-label=${details.name} aria-atomic="true">
         <div class="video-render-content">
           <strong>${details.label}</strong>
           <div id="video-render-progress"
             class=${details.percent === null ? 'video-render-progress is-indeterminate' : 'video-render-progress'}
-            role="progressbar" aria-label=${details.label} aria-valuemin="0" aria-valuemax="100"
+            role="progressbar" aria-label=${details.name} aria-valuemin="0" aria-valuemax="100"
             aria-valuenow=${details.percent === null ? nothing : details.percent}
             aria-valuetext=${details.readout}
             style=${details.percent === null ? nothing : '--rendered: ' + details.percent + '%'}></div>
@@ -1346,6 +1385,10 @@ class VideoStudio extends LitElement {
 
   renderGallery() {
     const outputs = this.clips.filter((clip) => clip.kind === 'generated');
+    // The strip reads newest first, so this is the order it draws in, and the order the
+    // arrow keys walk. The number stays the clip's own: it counts from the first clip of
+    // the session and it is the one the preview edge carries.
+    const newestFirst = outputs.slice().reverse();
     const downloadable = outputs.filter((clip) => !clip.stub && clip.url);
     const kept = outputs.filter((clip) => clip.keptInBrowser).length;
     const videoCount = outputs.length + (outputs.length === 1 ? ' video' : ' videos');
@@ -1375,7 +1418,7 @@ class VideoStudio extends LitElement {
               </span>
               <span class="no">${String(outputs.length + 1).padStart(2, '0')}</span>
             </div>` : ''}
-          ${outputs.length ? outputs.map((clip, index) => html`
+          ${outputs.length ? newestFirst.map((clip, position) => html`
             <div class="video-gallery-item">
               <button class="frame video-clip${clip.id === this.selectedClipId ? ' selected' : ''}"
                 type="button" aria-label=${'Select video ' + clip.name} aria-pressed=${clip.id === this.selectedClipId}
@@ -1388,7 +1431,7 @@ class VideoStudio extends LitElement {
                     </span>`}
                   <span class="video-clip-duration">${formatTime(clip.duration || 0)}</span>
                 </span>
-                <span class="no">${String(index + 1).padStart(2, '0')}</span>
+                <span class="no">${String(outputs.length - position).padStart(2, '0')}</span>
               </button>
             </div>`) : ''}
         </div>

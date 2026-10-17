@@ -71,7 +71,6 @@
             aria-controls="backend-menu" disabled><span class="name">__NAME__</span><svg class="icon"><use href="#i-caret"/></svg></button></h1>
           <div class="menu" id="backend-menu" role="menu" hidden></div>
         </div>
-        <span class="badge" title="Model details">__BADGE__</span>
       </div>
       <nav class="workspace-tabs" id="workspace-tabs" role="group" aria-label="Workspace">
         <button type="button" id="media-image-mode" aria-pressed="true">Image</button>
@@ -462,6 +461,21 @@
     return Array.from(bytes, function (byte) { return byte.toString(16).padStart(2, '0'); }).join('');
   }
 
+  // What the browser tab says. The workspace decides the first word, because the two
+  // workspaces run different models, and a title naming only the image model read wrong
+  // in the video one. A run's progress goes in front of it, so a run can be watched from
+  // another tab.
+  function workspaceTitle() {
+    const video = mediaMode === 'video';
+    const family = video ? STUDIO.video : STUDIO;
+    const model = family && family.backend ? family.backend.name : '';
+    return (video ? 'Video' : 'Image') + (model ? ' - ' + model : '');
+  }
+
+  function setTitle(prefix) {
+    document.title = (prefix || '') + workspaceTitle();
+  }
+
   function applyMediaMode(next) {
     mediaMode = next;
     form.dataset.mediaMode = mediaMode;
@@ -478,6 +492,7 @@
     setWorkspaceControlsDisabled();
     renderMediaActions();
     renderBackendSelector();
+    setTitle('');
   }
 
   async function setMediaMode(next) {
@@ -662,15 +677,14 @@
     const frameCount = Number(document.getElementById('video-duration').value);
     const duration = frameCount / capabilities.frame_rate;
     const [width, height] = selectedVideoShape();
-    const durationLabel = duration.toFixed(2);
+    const durationLabel = duration.toFixed(1);
     document.getElementById('video-duration-value').textContent = durationLabel + ' sec';
     document.getElementById('video-duration').setAttribute('aria-valuetext', durationLabel + ' seconds');
     document.querySelectorAll('[data-duration-frames]').forEach(function (button) {
       button.setAttribute('aria-pressed', String(Number(button.dataset.durationFrames) === frameCount));
     });
     document.getElementById('video-frame-count').textContent =
-      durationLabel + ' seconds, ' + width + ' × ' + height + ', ' + frameCount + ' frames at '
-      + capabilities.frame_rate + ' fps.';
+      durationLabel + ' seconds, ' + width + ' × ' + height + ', ' + frameCount + ' frames.';
     if (typeof videoStudio.setFrameLimit === 'function') {
       const movedReferences = videoStudio.setFrameLimit(frameCount);
       if (movedReferences) {
@@ -1422,6 +1436,9 @@
       // no spaces. The stage's handle carries this one too, for the frame it draws.
       backendId: STUDIO.backend.id,
       rewrittenFrom: function () { return formApi.rewrittenFrom(); },
+      // The tab's text belongs to the page, because the workspace decides the name in it.
+      workspaceTitle: workspaceTitle,
+      setTitle: setTitle,
     });
   });
 
@@ -1494,7 +1511,6 @@
     const backend = family.backend;
     const backends = family.backends || [];
     toggle.querySelector('.name').textContent = backend.name;
-    document.querySelector('.dial .badge').textContent = backend.badge;
     toggle.disabled = backends.length < 2 || !menus || busy() || videoRunState !== 'idle';
     toggle.title = backends.length > 1 ? 'Switch the model' : backend.name;
     menu.replaceChildren();

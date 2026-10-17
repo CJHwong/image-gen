@@ -70,7 +70,6 @@ class HtmlPresenter:
         return (
             self._page.replace("__NAME__", html.escape(active.name))
             .replace("__BACKEND__", html.escape(active.backend_id))
-            .replace("__BADGE__", html.escape(active.badge))
             .replace("__STUDIO__", data)
         )
 

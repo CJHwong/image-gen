@@ -18,6 +18,7 @@ from studio.l2_use_cases.switch_backend_use_case import SwitchBackendUseCase
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
+from studio.l3_interface_adapters.gateways import qwen21_turbo_schedule
 from studio.l3_interface_adapters.gateways.flux2.flux2_backend_gateway import Flux2BackendGateway
 from studio.l3_interface_adapters.gateways.flux2.klein_models import KleinModels
 from studio.l3_interface_adapters.gateways.gpu_thread import GpuThread
@@ -96,11 +97,18 @@ def qwen21_backend(config: Config) -> Qwen21BackendGateway:
 
 
 def qwen21_turbo_backend(config: Config) -> OfficialQwenTurboBackendGateway:
+    """The official Turbo checkpoint, which samples the sigma table it ships.
+
+    The generator is told the schedule by name, and the gateway registers it when a
+    run starts. Not here: building a backend must not import mflux, because the stub
+    builds every backend on machines that cannot run a model at all, and its whole
+    point is that the page still works there.
+    """
     settings = config.backend("qwen21_turbo")
     model_dir = config.required("qwen21_turbo", "model_dir")
     quantize = settings.get("quantize")
     return OfficialQwenTurboBackendGateway(
-        Qwen21Generator(quantize, model_path=model_dir),
+        Qwen21Generator(quantize, model_path=model_dir, scheduler=qwen21_turbo_schedule.SCHEDULER_NAME),
         Qwen21Edit(quantize, model_path=model_dir),
         badge=badge(quantize),
         model_dir=model_dir,

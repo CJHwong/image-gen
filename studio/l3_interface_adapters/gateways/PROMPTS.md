@@ -43,7 +43,7 @@ Each option names what to show, never what to leave out. The exception is Real p
 
 ## Edit Look
 
-The edit form offers its own **Look**, and a pick adds one sentence after your instruction. These rows are separate from the generate ones because the edit model keeps the rest of the picture by itself: an option here is either a change to the whole frame or a change to the area you marked. Every option passed a test on Qwen-Image-2.1 on 2026-10-10, one seed, 20 steps, 768 on the short side, each one beside the bare fixture: see "The edit Look test". Viggle Turbo offers the same 15, because its own six steps kept them all: see "The edit rows, measured 2026-10-10". FLUX.2 offers no edit rows yet, because it has not been sampled on its own.
+The edit form offers its own **Look**, and a pick adds one sentence after your instruction. These rows are separate from the generate ones because the edit model keeps the rest of the picture by itself: an option here is either a change to the whole frame or a change to the area you marked. Every option passed a test on Qwen-Image-2.1 on 2026-10-10, one seed, 20 steps, 768 on the short side, each one beside the bare fixture: see "The edit Look test". Viggle Turbo offers the same 15, because its own six steps kept them all: see "The edit rows, measured 2026-10-10". The official Turbo checkpoint offers them as well, on its own eight-node table: see "The official Turbo test". FLUX.2 offers no edit rows yet, because it has not been sampled on its own.
 
 | Row | Options | What it adds |
 |---|---|---|
@@ -233,7 +233,7 @@ Fifteen samples took 32 to 41 s each at 768 x 512, and the three at 768 x 768 to
 | Add fine film grain across the frame, like 400 ISO film | Add visible film grain across the frame, like a high ISO color film | The grain is coarse and carries color mottle. Grain size is fixed in pixels, so it reads finer on a larger output than the 768 it was judged at |
 | Brighten the eyes slightly, keeping the iris colour and the catchlights | Brighten the whites of the eyes and deepen the iris, keeping the catchlights | The iris did change, and richer amber is what the option does |
 
-**What this sample does not settle.** One seed per option, which is the bar the generate rows were held to and no more; a look that failed here can still be re-run on a second seed. The two fixtures are one portrait and one street, so the exposure, white balance and grade verdicts are statements about those scenes and not about the words in general. The Retouch sentences were measured at one mark shape each, drawn by a script. Nothing here measures Viggle Turbo or FLUX.2, which offer no edit rows until they are sampled on their own schedules.
+**What this sample does not settle.** One seed per option, which is the bar the generate rows were held to and no more; a look that failed here can still be re-run on a second seed. The two fixtures are one portrait and one street, so the exposure, white balance and grade verdicts are statements about those scenes and not about the words in general. The Retouch sentences were measured at one mark shape each, drawn by a script. Nothing here measures Viggle Turbo, the official Turbo checkpoint or FLUX.2. The first two have rows of their own, in "The Viggle Turbo test" and "The official Turbo test"; FLUX.2 offers no edit rows, because it has not been sampled on its own schedule.
 
 ### The avoid-part test
 
@@ -547,6 +547,117 @@ What this does not settle: one sample, one seed and one instruction, and the ans
 quality is not read here. The subject each answer names is found by looking for that
 subject's own words in it, which is a reader and not a judgement.
 
+### The official Turbo test
+
+The official Turbo checkpoint samples its own eight-node sigma table, so the aids
+were sampled on that schedule rather than inherited. Measured 2026-10-16 on the
+office machine, eight steps on that table, seed 1234, 768 x 768, bf16.
+
+The fixture was "a cat wearing a suit", the one the Look test used. Each option ran
+next to the bare prompt, one contact sheet per row. Two rows are about people and a
+cat cannot judge them, so Realism and Portrait ran again on "a woman in her thirties
+reading at a cafe window", the fixture of the avoid-part test. Every prompt went
+through the page's own composition: the option's sentence after the user's text,
+closed with a full stop, and an avoid part sent as the negative prompt, which is what
+raises the scale to 2.5 and turns true CFG on.
+
+The sample covered every aid this backend offers: 31 generate options, the 15 edit
+options, and all 15 templates, in 61 runs of the image plus their bare controls.
+
+| Row | Option | Result |
+|---|---|---|
+| Medium | Documentary | Works: natural exposure, real fur and cloth |
+| Medium | Phone snapshot | Works: flatter light, uneven framing, a room behind |
+| Medium | Watercolor | Works: soft washes on textured paper, visible brush edges |
+| Medium | Ink drawing | Works: fine black linework and cross-hatching on white |
+| Medium | 3D render | Works: smooth rounded shapes, soft studio light |
+| Medium | Skeleton | Works: skull, spine, ribs and limb bones in the pose, the suit still on the body |
+| Film | Portra 400 | Works: warm natural color |
+| Film | Fuji 400H | Works: cool soft pastel tones |
+| Film | Ektachrome | Works: high contrast, deep clean shadows |
+| Film | Black and white | Works: strong grain and high contrast, the Tri-X look its sentence names |
+| Color | Warm | Works: amber and cream, a warm brown suit |
+| Color | Cool | Works: blue and teal, a cool grey cat |
+| Color | Muted | Works: desaturated |
+| Color | Vivid | Works: saturated without going poster flat |
+| Light | Soft window light | Works: a visible window, soft shadow on the left. The shot widens, as on the base model |
+| Light | Golden hour | Works: low warm sun, long shadows. Widens the shot |
+| Light | Studio | Works: even light, a plain seamless backdrop, and no light stand in the picture |
+| Light | Overcast | Works: soft diffuse light, gentle shadows |
+| Light | Night with neon | Works: a neon sign, a wet street and its reflections. Widens the shot |
+| Camera | Close-up 85mm | Works: tighter on the head, more blur behind |
+| Camera | Wide 24mm | Works: a bookshelf comes back into the frame |
+| Camera | Top-down | Works: a true overhead view |
+| Camera | Low angle | Works: looking up at the subject |
+| Camera | Telephoto | Works: the subject comes closer and the background compresses |
+| Camera | Deep focus | Does not land: identical to the bare fixture, which has no depth in it to recover. The Viggle sample cut this option for the same reason. It ships here anyway, because this backend's catalog is the base model's by design and one option that changes nothing costs a user nothing |
+| Room for text | Left | Works: the subject moves right and a plain area opens on the left |
+| Room for text | Right | Works: the subject moves left and a plain area opens on the right |
+| Room for text | Top | Works: the subject drops and a wide plain area opens across the top |
+| Realism | Real person | Works on the woman fixture, with its avoid part at guidance 2.5: a plain, candid person rather than a posed beauty portrait |
+| Portrait | Over the shoulder | Works: the person turns three-quarters, one side of the face in shadow |
+| Portrait | Candid glance | Works: caught unposed, gaze slightly off camera |
+
+#### The edit rows
+
+The 15 options ran on this checkpoint's own two fixtures, generated at the seed and
+prompts the earlier edit table records: a street at 768 x 512 for the five whole-frame
+rows, and a portrait at 768 x 768 for Retouch. Each option ran beside its own fixture,
+because for an edit the question is what the sentence changed. A Retouch sentence
+carries the mark's token, so it went with the token replaced by the number of the image
+holding the mask, and the mask itself was an ellipse in the palette's orange on black
+over the face, which is what the page sends.
+
+| Row | Option | Result |
+|---|---|---|
+| Exposure | Brighter | Works: clearly brighter, the pale walls keep their texture |
+| Exposure | Darker | Works: the shadow side goes moody and the highlights stay |
+| White balance | Cooler | Works: blue in the shopfronts and on the paving |
+| White balance | Warmer | Works: a strong clean golden cast, the composition untouched |
+| Grade | Teal and orange | Works: teal in the street, warm on the wall, the jacket stays yellow |
+| Grade | Muted filmic | Works: soft contrast, lifted blacks, a warm fade |
+| Lens | Shallow depth | Works: the subject sharp against a heavy bright bokeh |
+| Lens | Wider view | Works: more of the street in frame, the subject further off |
+| Lens | Telephoto | Works: the subject closer, the frame tighter, the background softer |
+| Finish | Film grain | Works: visible grain across the frame |
+| Finish | Vignette | Works: the corners fall off gradually, with no visible circle |
+| Finish | Halation | Works: a warm bloom on the bright edges |
+| Retouch | Smooth the skin | Works: the face reads retouched, the hair and sweater untouched |
+| Retouch | Brighten the eyes | Works: the eyes open up and read brighter |
+| Retouch | Clear a blemish | Works: the skin clears. The mark does not bound it, as the region table below and the base model's own note both record |
+
+#### The templates
+
+Each template ran with its first fill-in, and the two that ask for lettering were
+judged on the lettering.
+
+| Template | Result |
+|---|---|
+| Portrait photo | Works: every slot followed, light from the left, 85mm, a plain blurred background |
+| Product shot | Works: the mug, the oak table, the napkin, the window light, space on the right |
+| Landscape | Works: the fjord, the red boathouse, the gravel path leading the eye |
+| Poster with text | Works: "Midnight Sessions", "Friday, doors at eight" and "The Old Ship, Hackney" all exact |
+| Illustration | Works: gouache, the fox on the right third, the palette named |
+| Deadpan absurdity | Works: a horse waiting by the launderette machines while the people carry on |
+| Banner | Works: "BUILD FASTER" and "Ship every Friday" exact, the badge reads "New", 16:9 |
+| Change a color or material | Works: the oilskin jacket goes deep red and matte, the same cut, seams and pockets |
+| Replace the background | Works: the woman in a sunlit kitchen with a kettle and a window box |
+| Add text | Works: a "Bakery" sign above the shopfront, dark green painted serif, legible |
+| Alternate reality | Works: the same street in 1920, a horse cart and gas lamps |
+| Add an object | Works: the dog on the cobbles with its shadow, the man glancing down and smiling |
+| Turn into a skeleton | Works: the woman's bones reading a book, in her pose |
+| Turn into a pose figure | Works: a jointed grey figure in the same pose |
+| Mark a region | Works, subtly: the eyes read slightly brighter than the bare portrait and it is hard to separate the two by eye at this size |
+
+**What this sample does not settle.** One seed per option, the bar the generate rows
+were held to and no more; an option that failed here can still be re-run on a second
+seed. The two fixtures are one cat and one woman, so the exposure, white balance and
+grade verdicts are statements about those scenes and not about the words in general.
+The Retouch and Mark a region sentences were measured at one mark shape each, drawn by
+a script. Deep focus is the only option this schedule did not reward; the Viggle sample
+cut it and this one keeps it, for the reason its row above gives. The mark's containment
+on this checkpoint is measured separately, in "The same metric on three scenes" below.
+
 ## Marking a region
 
 The page's **Mark a region** tool sends the marked area as the last image of the
@@ -798,11 +909,24 @@ of them moved.
 | Viggle Turbo | wall | 6 | 12.6% | 78.89 | 35.78 | 2.2x |
 | Viggle Turbo | sign | 6 | 12.8% | 67.72 | 5.69 | 11.9x |
 | Viggle Turbo | circle | 6 | 7.9% | 117.04 | 5.58 | 21.0x |
+| Turbo, rebuilt scenes | wall | 8 | 12.7% | 104.67 | 2.10 | 49.8x |
+| Turbo, rebuilt scenes | sign | 8 | 12.9% | 164.86 | 5.47 | 30.2x |
+| Turbo, rebuilt scenes | circle | 8 | 8.0% | 164.89 | 5.77 | 28.6x |
 | Qwen-Image-2.1, engine built directly | wall | 20 | 12.6% | 89.55 | 29.18 | 3.1x |
 
 `wall` marks a patch of a uniform surface. `sign` marks a filled rectangle that has an
 edge of its own. `circle` is the 2026-09-26 fixture, rebuilt from what this file records,
 so it is a reconstruction and not the same run.
+
+The three Turbo rows are this checkpoint's own, measured 2026-10-16 at its eight steps, on
+scenes rebuilt the same way. Read them as the same method on different pictures, and not
+as three more points on the rows above: the ratio is the mean change inside the mark over
+the mean change outside it, so a flat scene with little outside the mark to move scores
+high. The circle is the row to compare, because it is drawn as the 2026-09-26 fixture was,
+which puts the mark's edge on the circle's edge exactly: Turbo holds the mark as well as
+the twenty-step base model does, 28.6x against 28.8x, and better than the six-step
+distillation's 21.0x. Its wall and sign read higher than every row above them, and that is
+a statement about the reconstructions rather than about the mark.
 
 Three readings, and none of them is a defect in a harness:
 
