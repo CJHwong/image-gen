@@ -50,14 +50,21 @@ def test_ltx25_offers_a_low_resolution_ladder_for_every_shape():
         ("16:9", 640, 384),
         ("16:9", 768, 448),
         ("16:9", 1024, 576),
+        ("16:9", 1280, 704),
         ("9:16", 384, 640),
         ("9:16", 448, 768),
         ("9:16", 576, 1024),
         ("1:1", 384, 384),
         ("1:1", 512, 512),
         ("1:1", 768, 768),
+        ("3:2", 768, 512),
+        ("3:2", 960, 640),
+        ("3:2", 1152, 768),
+        ("2:3", 512, 768),
+        ("2:3", 640, 960),
+        ("2:3", 768, 1152),
     ]
-    for ratio in ("16:9", "9:16", "1:1"):
+    for ratio in ("16:9", "9:16", "1:1", "3:2", "2:3"):
         sizes = [shape for shape in capabilities.shapes if shape.ratio == ratio]
         assert sizes == sorted(sizes, key=lambda shape: shape.width * shape.height), ratio
 

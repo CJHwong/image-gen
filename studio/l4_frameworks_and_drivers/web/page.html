@@ -717,8 +717,8 @@
   }
 
   // Which rung of the ladder is in front, or null for the shape's own default, which is its
-  // lowest size: a prompt is tried before it is worth four minutes. A shape change keeps the
-  // rung, so one prompt can be compared across two shapes at the same cost.
+  // lowest size: a prompt is tried before it is worth four minutes. Every shape opens there,
+  // including one reached by changing the shape.
   let videoResolutionRung = null;
 
   function renderVideoResolutions() {
@@ -893,6 +893,10 @@
     document.querySelectorAll('.video-ratios button').forEach(function (option) {
       option.setAttribute('aria-pressed', String(option === button));
     });
+    // A shape opens on its own lowest rung. Keeping the rung across the change landed a
+    // clip picked at 576p on a taller shape's top rung, 576 x 1024, which is the largest
+    // and slowest size the form can offer.
+    videoResolutionRung = null;
     renderVideoResolutions();
     syncVideoFrameCount();
   });

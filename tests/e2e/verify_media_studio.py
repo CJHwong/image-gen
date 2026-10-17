@@ -293,7 +293,7 @@ with sync_playwright() as playwright:
     page.dispatch_event("#prompt", "input")
     check(
         "Turbo text generation shows its measured time estimate",
-        page.locator("#go-sub").inner_text() == "about 25s",
+        page.locator("#go-sub").inner_text() == "about 10s",
         page.locator("#go-sub").inner_text(),
     )
     paste_prevented = paste_file(page, REFERENCE.read_bytes(), "reference.png", "image/png")
@@ -304,7 +304,7 @@ with sync_playwright() as playwright:
     )
     check(
         "Turbo reference generation shows its measured time estimate",
-        page.locator("#go-sub").inner_text() == "about 20s",
+        page.locator("#go-sub").inner_text() == "about 10s",
         page.locator("#go-sub").inner_text(),
     )
     page.locator("#strength").evaluate(
@@ -312,7 +312,7 @@ with sync_playwright() as playwright:
     )
     check(
         "Turbo reference estimate follows image strength",
-        page.locator("#go-sub").inner_text() == "about 10s",
+        page.locator("#go-sub").inner_text() == "about 5s",
         page.locator("#go-sub").inner_text(),
     )
     page.locator("#strength").evaluate(
@@ -539,11 +539,11 @@ with sync_playwright() as playwright:
         str(model_settings["unsupportedSeed"]),
     )
 
-    # The resolution ladder on the model's own record: three sizes for each shape, lowest
-    # first, so a prompt can be tried on a small frame before it is worth four minutes. The
-    # rung keeps its place across a shape change, so one prompt can be compared in both
-    # shapes at the same cost. The low rung is left unpicked at the end, because the checks
-    # below read the model's own default frame.
+    # The resolution ladder on the model's own record: the sizes for each shape, lowest
+    # first, so a prompt can be tried on a small frame before it is worth four minutes.
+    # Every shape opens on its lowest rung, including one reached by a shape change: a rung
+    # picked on one shape does not follow the shape. The model's own default frame is put
+    # back at the end, because the checks below read it.
     ladder = page.evaluate(
         """() => {
           const rows = () => [...document.querySelectorAll('#video-resolutions button')].map(button => ({
@@ -562,14 +562,19 @@ with sync_playwright() as playwright:
           const back = {rows: rows()};
           document.querySelectorAll('#video-resolutions button')[2].click();
           const full = {rows: rows(), caption: caption()};
-          return {open, low, tall, back, full};
+          document.querySelector('.video-ratios button[data-ratio="9:16"]').click();
+          const movedHigh = {rows: rows(), caption: caption()};
+          document.querySelector('.video-ratios button[data-ratio="16:9"]').click();
+          const returned = {rows: rows()};
+          document.querySelectorAll('#video-resolutions button')[2].click();
+          return {open, low, tall, back, full, movedHigh, returned};
         }"""
     )
     check(
         "the resolution row offers each shape's sizes, lowest first, on the model's own record",
-        [row["size"] for row in ladder["open"]["rows"]] == ["640x384", "768x448", "1024x576"]
-        and [row["label"] for row in ladder["open"]["rows"]] == ["384p", "448p", "576p"]
-        and [row["selected"] for row in ladder["open"]["rows"]] == ["true", "false", "false"]
+        [row["size"] for row in ladder["open"]["rows"]] == ["640x384", "768x448", "1024x576", "1280x704"]
+        and [row["label"] for row in ladder["open"]["rows"]] == ["384p", "448p", "576p", "704p"]
+        and [row["selected"] for row in ladder["open"]["rows"]] == ["true", "false", "false", "false"]
         and not ladder["open"]["hidden"],
         json.dumps(ladder["open"]),
     )
@@ -580,18 +585,20 @@ with sync_playwright() as playwright:
         json.dumps(ladder["low"]),
     )
     check(
-        "the rung keeps its place across a shape change",
+        "each shape opens on its lowest rung",
         [row["size"] for row in ladder["tall"]["rows"]] == ["384x640", "448x768", "576x1024"]
         and ladder["tall"]["rows"][0]["selected"] == "true"
         and "384 × 640" in ladder["tall"]["caption"]  # noqa: RUF001
-        and [row["selected"] for row in ladder["back"]["rows"]] == ["true", "false", "false"],
+        and [row["selected"] for row in ladder["back"]["rows"]] == ["true", "false", "false", "false"],
         json.dumps(ladder["tall"]),
     )
     check(
-        "the full rung comes back with its own frame",
-        ladder["full"]["caption"] == "5.0 seconds, 1024 × 576, 121 frames."  # noqa: RUF001
-        and [row["selected"] for row in ladder["full"]["rows"]] == ["false", "false", "true"],
-        json.dumps(ladder["full"]),
+        "a rung picked on one shape does not follow the shape",
+        [row["selected"] for row in ladder["full"]["rows"]] == ["false", "false", "true", "false"]
+        and [row["selected"] for row in ladder["movedHigh"]["rows"]] == ["true", "false", "false"]
+        and ladder["movedHigh"]["caption"] == "5.0 seconds, 384 × 640, 121 frames."  # noqa: RUF001
+        and [row["selected"] for row in ladder["returned"]["rows"]] == ["true", "false", "false", "false"],
+        json.dumps(ladder["movedHigh"]),
     )
     # The video prompt's own templates. The record decides the menu, and a template that names
     # the reference image is offered only while the video carries one: the page reads that
@@ -1167,7 +1174,7 @@ with sync_playwright() as playwright:
         "duration follows the frame grid and shows derived output settings",
         page.locator("#video-duration").input_value() == "241"
         and "10.0 seconds" in summary
-        and "576 × 1024" in summary  # noqa: RUF001
+        and "384 × 640" in summary  # noqa: RUF001
         and "241 frames" in summary,
         summary,
     )
@@ -1420,8 +1427,8 @@ with sync_playwright() as playwright:
     check(
         "video generation sends selected settings and shared references",
         request.get("num_frames") == 241
-        and request.get("width") == 576
-        and request.get("height") == 1024
+        and request.get("width") == 384
+        and request.get("height") == 640
         and len(request.get("references", [])) == 3
         and request.get("seed") is None
         and isinstance(request.get("request_id"), str)
@@ -1462,7 +1469,7 @@ with sync_playwright() as playwright:
     check(
         "selected stub output uses the image-style caption and metadata row",
         "A kite rises as the camera pans across the shore" in page.locator("#video-output-details").inner_text()
-        and "576 \u00d7 1024" in page.locator("#video-output-details").inner_text()
+        and "384 \u00d7 640" in page.locator("#video-output-details").inner_text()
         and re.search(r"241 frames", page.locator("#video-output-details").inner_text()) is not None
         and seed_match is not None
         and 0 <= int(seed_match.group(1)) <= 4294967295

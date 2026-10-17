@@ -738,7 +738,10 @@
   .modes input:focus-visible + label { outline: 1.5px solid var(--accent); }
   .mode-controls { display: flex; flex-direction: column; gap: 22px; }
   .mode-controls[hidden] { display: none; }
-  .video-ratios { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 3px;
+  /* One row, whatever the model offers. An auto-fit track of 72px fits four of the five
+     shapes into a sidebar of this width, which leaves the fifth on a row of its own. The
+     columns are the shapes, so the row divides the width between them instead. */
+  .video-ratios { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px;
     padding: 2px; background: var(--chrome-2); border: 1px solid var(--line); border-radius: 8px; }
   .video-ratios button { min-height: 34px; border: 0; border-radius: 5px;
     background: none; color: var(--text-3); cursor: pointer; }
