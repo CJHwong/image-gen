@@ -14,6 +14,11 @@ sentence after the prompt: concrete wording is what steers the model, and
 quality words such as "4K" only darken the image. Each line says what to
 show, never what to leave out. The one exception is an avoid part, which goes
 to the negative prompt, not the sentence, and only where a test proved it.
+
+VIDEO_TEMPLATES is the same idea for a shot rather than a still, and it was sampled on
+LTX-2.5 on 2026-10-17: eight templates rendered once each at 121 frames on one seed, then
+judged against what each one's own text promises. Five shipped. PROMPTS.md holds the
+verdicts and the numbers, including the two that did not, and why.
 """
 
 from collections.abc import Mapping
@@ -108,6 +113,50 @@ EDIT_TEMPLATES = (
         # this one does not say it too. The region token becomes the number of the image
         # holding the mask, and a row is optional while this sentence names the area.
         "Change only [what changes] in the area marked in [the region you marked].",
+    ),
+)
+
+# What a video model is asked for. A still is described; a shot is directed, so these name
+# the camera and the moment, and they carry no Look rows: a Look is a sentence about how one
+# picture is made, and the video form offers none. Each of the five below rendered a clip
+# whose text it kept, in the sample the module docstring describes.
+#
+# "First frame" and "Last frame" both name the reference image, and the page offers them
+# only while the video carries one: without a still there is no frame to hold or to reach.
+VIDEO_TEMPLATES = (
+    Template(
+        "Camera move",
+        "One move, held steady",
+        "[Who or what] [does what] in [place] at [time of day]. The camera "
+        "[pushes in slowly, pulls back, pans left to right, or rises], keeping [what stays in "
+        "frame]. [Light and mood]. One continuous shot, [lens], no cuts.",
+    ),
+    Template(
+        "First frame",
+        "Hold the opening still",
+        "Keep the first frame exactly as the reference image. From there, [what happens next] "
+        "over [how long]. The camera [stays still, or moves how]. The light stays the same, one "
+        "continuous shot.",
+    ),
+    Template(
+        "Last frame",
+        "Reach a given ending still",
+        "[A wide or a close shot] of [the scene] at the start. By the end, the frame matches the "
+        "reference image: [what must be true at the end]. The camera [moves how], [light], one "
+        "continuous shot.",
+    ),
+    Template(
+        "Product turn",
+        "An object turning, with its label held",
+        "[Product: material, colour, finish] on [surface] in [setting], turning slowly on a "
+        "turntable. [Light], [what is behind it]. The object stays centred, shallow depth of "
+        'field, the label text "[one or two words]" readable and spelled exactly.',
+    ),
+    Template(
+        "Style and stock",
+        "One look for the whole clip",
+        "[Who or what] [does what] in [place], shot on [film stock or camera] with [palette and "
+        "light], in [style]. Visible grain, [lens], one continuous shot, no cuts.",
     ),
 )
 

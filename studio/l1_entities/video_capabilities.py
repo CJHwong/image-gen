@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from studio.l1_entities.capabilities import Template
+
 
 @dataclass(frozen=True)
 class VideoShape:
@@ -34,3 +36,8 @@ class VideoCapabilities:
     min_dimension: int
     max_dimension: int
     dimension_step: int
+    # The prompt aids this model was sampled on, in the same shape the image modes use, and
+    # empty for a model that was never sampled. A template whose text names the reference
+    # image is offered only while the video carries one, the way an image template that names
+    # the region token is offered only while the brush is available.
+    templates: tuple[Template, ...] = ()
