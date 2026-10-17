@@ -263,7 +263,7 @@ with sync_playwright() as playwright:
     page.dispatch_event("#prompt", "input")
     check(
         "Turbo text generation shows its measured time estimate",
-        page.locator("#go-sub").inner_text() == "about 35s",
+        page.locator("#go-sub").inner_text() == "about 25s",
         page.locator("#go-sub").inner_text(),
     )
     paste_prevented = paste_file(page, REFERENCE.read_bytes(), "reference.png", "image/png")
@@ -274,7 +274,7 @@ with sync_playwright() as playwright:
     )
     check(
         "Turbo reference generation shows its measured time estimate",
-        page.locator("#go-sub").inner_text() == "about 25s",
+        page.locator("#go-sub").inner_text() == "about 20s",
         page.locator("#go-sub").inner_text(),
     )
     page.locator("#strength").evaluate(
@@ -319,7 +319,6 @@ with sync_playwright() as playwright:
     check(
         "Video mode shows its own selected model",
         page.locator("#backend-toggle .name").inner_text() == "LTX-2.5"
-        and page.locator(".dial .badge").inner_text() == "24 fps"
         and page.locator("#backend-toggle").is_disabled(),
         page.locator("#backend-toggle").inner_text().replace("\n", " "),
     )
@@ -484,7 +483,7 @@ with sync_playwright() as playwright:
                 {"ratio": "5:4", "width": "640", "height": "512", "selected": "false"},
                 {"ratio": "4:5", "width": "512", "height": "640", "selected": "true"},
             ],
-            "defaultShape": "4.04 seconds, 512 × 640, 97 frames at 24 fps.",  # noqa: RUF001
+            "defaultShape": "4.0 seconds, 512 × 640, 97 frames.",  # noqa: RUF001
             "referenceLimit": 2,
             "referenceLimitError": "This video model accepts at most 2 image references.",
             "defaultReferenceStrength": "0.4",
@@ -649,7 +648,7 @@ with sync_playwright() as playwright:
     page.wait_for_function("() => document.querySelector('#go-sub').textContent.includes('about')")
     check(
         "Turbo edit shows its measured time estimate",
-        page.locator("#go-sub").inner_text() == "about 55s",
+        page.locator("#go-sub").inner_text() == "about 50s",
         page.locator("#go-sub").inner_text(),
     )
     page.locator("label[for=mode-generate]").click()
@@ -678,7 +677,7 @@ with sync_playwright() as playwright:
     check(
         "video duration starts at the documented 121-frame example",
         page.locator("#video-duration").input_value() == "121"
-        and "5.04 seconds" in page.locator("#video-frame-count").inner_text(),
+        and "5.0 seconds" in page.locator("#video-frame-count").inner_text(),
         page.locator("#video-frame-count").inner_text(),
     )
     page.get_by_role("button", name="Set duration to 15 seconds").click()
@@ -732,6 +731,37 @@ with sync_playwright() as playwright:
         "Source clip" in source_details and "Duration" in source_details and "96 \u00d7 64" in source_details,
         source_details,
     )
+    # An added clip shows its own first frame, and the row's highlight covers its delete
+    # button. That button sits in a column beside the select, so the colour has to be on
+    # the row. The first frame is a canvas seek, so it lands a moment after the list draws.
+    page.wait_for_function(
+        "() => { const picture = document.querySelector('.video-source-item .video-source-thumb img');"
+        "return picture && picture.complete && picture.naturalWidth > 0; }",
+        timeout=30000,
+    )
+    source_row = page.evaluate(
+        """() => {
+          const row = document.querySelector('.video-source-item');
+          const select = row.querySelector('.video-source');
+          const remove = row.querySelector('.video-source-remove');
+          const rowBox = row.getBoundingClientRect();
+          const removeBox = remove.getBoundingClientRect();
+          return {
+            selected: row.classList.contains('selected'),
+            rowBackground: getComputedStyle(row).backgroundColor,
+            selectBackground: getComputedStyle(select).backgroundColor,
+            removeInsideRow: removeBox.left >= rowBox.left && removeBox.right <= rowBox.right + 1,
+          };
+        }"""
+    )
+    check(
+        "an added video shows its own frame and the highlight covers its delete button",
+        source_row.get("selected")
+        and source_row.get("rowBackground") != "rgba(0, 0, 0, 0)"
+        and source_row.get("selectBackground") == "rgba(0, 0, 0, 0)"
+        and source_row.get("removeInsideRow"),
+        str(source_row),
+    )
     check(
         "imported video files stay in source assets without a timeline",
         page.locator("#video-source-list .video-source").count() == 1
@@ -776,7 +806,7 @@ with sync_playwright() as playwright:
         ),
         f"restored {resume_time:.2f}s",
     )
-    capture_button = page.get_by_role("button", name="Add this frame as an image reference")
+    capture_button = page.get_by_role("button", name="Add reference")
     expected_capture = page.evaluate(
         """async () => {
           const studio = document.getElementById('video-studio');
@@ -882,10 +912,9 @@ with sync_playwright() as playwright:
     check(
         "duration follows the frame grid and shows derived output settings",
         page.locator("#video-duration").input_value() == "241"
-        and "10.04 seconds" in summary
+        and "10.0 seconds" in summary
         and "576 × 1024" in summary  # noqa: RUF001
-        and "241 frames" in summary
-        and "24 fps" in summary,
+        and "241 frames" in summary,
         summary,
     )
     sent_frame = page.evaluate("() => document.getElementById('video-studio').imageReferences[1].frameIndex")
@@ -1180,7 +1209,6 @@ with sync_playwright() as playwright:
         "selected stub output uses the image-style caption and metadata row",
         "A kite rises as the camera pans across the shore" in page.locator("#video-output-details").inner_text()
         and "576 \u00d7 1024" in page.locator("#video-output-details").inner_text()
-        and "24 fps" in page.locator("#video-output-details").inner_text()
         and re.search(r"241 frames", page.locator("#video-output-details").inner_text()) is not None
         and seed_match is not None
         and 0 <= int(seed_match.group(1)) <= 4294967295
@@ -1331,7 +1359,7 @@ with sync_playwright() as playwright:
         thumbnail_ready = True
     except PlaywrightTimeoutError:
         pass
-    generated_card = page.locator("#video-gallery .video-gallery-item").nth(1)
+    generated_card = page.locator("#video-gallery .video-gallery-item").nth(0)
     generated_details = page.locator("#video-output-details").inner_text()
     video_presentation = page.evaluate(
         """() => {
@@ -1413,8 +1441,11 @@ with sync_playwright() as playwright:
         },
         str(gallery_actions),
     )
-    page.locator("#video-gallery .video-clip").nth(1).focus()
-    page.keyboard.press("ArrowLeft")
+    # The strip reads newest first, so the arrows walk that way too: right is the older
+    # clip. This starts on the newest, which a render selects, and comes back to it, so
+    # the checks below read the clip the run just made.
+    page.locator("#video-gallery .video-clip").nth(0).focus()
+    page.keyboard.press("ArrowRight")
     previous_clip = page.evaluate(
         """() => ({
           selected: document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId,
@@ -1422,11 +1453,11 @@ with sync_playwright() as playwright:
           clips: [...document.querySelectorAll('#video-gallery .video-clip')].map(clip => clip.dataset.clipId),
         })"""
     )
-    page.keyboard.press("ArrowLeft")
+    page.keyboard.press("ArrowRight")
     first_clip_edge = page.evaluate(
         """() => document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId"""
     )
-    page.keyboard.press("ArrowRight")
+    page.keyboard.press("ArrowLeft")
     next_clip = page.evaluate(
         """() => ({
           selected: document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId,
@@ -1436,11 +1467,11 @@ with sync_playwright() as playwright:
     check(
         "Video gallery arrows select adjacent clips and keep focus",
         len(previous_clip["clips"]) == 2
-        and previous_clip["selected"] == previous_clip["clips"][0]
-        and previous_clip["focused"] == previous_clip["clips"][0]
-        and first_clip_edge == previous_clip["clips"][0]
-        and next_clip["selected"] == previous_clip["clips"][1]
-        and next_clip["focused"] == previous_clip["clips"][1],
+        and previous_clip["selected"] == previous_clip["clips"][1]
+        and previous_clip["focused"] == previous_clip["clips"][1]
+        and first_clip_edge == previous_clip["clips"][1]
+        and next_clip["selected"] == previous_clip["clips"][0]
+        and next_clip["focused"] == previous_clip["clips"][0],
         json.dumps({"previous": previous_clip, "edge": first_clip_edge, "next": next_clip}),
     )
     check(
@@ -1448,7 +1479,6 @@ with sync_playwright() as playwright:
         thumbnail_ready
         and generated_card.locator(".video-clip-thumb img").count() == 1
         and "96 \u00d7 64" in generated_details
-        and "12 fps" in generated_details
         and re.search(r"12 frames", generated_details) is not None
         and re.search(r"Seed\s+7", generated_details) is not None
         and "2 image references" in generated_details
@@ -1467,7 +1497,7 @@ with sync_playwright() as playwright:
         and video_presentation.get("directFrameAction") is False
         and video_presentation.get("actionOrder")
         == [
-            "Add this frame as an image reference",
+            "Add reference",
             "More actions",
             "Download video",
             "Remove video LTX-2.5 1s",
@@ -1476,8 +1506,13 @@ with sync_playwright() as playwright:
         and video_presentation.get("hasActionDivider")
         and video_presentation.get("directVideoFrameAction")
         and page.locator("#video-output-details .video-output-actions a[download]").count() == 1
-        and page.locator("#video-output-details .video-output-actions a[download]").get_attribute("download")
-        == "LTX-2.5 1s.webm"
+        # The clip's name, its length, and the moment it was made: no space, so a second
+        # render of the same length cannot land on the first one's file name.
+        and re.fullmatch(
+            r"LTX-2\.5-1s-\d{8}-\d{6}\.webm",
+            page.locator("#video-output-details .video-output-actions a[download]").get_attribute("download"),
+        )
+        is not None
         and page.locator("#video-output-details .video-output-actions [aria-label='More actions']").count() == 1
         and page.get_by_role("button", name="Remove video LTX-2.5 1s").is_visible()
         and page.get_by_role("button", name="Full screen").is_visible()
@@ -1532,7 +1567,7 @@ with sync_playwright() as playwright:
         page.get_by_role("menuitem", name="Reuse prompt").is_visible()
         and page.get_by_role("menuitem", name="Reuse seed 7").is_visible()
         and page.get_by_role("menuitem", name="Use current frame in Image").is_visible()
-        and page.get_by_role("menuitem", name="Add this frame as an image reference").count() == 0
+        and page.get_by_role("menuitem", name="Add reference").count() == 0
         and page.get_by_role("menuitem", name="Remove video LTX-2.5 1s").count() == 0,
         page.locator("#video-output-menu").inner_text(),
     )
@@ -1651,7 +1686,7 @@ with sync_playwright() as playwright:
     check(
         "video preview uses a quiet status, grain texture, and player-edge timer",
         progress_result.get("supported")
-        and progress_result.get("headline") == "Generating video"
+        and progress_result.get("headline") == "Denoising, step 4 of 8"
         and progress_result.get("elapsed") == "00:06.4 elapsed"
         and "LTX-2.5" in progress_result.get("previewModel", "")
         and progress_result.get("previewSerial") == "03"
@@ -1779,7 +1814,8 @@ with sync_playwright() as playwright:
     video_downloads = downloads[download_start:]
     check(
         "Download all saves each video and its useful metadata",
-        "LTX-2.5 1s.webm" in video_downloads and "studio-video-metadata.json" in video_downloads,
+        any(re.fullmatch(r"LTX-2\.5-1s-\d{8}-\d{6}\.webm", name) for name in video_downloads)
+        and "studio-video-metadata.json" in video_downloads,
         str(video_downloads),
     )
     page.get_by_role("button", name="Clear all").click()

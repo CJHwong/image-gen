@@ -15,7 +15,7 @@ Each layer imports only the layers inside it. `.importlinter` enforces this, and
 
 The entities and use cases import no engine: no mlx, mflux, PIL, http or subprocess. The backend adapters do not import each other; what two of them share sits next to them in `gateways/`.
 
-The engine choice is made in layer 4, from the probe in `engines.py`, not in a gateway. An engine that only one platform has is a decision at the top, not a branch inside the adapter. Engine code that already branches is not converted; `gateways/qwen21/PORTABILITY.md` records what a port would need.
+The engine choice is made in layer 4, from the probe in `engines.py`, not in a gateway. An engine that only one platform has is a decision at the top, not a branch inside the adapter. Engine code that already branches is not converted; `gateways/qwen21/PORTABILITY.md` records what a port would need. A checkpoint's sampling schedule is wired the same way: layer 4 registers the official Turbo checkpoint's own sigma table, which lives beside the backends in `gateways/qwen21_turbo_schedule.py` because a backend may not import another backend.
 
 The image and video workspaces have separate backend catalogs and selections. They share one model-memory slot and one non-queueing lock. The server starts without loading weights. A model loads only when its run starts. Selecting another model releases the current one but does not load the new one. Leaving a workspace releases its model. The LTX pipeline runs in a child process, which releases its weights when it exits. A prompt rewrite takes the same lock and releases its weights when it ends.
 

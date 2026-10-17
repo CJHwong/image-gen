@@ -54,6 +54,26 @@ def test_the_turbo_and_video_stubs_build_without_weights_or_mlx(tmp_path, no_mlx
     assert studio.handler.__name__ == "StudioHandler"
 
 
+def test_the_turbo_stub_builds_where_mlx_cannot_be_imported_at_all(tmp_path, monkeypatch):
+    """The availability probe is not the import, and this is the test that tells them
+    apart. `no_mlx` above only answers no; a host with no mlx package raises on the
+    import, and building a backend that reached for mflux would break the page there.
+
+    A None entry halts the import, which is the trick the test below uses too.
+    """
+    monkeypatch.setitem(sys.modules, "mlx", None)
+    monkeypatch.setitem(sys.modules, "mlx.core", None)
+    path = tmp_path / "studio.toml"
+    path.write_text(
+        'default_backend = "qwen21_turbo"\nvisible_backends = ["qwen21_turbo"]\n'
+        '[qwen21_turbo]\nquantize = 0\nmodel_dir = "missing-qwen-weights"\n'
+    )
+
+    studio = create_studio(load_config(path), stub=True)
+
+    assert studio.active_capabilities().backend_id == "qwen21_turbo"
+
+
 def test_the_real_studio_builds_where_mlx_runs(needs_mlx, config):
     assert create_studio(config).active_capabilities().name == "Qwen-Image-2.1"
 

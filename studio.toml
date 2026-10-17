@@ -18,6 +18,9 @@ rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 [qwen21_turbo]
 quantize = 0
 model_dir = "~/Library/Caches/models/qwen-image-2.1-turbo"
+# The checkpoint ships its own eight-node sampling schedule and this backend samples
+# it, so 8 steps is the count rather than a setting. `gateways/qwen21_turbo_schedule.py`
+# holds the table; the README's "Why it looks like this" says why it is not the default one.
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 

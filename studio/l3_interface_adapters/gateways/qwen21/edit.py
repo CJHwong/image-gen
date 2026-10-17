@@ -20,7 +20,8 @@ from studio.l1_entities.errors import InvalidJob
 from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook, lora_kwargs, release_mlx_buffers
 from studio.l3_interface_adapters.gateways.png_images import to_png
-from studio.l3_interface_adapters.gateways.qwen21.capabilities import EDIT_MATCH_CAP, MATCH
+from studio.l3_interface_adapters.gateways.qwen_image_controls import MATCH
+from studio.l3_interface_adapters.gateways.qwen_image_sizes import EDIT_MATCH_CAP
 
 # mflux holds the area budget to a multiple of 32. The page's "match" figure is
 # the square root of the reference's pixel count, which is almost never one.

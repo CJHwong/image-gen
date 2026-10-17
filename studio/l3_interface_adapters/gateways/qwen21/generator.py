@@ -11,7 +11,7 @@ from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l3_interface_adapters.gateways.image_sizes import match_reference_size
 from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook, lora_kwargs, release_mlx_buffers
 from studio.l3_interface_adapters.gateways.png_images import to_pil, to_png
-from studio.l3_interface_adapters.gateways.qwen21.capabilities import MATCH
+from studio.l3_interface_adapters.gateways.qwen_image_controls import MATCH
 
 
 def generate_kwargs(job: ImageJob, scheduler: str = "linear") -> dict:

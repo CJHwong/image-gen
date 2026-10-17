@@ -16,7 +16,6 @@ from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.image_job import ImageJob
 from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook
 from studio.l3_interface_adapters.gateways.qwen21 import edit as edit_module
-from studio.l3_interface_adapters.gateways.qwen21.capabilities import EDIT_MATCH_CAP
 from studio.l3_interface_adapters.gateways.qwen21.edit import (
     GRID,
     Qwen21Edit,
@@ -25,6 +24,7 @@ from studio.l3_interface_adapters.gateways.qwen21.edit import (
     edit_resolution,
     on_the_grid,
 )
+from studio.l3_interface_adapters.gateways.qwen_image_sizes import EDIT_MATCH_CAP
 from tests.support.heavy import heavy_modules
 from tests.support.images import png
 

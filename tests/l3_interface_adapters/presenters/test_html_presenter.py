@@ -21,7 +21,7 @@ from studio.l2_use_cases.run_image_use_case import NextRun, RunImageResponse
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from tests.support.fakes import fake_capabilities, fake_video_capabilities
 
-PAGE = "<title>__NAME__</title><input value=__BACKEND__><b>__BADGE__</b><script>const STUDIO = __STUDIO__;</script>"
+PAGE = "<title>__NAME__</title><input value=__BACKEND__><script>const STUDIO = __STUDIO__;</script>"
 
 
 def presenter():
@@ -58,7 +58,7 @@ def response(next_run=None, reference=-1):
 def test_the_page_carries_the_capabilities():
     caps = fake_capabilities(name="Fake </script> engine")
     body = presenter().page(StudioView(active=caps, backends=(("fake", "Fake", "What it is."),)))
-    assert "<title>Fake &lt;/script&gt; engine</title>" in body and "<b>bf16</b>" in body
+    assert "<title>Fake &lt;/script&gt; engine</title>" in body
     assert "<input value=fake>" in body  # the form names the backend it was built for
     studio = studio_data(body)
     assert studio["backend"]["max_batch"] == 4 and studio["backends"] == [["fake", "Fake", "What it is."]]

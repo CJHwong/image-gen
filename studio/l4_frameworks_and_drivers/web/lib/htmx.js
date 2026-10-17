@@ -49,9 +49,9 @@ function startedAt() {
   return Number(page.el.go.dataset.started) || 0;
 }
 
-// The tab title shows the progress, so a run can be watched from another tab.
-// A run that ends in the background leaves "Done" until the tab is seen.
-const BASE_TITLE = document.title;
+// The tab title shows the progress, so a run can be watched from another tab, and the
+// page owns its text: the workspace decides the name in it. A run that ends in the
+// background leaves "Done" until the tab is seen.
 
 function snapshotInputs() {
   const params = {};
@@ -178,7 +178,7 @@ function revokeUnclaimed() {
 
 function stopWork() {
   if (!page.busy()) return;
-  document.title = (document.hidden ? '(Done) ' : '') + BASE_TITLE;
+  document.title = (document.hidden ? '(Done) ' : '') + page.workspaceTitle();
   document.body.classList.remove('busy', 'stopping');
   page.syncRunState();
   page.el.progressSlot.innerHTML = '';
@@ -302,7 +302,7 @@ function renderProgress() {
     ? [stepText, state.label ? 'image ' + state.label : '',
       left.charAt(0).toLowerCase() + left.slice(1)].filter(Boolean).join(', ')
     : stepText;
-  document.title = (running ? '(' + now.percent + '%) ' : '') + BASE_TITLE;
+  document.title = (running ? '(' + now.percent + '%) ' : '') + page.workspaceTitle();
   page.progressCard().paintAll(running, now.percent);
 }
 
@@ -351,6 +351,10 @@ function harvest() {
       id: page.takeFrameId(), src: blobUrl(source), b64: source.split(',')[1], seed: data.seed,
       width: data.width, height: data.height, steps: data.steps, elapsed: data.elapsed,
       position: data.position, mode: data.mode, prompt: data.prompt, look: null, negative: '',
+      // The moment it arrived, which a download carries in its file name. Read here
+      // because this is the only point that knows it: the record that comes back from
+      // the store is written later, and a name built from that would be the store's time.
+      at: Date.now(),
       // Which model made this one, taken now because the page knows it now. A
       // switch reloads the page but keeps the strip, so without this every frame
       // would wear whichever model was selected last. `edgeName` is the active
@@ -448,7 +452,7 @@ function listen() {
   // The tab title shows the progress, so a run can be watched from another tab.
   // A run that ends in the background leaves "Done" until the tab is seen.
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && !page.busy()) document.title = BASE_TITLE;
+    if (!document.hidden && !page.busy()) page.setTitle('');
   });
 
   new MutationObserver(function () {

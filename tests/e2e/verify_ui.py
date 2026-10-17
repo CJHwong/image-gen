@@ -60,6 +60,10 @@ FRAME = re.compile(r"^(generate|edit), seed ")
 # the first inside it, and a substring match would find both rows.
 FIRST = "Qwen-Image-2.1"
 SECOND = "Qwen-Image-2.1-viggle-turbo"
+# The configured default. Named here because one block reads its form, and because
+# "Qwen-Image-2.1" is a substring of this name, so every role query for the base
+# model also finds this one and only an exact name tells them apart.
+TURBO = "Qwen-Image-2.1-Turbo"
 results = []
 
 # The page reads a reference from a file, so the upload path needs real pixels on
@@ -308,6 +312,54 @@ with sync_playwright() as playwright:
         f"{rules} rules",
     )
 
+    # The default backend's own form, read here and nowhere else: every Look, template
+    # and run check below happens after the suite switches to the base model. It gets a
+    # page of its own because the run below lands a frame, and an extra frame in the
+    # strip moves the numbering those checks read. It selects the backend by name rather
+    # than reading which one the server holds: that is state an earlier run leaves
+    # wherever it stopped, which is why a guard on it skipped silently once already.
+    default_context = browser.new_context(viewport={"width": 1440, "height": 900})
+    default = default_context.new_page()
+    default.goto(URL)
+    started_on = default.evaluate("() => STUDIO.backend.name")
+    default.click("#backend-toggle")
+    default.get_by_role("menuitemradio", name=TURBO, exact=True).click()
+    default.wait_for_function(toggle_reads(TURBO), timeout=180000)
+    turbo_steps = default.input_value("#steps")
+    check(
+        "the default backend names itself in full, where a substring query cannot tell",
+        default.locator("#backend-toggle .name").inner_text().strip() == TURBO,
+        default.locator("#backend-toggle .name").inner_text().strip(),
+    )
+    check(
+        "and its own sampling table decides its step count, with no range to move",
+        (turbo_steps, default.get_attribute("#steps", "min"), default.get_attribute("#steps", "max"))
+        == ("8", "8", "8"),
+        turbo_steps,
+    )
+    check(
+        "and it offers the Look rows and the templates the base model has",
+        default.locator("#look").is_visible() and default.locator("#templates-toggle").is_visible(),
+    )
+    held = frames(default)
+    run_once(default, "a pear on a table", steps=int(turbo_steps))
+    default.wait_for_timeout(600)
+    check(
+        "a run on the default backend finishes at that count and lands a frame",
+        frames(default) == held + 1,
+        f"{frames(default)} frames",
+    )
+    # Put the server back where it was found. The backend is the server's own state and
+    # this suite's main page holds its own view of it, so a switch to the model the page
+    # already shows is deliberately a no-op that does not reload: leaving the server on
+    # another backend would send the next run there, and a two-step run on this one is
+    # refused, which reads as a page that never finished.
+    if started_on != TURBO:
+        default.click("#backend-toggle")
+        default.get_by_role("menuitemradio", name=started_on, exact=True).click()
+        default.wait_for_function(toggle_reads(started_on), timeout=180000)
+    default_context.close()
+
     # A live region is not a role a browser computes, so both hosts carry the
     # role outright and a query reaches them by role instead of by id. The toast
     # host is always in the tree, so it is read here; the run readout is read
@@ -320,11 +372,13 @@ with sync_playwright() as playwright:
     )
 
     # The header, and the mode the page opens on.
+    # The studio opens on Turbo, so the header names that model, and the base model's
+    # name is the prefix of it either way.
     check(
-        "the header names the model and its badge",
-        page.get_by_role("button", name="Qwen-Image-2.1").is_visible()
-        and page.locator("[title='Model details']").inner_text().strip() == "bf16",
-        page.locator("[title='Model details']").inner_text().strip(),
+        "the header names the model",
+        page.get_by_role("button", name=re.compile(r"^Qwen-Image-2\.1")).is_visible()
+        and page.locator("#backend-toggle .name").inner_text().strip().startswith("Qwen-Image-2.1"),
+        page.locator("#backend-toggle").inner_text().replace("\n", " "),
     )
     check("Generate is the mode the page opens on", page.get_by_role("radio", name="Generate").is_checked())
 
@@ -429,7 +483,9 @@ with sync_playwright() as playwright:
     )
     page.get_by_role("button", name="3:2", exact=True).click()
 
-    # The default Turbo backend has no Looks, so use the full model for these checks.
+    # The aid checks read the base model, so the suite switches to it explicitly: that
+    # makes the run the same whether the server opened on it or on the default backend.
+    # It is not a claim that the default has no Looks, which it now does.
     page.click("#backend-toggle")
     page.get_by_role("menuitemradio", name=FIRST, exact=True).click()
     page.wait_for_function(toggle_reads(FIRST), timeout=180000)
@@ -1530,8 +1586,9 @@ with sync_playwright() as playwright:
 
     # The badge on an edit names the frame it was made from, and that name is a way
     # back to it. The way back is read from what the stage says once it arrives,
-    # not from a file name: one download carries the model, the mode and the seed,
-    # and only Download all puts the frame number in front of a name.
+    # not from a file name: one download carries the model, the mode, the seed and
+    # the moment it was made, and only Download all puts the frame number in front
+    # of a name.
     source_link = page.get_by_role("button", name=re.compile("^Show frame "))
     wanted = source_link.get_attribute("aria-label").replace("Show frame ", "")
     check("an edit names the frame it was made from", source_link.count() == 1, wanted)
@@ -2050,7 +2107,10 @@ with sync_playwright() as playwright:
     check(
         "each frame downloads under the name of the model that made it",
         any("-qwen21-generate-" in name for name in downloads)
-        and any("-viggle_turbo-generate-" in name for name in downloads),
+        and any("-viggle_turbo-generate-" in name for name in downloads)
+        # The moment it was made goes last, so two frames off one seed and one model do
+        # not land on one file name.
+        and any(re.search(r"-qwen21-generate-\d+-\d{8}-\d{6}\.png$", name) for name in downloads),
         str(downloads),
     )
     # The region tool is offered here too, on this model's own measurement. Its brush
