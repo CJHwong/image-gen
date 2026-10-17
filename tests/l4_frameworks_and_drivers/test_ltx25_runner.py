@@ -38,6 +38,45 @@ def job(references=()):
     return VideoJob("A kite rises above the beach", 960, 544, 145, 24, 42, references)
 
 
+def test_a_run_that_asks_for_the_enhancer_names_its_weights(tmp_path):
+    """The video model's own prompt enhancer is a second Gemma with its own directory, and
+    the pipeline wants that directory named. A run carries the switch, so only a run that
+    asked for it passes the two flags."""
+    model_dir = tmp_path / "ltx-models"
+    model_dir.mkdir()
+    weights(model_dir)
+    enhancer = tmp_path / "gemma-4-E2B-it"
+    enhancer.mkdir()
+    calls = []
+
+    def fake_process(command, **options):
+        calls.append(command)
+        Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4 bytes")
+
+    runner = Ltx25Runner("python", model_dir, process_runner=fake_process, prompt_enhancer_root=enhancer)
+    runner.run(VideoJob("A kite rises", 960, 544, 145, 24, 42, (), enhance=True))
+    runner.run(job())
+
+    with_enhancer, without = calls
+    assert "--enhance-prompt" in with_enhancer
+    assert with_enhancer[with_enhancer.index("--prompt-enhancer-gemma-root") + 1] == str(enhancer)
+    assert "--enhance-prompt" not in without
+    assert "--prompt-enhancer-gemma-root" not in without
+
+
+def test_a_run_that_asks_for_the_enhancer_without_its_weights_says_how_to_get_them(tmp_path):
+    """The weights come from their own repository and this runner fetches one model only, so
+    a switch with nothing on disk has to fail with a line a person can act on rather than
+    inside the pipeline over a path."""
+    model_dir = tmp_path / "ltx-models"
+    model_dir.mkdir()
+    weights(model_dir)
+    runner = Ltx25Runner("python", model_dir, prompt_enhancer_root=tmp_path / "not-downloaded")
+
+    with pytest.raises(StudioError, match="prompt enhancer and its weights are not on disk"):
+        runner.run(VideoJob("A kite rises", 960, 544, 145, 24, 42, (), enhance=True))
+
+
 def test_runner_builds_official_distilled_command_and_returns_the_mp4(tmp_path):
     model_dir = tmp_path / "ltx-models"
     model_dir.mkdir()
@@ -132,10 +171,26 @@ def test_runner_drains_child_stderr_without_a_progress_callback():
     Ltx25Runner._execute_with_progress(command, None)
 
 
-def test_runner_reports_a_streamed_pipeline_failure():
-    command = [sys.executable, "-c", "raise SystemExit(2)"]
+def test_runner_reports_a_streamed_pipeline_failure_with_what_the_pipeline_said():
+    """A run that dies of memory says so on its own last line, and the runner reads the
+    child's output for step markers and drops the rest: this tail is the only account of the
+    failure a person can act on."""
+    command = [
+        sys.executable,
+        "-c",
+        "import sys; print('RuntimeError: MPS backend out of memory', file=sys.stderr); raise SystemExit(2)",
+    ]
 
-    with pytest.raises(StudioError, match="pipeline failed with exit status 2"):
+    with pytest.raises(StudioError, match="pipeline failed with exit status 2") as failure:
+        Ltx25Runner("python", ".")._execute(command, lambda _step, _total, _phase: None)
+
+    assert "MPS backend out of memory" in str(failure.value)
+
+
+def test_runner_says_so_when_a_dying_pipeline_says_nothing():
+    command = [sys.executable, "-c", "raise SystemExit(3)"]
+
+    with pytest.raises(StudioError, match="failed with exit status 3 and said nothing"):
         Ltx25Runner("python", ".")._execute(command, lambda _step, _total, _phase: None)
 
 

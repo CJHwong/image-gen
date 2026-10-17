@@ -151,7 +151,11 @@ BACKENDS = {
 
 def ltx25_backend(config: Config) -> Ltx25BackendGateway:
     settings = config.backend("ltx25")
-    runner = Ltx25Runner(settings.get("python_path", ""), settings.get("model_dir", ""))
+    runner = Ltx25Runner(
+        settings.get("python_path", ""),
+        settings.get("model_dir", ""),
+        prompt_enhancer_root=settings.get("prompt_enhancer_gemma_root"),
+    )
     return Ltx25BackendGateway(runner)
 
 

@@ -8,7 +8,8 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable
+from collections import deque
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import BinaryIO, cast
 
@@ -25,6 +26,8 @@ MODEL_PATHS = {
 }
 MODEL_FILES = tuple(MODEL_PATHS.values())
 MODEL_REPOSITORY = "Lightricks/LTX-2.5"
+# How many of the pipeline's last lines a crash keeps.
+STDERR_TAIL_LINES = 12
 RUN_TIMEOUT_SECONDS = 3600
 PROGRESS_WRAPPER = """import sys
 
@@ -82,8 +85,12 @@ class Ltx25Runner:
         model_dir: str | Path,
         process_runner: Callable = subprocess.run,
         model_downloader: Callable[[Path], None] | None = None,
+        prompt_enhancer_root: str | Path | None = None,
     ):
         self._python_path = python_path
+        # The video model's own prompt enhancer is a second Gemma, fetched from its own
+        # repository and not by this runner's weight download, which knows one model only.
+        self._prompt_enhancer_root = Path(str(prompt_enhancer_root)).expanduser() if prompt_enhancer_root else None
         self._model_dir_value = str(model_dir).strip() if model_dir is not None else ""
         self._model_dir = Path(self._model_dir_value).expanduser()
         self._process_runner = process_runner
@@ -100,7 +107,14 @@ class Ltx25Runner:
         with tempfile.TemporaryDirectory(prefix="studio-ltx25-") as scratch:
             output_path = Path(scratch) / "output.mp4"
             image_arguments = self._write_references(job, Path(scratch))
-            command = self._command(python, model_paths, job, output_path, image_arguments)
+            command = self._command(
+                python,
+                model_paths,
+                job,
+                output_path,
+                image_arguments,
+                self._enhancer_for(job),
+            )
             if progress:
                 script_path = Path(scratch) / "ltx25_progress.py"
                 script_path.write_text(PROGRESS_WRAPPER, encoding="utf-8")
@@ -156,6 +170,24 @@ class Ltx25Runner:
         except subprocess.TimeoutExpired:
             raise StudioError("LTX-2.5 weights download timed out after one hour.") from None
 
+    def _enhancer_for(self, job: VideoJob) -> Path | None:
+        """The prompt enhancer's directory, or a refusal that says how to get it.
+
+        The enhancer's weights come from their own repository and this runner does not fetch
+        them, so a run that asks for the enhancer with nothing on disk would otherwise die
+        inside the pipeline over a path nobody can act on.
+        """
+        if not job.enhance:
+            return None
+        if self._prompt_enhancer_root is None or not self._prompt_enhancer_root.is_dir():
+            raise StudioError(
+                "This run asked for the video model's own prompt enhancer and its weights are "
+                f"not on disk at {self._prompt_enhancer_root}. Download them with `hf download "
+                "google/gemma-4-E2B-it --local-dir <dir>`, then point prompt_enhancer_gemma_root "
+                "in the ltx25 section of studio.toml at that directory."
+            )
+        return self._prompt_enhancer_root
+
     @staticmethod
     def _write_references(job: VideoJob, scratch: Path) -> list[tuple[Path, int, float]]:
         arguments = []
@@ -166,7 +198,14 @@ class Ltx25Runner:
         return arguments
 
     @staticmethod
-    def _command(python: str, model_paths: dict[str, Path], job: VideoJob, output_path: Path, image_arguments):
+    def _command(
+        python: str,
+        model_paths: dict[str, Path],
+        job: VideoJob,
+        output_path: Path,
+        image_arguments,
+        enhancer_root: Path | None = None,
+    ):
         command = [
             python,
             "-m",
@@ -196,6 +235,8 @@ class Ltx25Runner:
             "--output-path",
             str(output_path),
         ]
+        if job.enhance and enhancer_root is not None:
+            command.extend(("--enhance-prompt", "--prompt-enhancer-gemma-root", str(enhancer_root)))
         if job.seed is not None:
             command.extend(("--seed", str(job.seed)))
         for image_path, frame_index, strength in image_arguments:
@@ -239,6 +280,11 @@ class Ltx25Runner:
             stderr = cast(BinaryIO, process.stderr)
             started = time.monotonic()
             pending = ""
+            # The pipeline's own last words, kept so a crash can be read. Its output is read
+            # for step markers and thrown away otherwise, which leaves a failure with nothing
+            # to diagnose it: the machine runs out of memory and the page says only that the
+            # run stopped.
+            recent: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
             with selectors.DefaultSelector() as selector:
                 selector.register(stderr, selectors.EVENT_READ)
                 while selector.get_map():
@@ -257,8 +303,10 @@ class Ltx25Runner:
                     if not chunk:
                         selector.unregister(stderr)
                         continue
+                    text = chunk.decode(errors="replace")
+                    recent.extend(line for line in text.splitlines() if line.strip())
                     if progress:
-                        pending += chunk.decode(errors="replace")
+                        pending += text
                         pending = _report_progress_lines(pending, progress)
             return_code = process.wait(timeout=max(0.01, RUN_TIMEOUT_SECONDS - (time.monotonic() - started)))
             if should_cancel():
@@ -266,7 +314,19 @@ class Ltx25Runner:
             if pending and progress:
                 _report_progress_line(pending, progress)
             if return_code:
-                raise subprocess.CalledProcessError(return_code, command)
+                raise StudioError(_crash_report(return_code, recent))
+
+
+def _crash_report(return_code: int, recent: Iterable[str]) -> str:
+    """What the pipeline said before it died, in the line the page will show.
+
+    A run that dies of memory leaves no other trace: the runner reads the child's output for
+    its step markers and drops the rest, so this tail is the only account a person can act on.
+    """
+    tail = " | ".join(list(recent)[-STDERR_TAIL_LINES:])
+    if not tail:
+        return f"LTX-2.5 pipeline failed with exit status {return_code} and said nothing."
+    return f"LTX-2.5 pipeline failed with exit status {return_code}. Its last lines: {tail}"
 
 
 def _stop_process(process: subprocess.Popen) -> None:

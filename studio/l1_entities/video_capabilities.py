@@ -19,6 +19,13 @@ class VideoCapabilities:
     badge: str
     description: str
     shapes: tuple[VideoShape, ...]
+    """Every size the model renders, lowest first within each shape.
+
+    A shape appears in the order its first size does, and the first size of the shape named
+    by `default_shape_ratio` is the one the form opens on: the lowest rung, because a prompt
+    is usually tried before it is worth four minutes. The form draws one button per shape and
+    one per size of the shape in front.
+    """
     default_shape_ratio: str
     min_frames: int
     max_frames: int

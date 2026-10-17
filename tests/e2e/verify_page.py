@@ -187,7 +187,7 @@ def rewrite_prompt(page, button, typed):
     rewriter's.
     """
     with page.expect_response(lambda response: response.url.endswith("/rewrite"), timeout=REWRITE_TIMEOUT) as answer:
-        button.click()
+        rewrite_now(page)
     body = json.loads(answer.value.text())
     page.wait_for_function(
         "(typed) => document.getElementById('prompt').value.trim() !== typed",
@@ -195,6 +195,12 @@ def rewrite_prompt(page, button, typed):
         timeout=REWRITE_TIMEOUT,
     )
     return body
+
+
+def rewrite_now(page):
+    """The press that rewrites: the longer text lands in the box, where it can be read and
+    edited before any time is spent."""
+    page.click("#rewrite-toggle")
 
 
 def button(page, name):

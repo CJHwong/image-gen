@@ -41,3 +41,8 @@ rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 [ltx25]
 python_path = "~/Workspace/LTX-2/.venv/bin/python"
 model_dir = "~/Library/Caches/models/ltx-2.5"
+# The video model's own prompt enhancer, a second Gemma that lengthens the prompt inside the
+# pipeline when the video form's rewrite switch is on. It is fetched separately, because the
+# weight download above knows the one model: `hf download google/gemma-4-E2B-it --local-dir
+# ~/Library/Caches/models/gemma-4-E2B-it`, which is what this points at.
+prompt_enhancer_gemma_root = "~/Library/Caches/models/gemma-4-E2B-it"

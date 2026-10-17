@@ -438,10 +438,13 @@
     padding: 4px; background: var(--chrome); border-radius: 9px; box-shadow: var(--shadow);
     animation: arrive .12s ease-out; }
   .menu.up { top: auto; bottom: calc(100% + 6px); }
-  /* The menu opens about 110px from the top of the window. In a short window it scrolls
-     instead of running off the bottom. */
-  #templates { top: 30px; width: min(310px, 100%); max-height: calc(100dvh - 140px); overflow-y: auto;
-    overscroll-behavior: contain; }
+  /* Both template menus hang from the field's top edge, which is where their button row
+     is: 30px is the 24px pill plus the 6px gap every `.menu` leaves. They sit in the
+     field and not in an anchor of their own, so their containing block is the field and
+     they are as wide as it: a long template keeps its sentence on one line. In a short
+     window each one scrolls instead of running off the bottom. */
+  #templates, #video-templates { top: 30px; width: min(310px, 100%); max-height: calc(100dvh - 140px);
+    overflow-y: auto; overscroll-behavior: contain; }
   .menu button { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 7px 10px;
     border: 0; border-radius: 6px; background: none; color: var(--text); text-align: left;
     cursor: pointer; font-size: 13px; }
@@ -697,7 +700,10 @@
   .controls { flex: 1; overflow-y: auto; padding: 18px 22px calc(28px + var(--slack, 0px)); display: flex;
     flex-direction: column; gap: 22px; }
   #form[data-panel-held=true] .controls { opacity: .58; pointer-events: none; }
-  #form[data-panel-held=true] .controls #rewrite-toggle { pointer-events: auto; }
+  /* Each rewrite button is its own job's Cancel, so the block above leaves both of
+     them pressable. A run leaves them disabled anyway, and `disabled` wins over this. */
+  #form[data-panel-held=true] .controls #rewrite-toggle,
+  #form[data-panel-held=true] .controls #video-rewrite-toggle { pointer-events: auto; }
   .field { display: flex; flex-direction: column; gap: 8px; }
   .field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; min-height: 18px; }
   label, .label { color: var(--text-2); font-size: 12px; font-weight: 500; }

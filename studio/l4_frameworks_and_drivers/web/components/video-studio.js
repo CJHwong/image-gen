@@ -608,6 +608,9 @@ class VideoStudio extends LitElement {
       num_frames: settings.numFrames,
       frame_rate: settings.frameRate,
       seed: settings.seed,
+      // The form's own switch: on asks the pipeline to lengthen the prompt again with the
+      // video model's enhancer, after the studio's rewriter has had its pass.
+      enhance: settings.enhance === true,
       references: this.imageReferences.map(function (reference) {
         return {
           name: reference.name,

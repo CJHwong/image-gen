@@ -1003,6 +1003,11 @@ move from a walk.
 Seed 7, the office machine, one clip each. The clips cost 308 to 496 seconds each, 430.9 for
 the first.
 
+Four more clips followed. One re-sampled the light template with a different wording, and
+three chased the frame the style template drew. Each one kept the same seed, the same shape
+and the same fill-in, so a pair differs by the one clause that changed. They cost 389 to 471
+seconds each.
+
 ### What works
 
 | Template | Evidence |
@@ -1016,13 +1021,24 @@ the first.
 The control is the useful half of the sample. With no template the frame is locked off: top
 strip 3.9, whole frame 12.8, and every change in it is the subject walking.
 
+The style template's own words were rewritten after this sample. Its first text opened "shot
+on [film stock or camera] with [palette and light]", and that wording draws a frame the text
+never asked for: black bands down both sides with rounded corners on the picture, like a phone
+upload. The outer 4% band of the frame measures 5.6 on the left and 1.2 on the right, where
+the bare control measures 107.3 and 81.2. Two other wordings left it standing: a clause asking
+for the picture to fill the frame (3.4 and 1.0), and a fill that named an editorial style
+instead of a documentary one (5.6 and 1.2). Naming the stock as the source of the colours
+rather than the camera that shot the clip does remove it, with every other word of the fill
+held: the same clip measures 38.0 and 36.5, and the picture fills the frame. So the shipped
+text reads "in the [colours and grain] of [film stock or camera]".
+
 ### What did not, and why they are not offered
 
 | Template | Evidence |
 | --- | --- |
 | Loop | First frame against last 14.72 while the palette matched to a point, so the content moved rather than the light. A seamless loop wants near zero |
 | One action | One continuous shot, but the empty cup to full arc never read, and the camera drifted closer after being told to stay put |
-| Light changes | The light does change, level 91.6 to 96.6 with the palette warming, but it gets brighter where afternoon to dusk should darken, and the pan the same sentence asks for moves the top strip 43 to 49, so the one claim is entangled with the camera |
+| Light changes | Two wordings, and both lose on the camera. The first asked for a pan and brightened where dusk should darken: level 91.6 to 96.6, and the top strip 43 to 49. The second asks for the camera locked off and names no pan, and the top strip still moves 38 to 42 against the bare control's 1.7 to 2.0, while the picture drifts forward down the street. The level turns the right way this time, 79.1 to 76.7, so the words can name the direction; they cannot hold the camera |
 
 The last frame template shipped with the sentence that failed removed: it promises the ending
 still and says nothing about an empty opening, which the clip did not deliver.
@@ -1030,12 +1046,10 @@ still and says nothing about an empty opening, which the clip did not deliver.
 ### What this sample does not settle
 
 - One clip per template, one seed. A template that failed here might pass on another seed,
-  and the two that failed are gone rather than retried.
+  or on another fill-in: one of the three that failed was re-sampled once, and the style
+  template, which shipped, three times.
 - One length and one shape, both the model's defaults. Nothing here says what these words do
   at 2 seconds or at 640 x 384.
 - The reference strength control was not sampled. Both keyframe clips used 1.0.
-- Style and stock shipped with an artefact the text never asked for: the model letterboxed
-  the frame with rounded corners, like a phone upload. The template was not re-sampled with
-  a clause forbidding it.
 - The camera move template originally ended "Locked off on a tripod", which contradicts a
   moving camera, and the model drew a tripod standing in the sand. The shipped text drops it.

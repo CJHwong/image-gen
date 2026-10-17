@@ -92,6 +92,13 @@ def test_a_rewrite_carries_the_prompt_and_the_pictures(controller, uses):
     request = uses["rewrite"].execute.call_args.args[0]
     assert (request.prompt, request.mode) == ("a cat", "edit")
     assert [(reference.width, reference.height) for reference in request.references] == [(40, 30)]
+    # The image form names no workspace, and the image one is what it is.
+    assert request.workspace == "image"
+
+
+def test_a_video_rewrite_says_which_workspace_asked(controller, uses):
+    controller.rewrite({"prompt": "a cat on a wall", "mode": "generate", "workspace": "video"})
+    assert uses["rewrite"].execute.call_args.args[0].workspace == "video"
 
 
 def test_the_progress_is_the_one_the_use_case_reports(controller, uses):

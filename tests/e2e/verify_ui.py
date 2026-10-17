@@ -224,6 +224,12 @@ def rewrite_verb(page):
     return page.locator("#rewrite-toggle").inner_text().strip()
 
 
+def rewrite_now(page):
+    """The press that rewrites: the longer text lands in the box, where it can be read and
+    edited before any time is spent."""
+    page.click("#rewrite-toggle")
+
+
 def stroke(page, box, start, end):
     """One stroke over the print, between two points of its own box."""
     page.mouse.move(box["x"] + start[0], box["y"] + start[1])
@@ -447,8 +453,8 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="3:2", exact=True).click()
     submitted = page.locator("#size").input_value()
     check(
-        "a ratio chip sets the size the form submits",
-        submitted == "1152x768" and "768" in page.locator("#size-caption").inner_text(),
+        "a ratio chip sets the size the form submits, at the shape's lowest tier",
+        submitted == "768x512" and "768 × 512" in page.locator("#size-caption").inner_text(),  # noqa: RUF001
         f"{submitted} / {page.locator('#size-caption').inner_text()}",
     )
     # The chip in force marks itself and only it: `aria-pressed` is what a
@@ -734,7 +740,7 @@ with sync_playwright() as playwright:
     page.fill("#prompt", "a pear")
     page.dispatch_event("#prompt", "input")
     typed = page.locator("#prompt").input_value()
-    page.click("#rewrite-toggle")
+    rewrite_now(page)
     page.wait_for_function("() => document.querySelector('#prompt').value.length > 7", timeout=120000)
     rewritten = page.locator("#prompt").input_value()
     check(
@@ -750,7 +756,7 @@ with sync_playwright() as playwright:
     page.fill("#prompt", "a pear")
     page.dispatch_event("#prompt", "input")
     typed = page.locator("#prompt").input_value()
-    page.click("#rewrite-toggle")
+    rewrite_now(page)
     page.wait_for_timeout(300)
     check(
         "the rewrite button is locked while the rewriter gets ready",
@@ -1734,7 +1740,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(600)
     page.fill("#prompt", "a pear")
     page.dispatch_event("#prompt", "input")
-    page.click("#rewrite-toggle")
+    rewrite_now(page)
     page.wait_for_function("() => document.querySelector('#prompt').value.length > 7", timeout=120000)
     asked = json.loads(rewrites[-1].get("references", "[]")) if rewrites else []
     check(
@@ -2182,7 +2188,7 @@ with sync_playwright() as playwright:
     page.dispatch_event("#prompt", "input")
     # The id, not the name: this button carries three labels, and the name a role
     # query computes is all of them at once.
-    page.click("#rewrite-toggle")
+    rewrite_now(page)
     page.wait_for_timeout(2500)
     check(
         "a rewrite that cannot reach the server says so",
@@ -2307,7 +2313,7 @@ with sync_playwright() as playwright:
     watercolour = "Watercolor painting on textured paper, soft washes, visible brush edges."
     written.fill("#prompt", LONG_PROMPT)
     written.dispatch_event("#prompt", "input")
-    written.click("#rewrite-toggle")
+    rewrite_now(written)
     written.wait_for_function(
         "() => document.querySelector('#prompt').value.includes('written for the stub')", timeout=120000
     )
@@ -2376,7 +2382,7 @@ with sync_playwright() as playwright:
     written.fill("#prompt", "a pear on a table")
     written.dispatch_event("#prompt", "input")
     before = len(rewrites_here)
-    written.click("#rewrite-toggle")
+    rewrite_now(written)
     # The card's own Edit this switches the mode, and that empties the prompt and the Look,
     # so it is locked for the length of the press and comes back when the press ends.
     written.wait_for_timeout(700)
@@ -2463,7 +2469,7 @@ with sync_playwright() as playwright:
     written.get_by_label("What changes in the orange area?").fill("make it a stone wall")
     written.get_by_label("What changes in the red area?").fill("warm the tiles")
     written.wait_for_timeout(200)
-    written.click("#rewrite-toggle")
+    rewrite_now(written)
     written.wait_for_function(
         "() => document.querySelector('[aria-label=\"What changes in the orange area?\"]')"
         ".value.includes('written for the stub')",
@@ -2701,7 +2707,7 @@ with sync_playwright() as playwright:
     )
     asked = []
     watch_rewrites(per_image, asked)
-    per_image.click("#rewrite-toggle")
+    rewrite_now(per_image)
     per_image.wait_for_function(
         "() => [...document.querySelectorAll('#each-rows textarea')].every(row => row.value.trim() !== '')",
         timeout=60000,
@@ -2825,7 +2831,7 @@ with sync_playwright() as playwright:
     rows = per_image.locator("#each-rows textarea")
     pressed_again = []
     watch_rewrites(per_image, pressed_again)
-    per_image.click("#rewrite-toggle")
+    rewrite_now(per_image)
     # The rows already hold the words this press is about to replace, so "every row is filled" is
     # true the moment it is asked and the press gets read before it has posted: one request of
     # two. The wait is for the press to be over, which the body says and the stale rows do not.

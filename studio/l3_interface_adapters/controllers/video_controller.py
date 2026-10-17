@@ -51,7 +51,16 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
     frame_rate = _frame_rate(payload.get("frame_rate"), capabilities)
     seed = _seed(payload.get("seed"), capabilities)
     references = _references(payload.get("references", []), num_frames, capabilities)
-    return VideoJob(prompt, width, height, num_frames, frame_rate, seed, references)
+    return VideoJob(
+        prompt,
+        width,
+        height,
+        num_frames,
+        frame_rate,
+        seed,
+        references,
+        enhance=bool(payload.get("enhance")),
+    )
 
 
 def _request_id(value) -> str:

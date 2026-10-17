@@ -47,15 +47,16 @@ function ratioInForce() {
   return current ? current.ratio : 'match';
 }
 
-// A chip sets the shape, at the tier nearest one megapixel, where the model was
-// trained. A pick of the shape already in force does nothing.
+// A chip sets the shape, at the lowest tier of it, which is the tier the form opens on: a
+// prompt is tried before it is worth a megapixel. Every tier stays offered beside it. A pick
+// of the shape already in force does nothing.
 function pickRatio(ratio) {
   if (ratio === 'match') return page.setSelect(page.sizeSelect, 'match');
   const current = page.currentOption();
   if (current && current.ratio === ratio) return;
   const group = page.sizes.filter(function (option) { return option.ratio === ratio; });
   const preferred = group.slice().sort(function (a, b) {
-    return Math.abs(a.width * a.height - 1048576) - Math.abs(b.width * b.height - 1048576);
+    return a.width * a.height - b.width * b.height;
   })[0];
   page.setSelect(page.sizeSelect, preferred.value);
 }

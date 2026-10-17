@@ -37,10 +37,13 @@ MATCH = "match"
 MAX_REFERENCES = 10
 MAX_BATCH = 4
 
+# The form opens on the lowest tier of the shape it opens on, which is the smallest square this
+# model renders: a prompt is worth trying before it is worth a megapixel, and the shape chips
+# pick the same tier when the shape changes. Every size stays offered.
 SIZE = ParamSpec(
     id="size",
     kind="choice",
-    default="1024x1024",
+    default="512x512",
     choices=(
         *(Choice(f"{width}x{height}", label) for label, width, height in SIZES),
         Choice(MATCH, "Match reference (about 1 MP)"),

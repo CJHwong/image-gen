@@ -108,6 +108,15 @@ def test_controller_maps_shared_images_to_ltx_keyframes():
     assert submitted_job.references[0].png.startswith(b"\x89PNG")
 
 
+def test_the_payload_says_whether_the_run_lengthens_the_prompt_again():
+    """The video form's switch is the page's; the enhancer is the pipeline's. A payload that
+    carries it reaches the job, and one that says nothing does not turn it on."""
+    capabilities = fake_video_capabilities()
+
+    assert video_job(payload(enhance=True), capabilities).enhance is True
+    assert video_job(payload(), capabilities).enhance is False
+
+
 @pytest.mark.parametrize("request_id", [None, "", 17, "x" * 129])
 def test_controller_rejects_a_missing_or_invalid_request_id(request_id):
     video_controller, _ = build_video_controller(run=UnusedVideoRun())

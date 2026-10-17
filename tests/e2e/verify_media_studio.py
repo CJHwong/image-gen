@@ -214,6 +214,36 @@ with sync_playwright() as playwright:
         and narrow_prompt_head["modeFitsSidebar"],
         str(narrow_prompt_head),
     )
+    # The video prompt's head carries the same two controls, so it is measured at the same
+    # width. Its own buttons are driven by the stub's capabilities, which offer both.
+    switch_workspace(page, "video")
+    narrow_video_head = page.evaluate(
+        """() => {
+          const head = document.querySelector('#video-controls .prompt-field .field-head');
+          const bounds = head.getBoundingClientRect();
+          const controls = [...head.querySelectorAll('.head-actions, #video-templates-toggle, #video-rewrite-toggle')];
+          const left = Math.min(...controls.map(control => control.getBoundingClientRect().left));
+          const right = Math.max(...controls.map(control => control.getBoundingClientRect().right));
+          const label = head.querySelector(':scope > label').getBoundingClientRect();
+          const actions = head.querySelector('.head-actions').getBoundingClientRect();
+          const overlaps = (first, second) => first.left < second.right && first.right > second.left
+            && first.top < second.bottom && first.bottom > second.top;
+          return {clientWidth: head.clientWidth, scrollWidth: head.scrollWidth,
+            left, headerLeft: bounds.left, right, headerRight: bounds.right,
+            labelActionsOverlap: overlaps(label, actions),
+            headPills: document.querySelectorAll('#video-controls .head-actions .pill').length};
+        }"""
+    )
+    switch_workspace(page, "image")
+    check(
+        "the video prompt controls fit in a narrow sidebar too",
+        narrow_video_head["scrollWidth"] <= narrow_video_head["clientWidth"]
+        and narrow_video_head["left"] >= narrow_video_head["headerLeft"] - 1
+        and narrow_video_head["right"] <= narrow_video_head["headerRight"] + 1
+        and not narrow_video_head["labelActionsOverlap"]
+        and narrow_video_head["headPills"] == 2,
+        str(narrow_video_head),
+    )
     page.locator("label[for=mode-generate]").click()
     page.set_viewport_size({"width": 1440, "height": 1000})
     stable_switch = page.evaluate(
@@ -409,10 +439,15 @@ with sync_playwright() as playwright:
             })),
             shapes: [...document.querySelectorAll('.video-ratios button')].map(button => ({
               ratio: button.dataset.ratio,
-              width: button.dataset.width,
-              height: button.dataset.height,
               selected: button.getAttribute('aria-pressed'),
             })),
+            resolutions: [...document.querySelectorAll('#video-resolutions button')].map(button => ({
+              width: button.dataset.width,
+              height: button.dataset.height,
+              label: button.textContent,
+              selected: button.getAttribute('aria-pressed'),
+            })),
+            resolutionRowHidden: document.querySelector('#video-resolutions').closest('.field').hidden,
             defaultShape: document.querySelector('#video-frame-count').textContent,
             referenceLimit: videoStudio.maxReferences,
             referenceLimitError: referenceLimitError,
@@ -480,9 +515,12 @@ with sync_playwright() as playwright:
                 {"frames": "145", "label": "6 s", "selected": "false"},
             ],
             "shapes": [
-                {"ratio": "5:4", "width": "640", "height": "512", "selected": "false"},
-                {"ratio": "4:5", "width": "512", "height": "640", "selected": "true"},
+                {"ratio": "5:4", "selected": "false"},
+                {"ratio": "4:5", "selected": "true"},
             ],
+            # One size for a shape is not a ladder, so that record carries no resolution row.
+            "resolutions": [],
+            "resolutionRowHidden": True,
             "defaultShape": "4.0 seconds, 512 × 640, 97 frames.",  # noqa: RUF001
             "referenceLimit": 2,
             "referenceLimitError": "This video model accepts at most 2 image references.",
@@ -499,6 +537,61 @@ with sync_playwright() as playwright:
         "a model without seed support hides its seed control",
         model_settings["unsupportedSeed"] == [True, True, "Not supported", "This video model does not support a seed."],
         str(model_settings["unsupportedSeed"]),
+    )
+
+    # The resolution ladder on the model's own record: three sizes for each shape, lowest
+    # first, so a prompt can be tried on a small frame before it is worth four minutes. The
+    # rung keeps its place across a shape change, so one prompt can be compared in both
+    # shapes at the same cost. The low rung is left unpicked at the end, because the checks
+    # below read the model's own default frame.
+    ladder = page.evaluate(
+        """() => {
+          const rows = () => [...document.querySelectorAll('#video-resolutions button')].map(button => ({
+            size: button.dataset.width + 'x' + button.dataset.height,
+            label: button.textContent,
+            selected: button.getAttribute('aria-pressed'),
+          }));
+          const caption = () => document.getElementById('video-frame-count').textContent;
+          applyVideoCapabilities();
+          const open = {rows: rows(), hidden: document.querySelector('#video-resolutions').closest('.field').hidden};
+          document.querySelector('#video-resolutions button').click();
+          const low = {rows: rows(), caption: caption()};
+          document.querySelector('.video-ratios button[data-ratio="9:16"]').click();
+          const tall = {rows: rows(), caption: caption()};
+          document.querySelector('.video-ratios button[data-ratio="16:9"]').click();
+          const back = {rows: rows()};
+          document.querySelectorAll('#video-resolutions button')[2].click();
+          const full = {rows: rows(), caption: caption()};
+          return {open, low, tall, back, full};
+        }"""
+    )
+    check(
+        "the resolution row offers each shape's sizes, lowest first, on the model's own record",
+        [row["size"] for row in ladder["open"]["rows"]] == ["640x384", "768x448", "1024x576"]
+        and [row["label"] for row in ladder["open"]["rows"]] == ["384p", "448p", "576p"]
+        and [row["selected"] for row in ladder["open"]["rows"]] == ["true", "false", "false"]
+        and not ladder["open"]["hidden"],
+        json.dumps(ladder["open"]),
+    )
+    check(
+        "a low rung is the frame the caption names",
+        ladder["low"]["caption"] == "5.0 seconds, 640 × 384, 121 frames."  # noqa: RUF001
+        and ladder["low"]["rows"][0]["selected"] == "true",
+        json.dumps(ladder["low"]),
+    )
+    check(
+        "the rung keeps its place across a shape change",
+        [row["size"] for row in ladder["tall"]["rows"]] == ["384x640", "448x768", "576x1024"]
+        and ladder["tall"]["rows"][0]["selected"] == "true"
+        and "384 × 640" in ladder["tall"]["caption"]  # noqa: RUF001
+        and [row["selected"] for row in ladder["back"]["rows"]] == ["true", "false", "false"],
+        json.dumps(ladder["tall"]),
+    )
+    check(
+        "the full rung comes back with its own frame",
+        ladder["full"]["caption"] == "5.0 seconds, 1024 × 576, 121 frames."  # noqa: RUF001
+        and [row["selected"] for row in ladder["full"]["rows"]] == ["false", "false", "true"],
+        json.dumps(ladder["full"]),
     )
     # The video prompt's own templates. The record decides the menu, and a template that names
     # the reference image is offered only while the video carries one: the page reads that
@@ -538,13 +631,22 @@ with sync_playwright() as playwright:
     filled = page.evaluate(
         """() => {
           const prompt = document.getElementById('video-prompt');
+          const button = document.getElementById('video-rewrite-toggle');
           const result = {
             value: prompt.value,
             selected: prompt.value.slice(prompt.selectionStart, prompt.selectionEnd),
+            // A template is written into the box without a keystroke, so this is where the
+            // rewrite button has to have heard about it: it reads the box for its own state.
+            rewriteAwake: !button.disabled,
+            rewriteTitle: button.title,
+            // Read here, because this block empties the box on its way out and the run
+            // button is dead the moment it is empty.
+            runAwake: !document.getElementById('video-generate').disabled,
           };
-          // The checks below read an empty prompt, so this puts it back the way it found it.
+          // The checks below read an empty prompt, so this puts it back the way it found it,
+          // through the same door a template writes it: a plain value change raises nothing.
           prompt.value = '';
-          syncVideoGenerateButton();
+          prompt.dispatchEvent(new Event('input', { bubbles: true }));
           return result;
         }"""
     )
@@ -555,6 +657,102 @@ with sync_playwright() as playwright:
         and filled["selected"].startswith("[")
         and filled["selected"].endswith("]"),
         json.dumps(filled),
+    )
+    check(
+        "a template written into the box wakes the rewrite button and the run",
+        filled["rewriteAwake"] and "longer instruction" in filled["rewriteTitle"] and filled["runAwake"],
+        filled["rewriteTitle"],
+    )
+
+    # Each template menu hangs 6px under its own button row, and one rule draws both. The
+    # video menu used to take the shared `.menu` rule instead, which puts a menu 6px under
+    # the whole field: that dropped it 126px, over the Media section.
+    def menu_drop(toggle, menu):
+        page.click(toggle)
+        page.wait_for_timeout(150)
+        measured = page.evaluate(
+            """([toggle, menu]) => {
+              const button = document.querySelector(toggle).getBoundingClientRect();
+              const panel = document.querySelector(menu).getBoundingClientRect();
+              const sidebar = document.querySelector('.controls').getBoundingClientRect();
+              return {drop: panel.top - button.bottom, inside: panel.right <= sidebar.right + 1
+                && panel.left >= sidebar.left - 1};
+            }""",
+            [toggle, menu],
+        )
+        page.keyboard.press("Escape")
+        return measured
+
+    video_drop = menu_drop("#video-templates-toggle", "#video-templates")
+    switch_workspace(page, "image")
+    image_drop = menu_drop("#templates-toggle", "#templates")
+    switch_workspace(page, "video")
+    check(
+        "each template menu opens 6px under its own button row, inside the sidebar",
+        abs(video_drop["drop"] - 6) <= 1
+        and abs(image_drop["drop"] - 6) <= 1
+        and video_drop["inside"]
+        and image_drop["inside"],
+        json.dumps({"video": video_drop, "image": image_drop}),
+    )
+
+    # The video prompt's rewrite: the same rewriter the image form uses for a generate
+    # prompt, reached from the video prompt's own box. The stub writes in slices on a short
+    # clock, so the press, its readout and its cancel are all checked here without a GPU.
+    check(
+        "the video prompt offers a rewrite",
+        page.locator("#video-rewrite-toggle").is_visible() and page.locator("#video-rewrite-toggle").is_disabled(),
+        page.get_attribute("#video-rewrite-toggle", "title"),
+    )
+    page.fill("#video-prompt", "a cat walking on a wall")
+    check(
+        "a prompt wakes the rewrite button",
+        not page.locator("#video-rewrite-toggle").is_disabled(),
+        page.get_attribute("#video-rewrite-toggle", "title"),
+    )
+    page.click("#video-rewrite-toggle")
+    page.wait_for_timeout(200)
+    check(
+        "a press shows one verb and borrows the readout",
+        page.inner_text("#video-rewrite-toggle") == "Rewrite"
+        and page.locator("#status").is_visible()
+        and "getting ready" in page.inner_text("#status-text"),
+        f"{page.inner_text('#video-rewrite-toggle')!r}, {page.inner_text('#status-text')!r}",
+    )
+    page.locator("#video-rewrite-toggle .rewrite-cancel").wait_for(state="visible")
+    check(
+        "Cancel arrives once it writes, and the panel and the run button are held",
+        page.locator("#form").get_attribute("data-panel-held") == "true"
+        and page.locator("#video-prompt").get_attribute("readonly") is not None
+        and page.locator("#video-generate").is_disabled(),
+        page.inner_text("#status-text"),
+    )
+    page.wait_for_function("document.getElementById('video-prompt').value.indexOf('stub') >= 0")
+    check(
+        "the answer lands in the video prompt, and the page lets go of the panel",
+        page.input_value("#video-prompt") == "a cat walking on a wall A longer version of it, written for the stub."
+        and page.locator("#form").get_attribute("data-panel-held") is None
+        and not page.locator("#video-generate").is_disabled(),
+        page.input_value("#video-prompt"),
+    )
+    page.fill("#video-prompt", "a dog in a field")
+    page.click("#video-rewrite-toggle")
+    page.locator("#video-rewrite-toggle .rewrite-cancel").wait_for(state="visible")
+    page.click("#video-rewrite-toggle")
+    page.locator("#video-rewrite-toggle .rewrite-stopping").wait_for(state="visible")
+    page.wait_for_function("document.querySelector('#form').dataset.panelHeld === undefined")
+    check(
+        "a cancel keeps the words that were typed",
+        page.input_value("#video-prompt") == "a dog in a field"
+        and page.locator("#video-rewrite-toggle .rewrite-idle").is_visible()
+        and not page.locator("#video-generate").is_disabled(),
+        page.input_value("#video-prompt"),
+    )
+    # The checks below read an empty prompt, so this puts it back the way it found it.
+    page.fill("#video-prompt", "")
+    check(
+        "an emptied prompt puts the rewrite button back to dead",
+        page.locator("#video-rewrite-toggle").is_disabled() and page.locator("#video-generate").is_disabled(),
     )
     check(
         "Video keeps one mode selector and places references in the sidebar",
@@ -1653,8 +1851,9 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Reuse prompt").click()
     check(
-        "video prompt can be reused from its selected output",
-        page.locator("#video-prompt").input_value() == "An amber kite crosses a blue sky",
+        "video prompt can be reused from its selected output, and the rewrite button hears it",
+        page.locator("#video-prompt").input_value() == "An amber kite crosses a blue sky"
+        and not page.locator("#video-rewrite-toggle").is_disabled(),
         page.locator("#video-prompt").input_value(),
     )
     page.get_by_role("button", name="More actions").click()
@@ -1890,6 +2089,48 @@ with sync_playwright() as playwright:
         and page.locator("#strip .frame").count() == 1
         and page.locator("#video-studio").is_hidden(),
         f"image frames: {page.locator('#strip .frame').count()}",
+    )
+    switch_workspace(page, "video")
+    # Every video run asks the pipeline for the video model's own enhancer, so a clip is drawn
+    # from a directed shot even when nobody pressed the rewrite button. The request carries
+    # that, and the clip's own record carries the words the run was made from. This is the one
+    # check that drives the run button itself: the suite's other video runs place their clips
+    # directly, and it runs last because the clip it makes would move every gallery count above.
+    sent = []
+    page.on(
+        "request",
+        lambda request: sent.append(request.post_data or "") if request.url.endswith("/video/generate") else None,
+    )
+    before = page.locator(".video-gallery-item:not(.pending)").count()
+    page.fill("#video-prompt", "a cat walking on a wall")
+    page.click("#video-generate")
+    page.wait_for_function(
+        "count => document.querySelectorAll('.video-gallery-item:not(.pending)').length > count",
+        arg=before,
+        timeout=60000,
+    )
+    check(
+        "the run is made from the words in the box and asks for the model's own enhancer",
+        sent
+        and json.loads(sent[-1])["prompt"] == "a cat walking on a wall"
+        and json.loads(sent[-1])["enhance"] is True,
+        f"{json.loads(sent[-1])['prompt']!r}, enhance {json.loads(sent[-1])['enhance']!r}" if sent else "no run",
+    )
+    check(
+        "and the clip's own record names those words",
+        page.evaluate(
+            """() => {
+              const clips = document.getElementById('video-studio').clips || [];
+              return clips.length ? clips[clips.length - 1].metadata.prompt : 'no clip';
+            }"""
+        )
+        == "a cat walking on a wall",
+        page.evaluate(
+            """() => {
+              const clips = document.getElementById('video-studio').clips || [];
+              return clips.length ? clips[clips.length - 1].metadata.prompt : 'no clip';
+            }"""
+        ),
     )
     check("the browser reports no page errors", not errors, str(errors))
     browser.close()

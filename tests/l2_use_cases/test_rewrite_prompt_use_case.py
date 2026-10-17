@@ -194,6 +194,18 @@ def test_a_ratio_that_names_no_shape_says_nothing():
     assert response.size is None
 
 
+def test_a_video_rewrite_says_nothing_about_the_shape():
+    # A video picks its shape from its own controls and its form has no size list,
+    # so the generate rewriter's ratio is not looked up here: a size named now
+    # would be an image size the video form never offered. The mode is the same
+    # one an image generate rewrite uses, so only the workspace decides this.
+    catalog = Catalog()
+    response = use_case(catalog, Rewriter(PromptRewrite(prompt="longer", ratio="3:2"))).execute(
+        RewriteRequest(prompt="a cat walking", mode="generate", workspace="video")
+    )
+    assert response.size is None
+
+
 def test_a_mode_that_declares_no_size_says_nothing():
     # An edit mode sizes itself from the picture it is given, so it declares no
     # width and height at all. A ratio from the rewriter has nothing to match.

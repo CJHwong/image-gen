@@ -271,6 +271,14 @@
               <div class="head-actions">
                 <button type="button" class="pill" id="video-templates-toggle" aria-expanded="false"
                   aria-controls="video-templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
+                <!-- The video prompt is lengthened by the backend's own rewriter, the one
+                     the image form uses for a generate prompt: a video is drawn from
+                     words, and this workspace's picture is a frame the clip must hold
+                     rather than the thing the rewriter is asked about. The button
+                     carries the same three verbs the image form's does, and `hidden`
+                     picks one, never a rule in the cascade. -->
+                <button type="button" class="pill" id="video-rewrite-toggle" hidden
+                  title="Rewrite the prompt into a longer instruction before generating"><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle">Rewrite</span><span class="rewrite-cancel" hidden>Cancel</span><span class="rewrite-stopping" hidden>Stopping&hellip;</span></button>
               </div>
             </div>
             <div class="menu" id="video-templates" role="menu" hidden></div>
@@ -316,6 +324,14 @@
             <div class="field">
               <span class="label">Frame shape</span>
               <div class="video-ratios" role="group" aria-label="Video frame shape">
+              </div>
+            </div>
+            <!-- The sizes of the shape in front, lowest first. A prompt is worth testing
+                 before it is worth four minutes, so the low rungs are the point of this row.
+                 A model that offers one size for a shape carries no row at all. -->
+            <div class="field">
+              <span class="label">Resolution</span>
+              <div class="chips" id="video-resolutions" role="group" aria-label="Video resolution">
               </div>
             </div>
           </div>
@@ -440,7 +456,12 @@
     const button = document.getElementById('video-generate');
     const prompt = document.getElementById('video-prompt').value.trim();
     const waiting = videoRunState === 'starting' || videoRunState === 'stopping';
-    button.disabled = waiting || (videoRunState === 'idle' && !prompt);
+    /* A rewrite is a second model and the video engine does not fit beside it, so the run
+       waits for the press, said on the button rather than as an error after it, the way the
+       image form's own run button waits through `blocker`. The form marks a press on the
+       body, which is the signal the image form's buttons read too. */
+    const rewriting = document.body.classList.contains('rewriting');
+    button.disabled = waiting || rewriting || (videoRunState === 'idle' && !prompt);
   }
 
   function setVideoRunState(state) {
@@ -460,6 +481,9 @@
     syncVideoGenerateButton();
     setWorkspaceControlsDisabled();
     renderBackendSelector();
+    // The rewrite's own button waits for both runs, and it reads the class this
+    // just set. The form draws it from the state it owns, so it is asked to.
+    if (formApi) formApi.renderRewriteButton();
   }
 
   function newVideoRequestId() {
@@ -501,6 +525,9 @@
     setWorkspaceControlsDisabled();
     renderMediaActions();
     renderBackendSelector();
+    // The rewrite button belongs to the workspace on screen: the image form offers the
+    // rewriter of the mode in force, and the video form offers the generate one.
+    if (formApi) formApi.renderRewriteButton();
     setTitle('');
   }
 
@@ -592,10 +619,18 @@
     menus.toggleMenu(videoTemplatesMenu);
   }
 
-  function useVideoTemplate(text) {
+  // Writes the video prompt the way a person does: the box carries the words, and the event
+  // says so. Everything that reads the box listens for that event, and a plain `.value =`
+  // raises none: the run button and the rewrite button both went stale until a keystroke.
+  function setVideoPrompt(text) {
     const prompt = document.getElementById('video-prompt');
     prompt.value = text;
-    syncVideoGenerateButton();
+    prompt.dispatchEvent(new Event('input', { bubbles: true }));
+    return prompt;
+  }
+
+  function useVideoTemplate(text) {
+    const prompt = setVideoPrompt(text);
     prompt.focus();
     selectVideoPlaceholder(prompt, 0);
   }
@@ -652,12 +687,9 @@
   });
   document.addEventListener('video-output-reuse', function (event) {
     const detail = event.detail || {};
-    const prompt = document.getElementById('video-prompt');
     const seed = document.getElementById('video-seed');
     if (typeof detail.prompt === 'string') {
-      prompt.value = detail.prompt;
-      syncVideoGenerateButton();
-      prompt.focus();
+      setVideoPrompt(detail.prompt).focus();
     }
     if (Number.isInteger(detail.seed) && !seed.disabled) {
       seed.value = String(detail.seed);
@@ -671,11 +703,58 @@
     return STUDIO.video && STUDIO.video.capabilities;
   }
 
+  function videoShapeInFront() {
+    const pressed = document.querySelector('.video-ratios button[aria-pressed="true"]');
+    const shape = pressed || document.querySelector('.video-ratios button');
+    return shape ? shape.dataset.ratio : '';
+  }
+
+  // The sizes the model renders for one shape, lowest first.
+  function videoSizesFor(ratio) {
+    const capabilities = videoCapabilities();
+    if (!capabilities) return [];
+    return capabilities.shapes.filter(function (shape) { return shape.ratio === ratio; });
+  }
+
+  // Which rung of the ladder is in front, or null for the shape's own default, which is its
+  // lowest size: a prompt is tried before it is worth four minutes. A shape change keeps the
+  // rung, so one prompt can be compared across two shapes at the same cost.
+  let videoResolutionRung = null;
+
+  function renderVideoResolutions() {
+    const field = document.getElementById('video-resolutions').closest('.field');
+    const row = document.getElementById('video-resolutions');
+    const sizes = videoSizesFor(videoShapeInFront());
+    row.replaceChildren();
+    // One size is not a ladder. A model that offers a single size for a shape carries no row.
+    field.hidden = sizes.length < 2;
+    if (field.hidden) return;
+    if (videoResolutionRung === null || videoResolutionRung >= sizes.length) {
+      videoResolutionRung = 0;
+    }
+    sizes.forEach(function (shape, rung) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.width = String(shape.width);
+      button.dataset.height = String(shape.height);
+      button.setAttribute('aria-pressed', String(rung === videoResolutionRung));
+      button.setAttribute('aria-label', 'Render at ' + shape.width + ' by ' + shape.height);
+      // The size chips the image form draws, so the rungs read as a size and not as a second
+      // row of shapes. Named by the short side, which is what separates one rung from the
+      // next and what a vertical clip is named by too. 360p and 480p are not reachable: a
+      // side is a multiple of the 64 pixel grid, and neither divides by 64.
+      button.className = 'chip';
+      button.textContent = Math.min(shape.width, shape.height) + 'p';
+      row.append(button);
+    });
+  }
+
   function selectedVideoShape() {
-    const selected = document.querySelector('.video-ratios button[aria-pressed="true"]');
-    const first = document.querySelector('.video-ratios button');
-    const shape = selected || first;
-    return shape ? [Number(shape.dataset.width), Number(shape.dataset.height)] : [0, 0];
+    const size = document.querySelector('#video-resolutions button[aria-pressed="true"]');
+    if (size) return [Number(size.dataset.width), Number(size.dataset.height)];
+    const sizes = videoSizesFor(videoShapeInFront());
+    const first = sizes[0];
+    return first ? [first.width, first.height] : [0, 0];
   }
 
   function applyVideoCapabilities() {
@@ -701,16 +780,19 @@
     }
     const shapes = document.querySelector('.video-ratios');
     shapes.replaceChildren();
+    const ratios = [];
     capabilities.shapes.forEach(function (shape) {
+      if (ratios.indexOf(shape.ratio) < 0) ratios.push(shape.ratio);
+    });
+    ratios.forEach(function (ratio) {
       const option = document.createElement('button');
       option.type = 'button';
-      option.dataset.ratio = shape.ratio;
-      option.dataset.width = String(shape.width);
-      option.dataset.height = String(shape.height);
-      option.setAttribute('aria-pressed', String(shape.ratio === capabilities.default_shape_ratio));
-      option.textContent = shape.ratio;
+      option.dataset.ratio = ratio;
+      option.setAttribute('aria-pressed', String(ratio === capabilities.default_shape_ratio));
+      option.textContent = ratio;
       shapes.append(option);
     });
+    renderVideoResolutions();
     const presets = document.querySelector('.video-duration-presets');
     presets.replaceChildren();
     capabilities.duration_presets.forEach(function (frames) {
@@ -811,6 +893,17 @@
     document.querySelectorAll('.video-ratios button').forEach(function (option) {
       option.setAttribute('aria-pressed', String(option === button));
     });
+    renderVideoResolutions();
+    syncVideoFrameCount();
+  });
+
+  document.getElementById('video-resolutions').addEventListener('click', function (event) {
+    const button = event.target.closest('button[data-width]');
+    if (!button) return;
+    videoResolutionRung = Array.prototype.indexOf.call(button.parentElement.children, button);
+    document.querySelectorAll('#video-resolutions button').forEach(function (option) {
+      option.setAttribute('aria-pressed', String(option === button));
+    });
     syncVideoFrameCount();
   });
 
@@ -844,6 +937,9 @@
     const [width, height] = selectedVideoShape();
     let settings;
     let seed;
+    // The run is made from the words in the box, which the rewrite button may have
+    // lengthened first, and it always asks the pipeline for the video model's own enhancer:
+    // that pass is what turns a note into a directed shot, and it costs no page step.
     const prompt = document.getElementById('video-prompt').value;
     try {
       seed = selectedVideoSeed();
@@ -851,6 +947,7 @@
         backend: STUDIO.video.backend.id,
         modelName: STUDIO.video.backend.name,
         prompt: prompt,
+        enhance: true,
         width: width,
         height: height,
         numFrames: numFrames,
@@ -930,6 +1027,7 @@
           frameRate: capabilities.frame_rate,
           seed: seed,
           backend: STUDIO.video.backend.id,
+          enhance: true,
           requestId: videoRunRequestId,
         })),
       });
@@ -957,9 +1055,7 @@
         videoStudio.addStubClip(output, settings);
         status.textContent = 'Stub response added. No video file was generated.';
       }
-      const promptInput = document.getElementById('video-prompt');
-      promptInput.value = '';
-      promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+      setVideoPrompt('');
       videoStudio.clearImageReferences();
     } catch (error) {
       videoStudio.setError(error.message);
@@ -997,6 +1093,7 @@
       },
       notify: showToast,
       busy: busy,
+      syncVideoGenerate: syncVideoGenerateButton,
       region: function () { return region; },
       menus: function () { return menus; },
       store: function () { return formState; },

@@ -99,12 +99,14 @@ def rewrite_request(form: Mapping[str, str]) -> RewriteRequest:
     """A rewrite carries the same prompt the run would send, and the pictures it would carry.
 
     The page leaves the mask out: it is a technical picture, and the rewriter is
-    asked about the scene the run is of.
+    asked about the scene the run is of. It names the workspace it is in, because
+    only an image form has a size list for the rewriter's ratio to land in.
     """
     return RewriteRequest(
         prompt=form.get("prompt", ""),
         mode=form.get("mode") or "generate",
         references=_references(form.get("references") or "[]"),
+        workspace=form.get("workspace") or "image",
     )
 
 

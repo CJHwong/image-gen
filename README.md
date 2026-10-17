@@ -127,6 +127,12 @@ The adapter is passed to the model unmerged, which is what its card asks for: mf
 
 **LTX-2.5 video.** The first video generation downloads six required files from the gated official model into `[ltx25].model_dir`. Later runs reuse them. The server reads `python_path` and `model_dir` from `studio.toml`.
 
+The video form's rewrite switch, which starts on, lengthens the prompt twice: once with the studio's own rewriter, where the longer text can be read and edited, and once inside the pipeline with the video model's own enhancer. That second pass needs a checkpoint the weight download above does not know, so fetch it once and point `[ltx25].prompt_enhancer_gemma_root` at it:
+
+       hf download google/gemma-4-E2B-it --local-dir ~/Library/Caches/models/gemma-4-E2B-it
+
+About 10 GB. Without it a run whose switch is on refuses with that line rather than failing inside the pipeline over a path. The pipeline replaces the prompt with what that pass writes and logs it as "Enhanced prompt: ...". The runner reads the child's output for its step markers and drops the rest, so a clip's record names the text the studio sent rather than the text the transformer read.
+
 Accept the model terms and run `uv run hf auth login` once before the first video generation. The required weights total about 71 GB. The official LTX-2 source supports Apple MPS and CUDA. Install its Python runtime once:
 
        git clone https://github.com/Lightricks/LTX-2.git ~/Workspace/LTX-2

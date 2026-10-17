@@ -40,6 +40,10 @@ class RewriteRequest:
     prompt: str
     mode: str
     references: tuple[ReferenceImage, ...] = ()
+    workspace: str = "image"
+    """Which workspace asked, "image" or "video". The two name their shapes
+    differently: an image mode picks from a size list, and a video picks from its own
+    shapes, so the ratio the rewriter suggests is looked up only for an image."""
 
 
 @dataclass(frozen=True)
@@ -132,8 +136,13 @@ class RewritePromptUseCase:
                     elapsed=self._clock() - started,
                     cancelled=True,
                 )
-            capabilities = self._catalog.get(self._catalog.active_id()).capabilities()
-            size = _size_for(rewrite.ratio, capabilities, request.mode) if rewrite.ratio else None
+            # A video's shape comes from its own controls, and its form has no size
+            # list for a ratio to match. Looking one up there would name an image size
+            # that the video never offered.
+            size = None
+            if rewrite.ratio and request.workspace == "image":
+                capabilities = self._catalog.get(self._catalog.active_id()).capabilities()
+                size = _size_for(rewrite.ratio, capabilities, request.mode)
             return RewriteResponse(prompt=rewrite.prompt, size=size, elapsed=self._clock() - started)
         finally:
             try:

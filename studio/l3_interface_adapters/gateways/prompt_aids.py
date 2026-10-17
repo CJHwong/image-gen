@@ -17,8 +17,11 @@ to the negative prompt, not the sentence, and only where a test proved it.
 
 VIDEO_TEMPLATES is the same idea for a shot rather than a still, and it was sampled on
 LTX-2.5 on 2026-10-17: eight templates rendered once each at 121 frames on one seed, then
-judged against what each one's own text promises. Five shipped. PROMPTS.md holds the
-verdicts and the numbers, including the two that did not, and why.
+judged against what each one's own text promises. Five shipped, and four more clips
+re-sampled the three that were wrong. One of those changed a shipped text: the style
+template names the stock as the source of the look rather than the camera that shot the
+clip, because the second wording draws a frame the text never asked for. PROMPTS.md holds
+the verdicts and the numbers, including the two that did not, and why.
 """
 
 from collections.abc import Mapping
@@ -155,8 +158,13 @@ VIDEO_TEMPLATES = (
     Template(
         "Style and stock",
         "One look for the whole clip",
-        "[Who or what] [does what] in [place], shot on [film stock or camera] with [palette and "
-        "light], in [style]. Visible grain, [lens], one continuous shot, no cuts.",
+        # The stock names the colours and the grain, never the camera that shot the clip:
+        # "shot on Kodak Portra 400 film" draws black bands down both sides of the frame
+        # with rounded corners on the picture, like a phone upload, and the same fill with
+        # the stock named as the source of the look fills the frame. PROMPTS.md holds the
+        # three clips that separate the two.
+        "[Who or what] [does what] in [place], in the [colours and grain] of [film stock or "
+        "camera], in [style]. Visible grain, [lens], one continuous shot, no cuts.",
     ),
 )
 
