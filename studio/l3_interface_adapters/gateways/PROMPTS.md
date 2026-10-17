@@ -981,3 +981,61 @@ All three runs did the same thing to the picture. The whole circle came back blu
 including the part outside the mark, the grey background held, and the model's own
 shading on the circle's rim stayed. So the mark reached the engine through the page, the
 sentence named it, and the change landed on the object the mark was drawn over.
+
+## The video templates
+
+### How they were sampled
+
+Eight templates were written for LTX-2.5, each rendered once at the model's own defaults:
+121 frames, 24 fps, 1024 x 576, seed 7, no references, one clip each, the same flags the
+studio's runner passes. A ninth clip carried the bare sentence "A woman in a red coat walks
+along a beach at sunset", which is the subject of the first template without its direction,
+so a template's effect could be told apart from the subject's own motion. Every clip was
+then judged against what its own text promises, from six frames spread across it and from
+four numbers: the change between consecutive sampled frames, the same for the top quarter of
+the frame, the mean level, and, for the two keyframe templates, the distance from the still
+they were given.
+
+The top quarter is in the measure because a subject walking across a locked-off shot leaves
+it alone: a strip that moves says the frame itself moved. That is what separates a camera
+move from a walk.
+
+Seed 7, the office machine, one clip each. The clips cost 308 to 496 seconds each, 430.9 for
+the first.
+
+### What works
+
+| Template | Evidence |
+| --- | --- |
+| Camera move | The top strip moved 16.7 across the clip against the bare control's 3.9, and the whole frame 19.3 against 12.8. The frame moves and the subject stays framed |
+| First frame | Frame 0 sits 3.52 of 255 from the still it was given, and the clip evolves from there |
+| Last frame | The last frame sits 5.5 from the still against 12.8 at the first, so the ending converged on it |
+| Product turn | The pot turns, stays centred, and the label "PEARL" is rendered and held across all six frames |
+| Style and stock | The film look lands |
+
+The control is the useful half of the sample. With no template the frame is locked off: top
+strip 3.9, whole frame 12.8, and every change in it is the subject walking.
+
+### What did not, and why they are not offered
+
+| Template | Evidence |
+| --- | --- |
+| Loop | First frame against last 14.72 while the palette matched to a point, so the content moved rather than the light. A seamless loop wants near zero |
+| One action | One continuous shot, but the empty cup to full arc never read, and the camera drifted closer after being told to stay put |
+| Light changes | The light does change, level 91.6 to 96.6 with the palette warming, but it gets brighter where afternoon to dusk should darken, and the pan the same sentence asks for moves the top strip 43 to 49, so the one claim is entangled with the camera |
+
+The last frame template shipped with the sentence that failed removed: it promises the ending
+still and says nothing about an empty opening, which the clip did not deliver.
+
+### What this sample does not settle
+
+- One clip per template, one seed. A template that failed here might pass on another seed,
+  and the two that failed are gone rather than retried.
+- One length and one shape, both the model's defaults. Nothing here says what these words do
+  at 2 seconds or at 640 x 384.
+- The reference strength control was not sampled. Both keyframe clips used 1.0.
+- Style and stock shipped with an artefact the text never asked for: the model letterboxed
+  the frame with rounded corners, like a phone upload. The template was not re-sampled with
+  a clause forbidding it.
+- The camera move template originally ended "Locked off on a tripod", which contradicts a
+  moving camera, and the model drew a tripod standing in the sand. The shipped text drops it.

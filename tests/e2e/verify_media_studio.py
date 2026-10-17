@@ -500,6 +500,62 @@ with sync_playwright() as playwright:
         model_settings["unsupportedSeed"] == [True, True, "Not supported", "This video model does not support a seed."],
         str(model_settings["unsupportedSeed"]),
     )
+    # The video prompt's own templates. The record decides the menu, and a template that names
+    # the reference image is offered only while the video carries one: the page reads that
+    # from the phrase, so this drives it with a record of its own and then puts the real one
+    # back. The fill is checked on the real record, bracket selected for the first Tab.
+    template_menu = page.evaluate(
+        """() => {
+          const capabilities = videoCapabilities();
+          const original = capabilities.templates;
+          capabilities.templates = [
+            {name: 'Plain one', hint: 'no reference named', text: 'A plain sentence about [something].'},
+            {name: 'Needs a still', hint: 'names the reference image',
+             text: 'Keep the first frame as the reference image.'},
+          ];
+          applyVideoCapabilities();
+          document.getElementById('video-templates-toggle').click();
+          const offered = [...document.querySelectorAll('#video-templates [role=menuitem]')]
+            .map(item => item.innerText.split('\\n')[0]);
+          menus.closeMenus();
+          capabilities.templates = original;
+          applyVideoCapabilities();
+          return {
+            offered,
+            references: document.getElementById('video-studio').imageReferences.length,
+            declared: (original || []).map(template => template.name),
+            first: original && original.length ? original[0].text : '',
+          };
+        }"""
+    )
+    check(
+        "a video template that names the reference image is offered only while the video has one",
+        template_menu["offered"] == (["Plain one", "Needs a still"] if template_menu["references"] else ["Plain one"]),
+        json.dumps(template_menu),
+    )
+    page.locator("#video-templates-toggle").click()
+    page.get_by_role("menuitem", name="Camera move").click()
+    filled = page.evaluate(
+        """() => {
+          const prompt = document.getElementById('video-prompt');
+          const result = {
+            value: prompt.value,
+            selected: prompt.value.slice(prompt.selectionStart, prompt.selectionEnd),
+          };
+          // The checks below read an empty prompt, so this puts it back the way it found it.
+          prompt.value = '';
+          syncVideoGenerateButton();
+          return result;
+        }"""
+    )
+    check(
+        "the video prompt menu lists the model's templates and fills one with its bracket selected",
+        template_menu["declared"][:1] == ["Camera move"]
+        and filled["value"] == template_menu["first"]
+        and filled["selected"].startswith("[")
+        and filled["selected"].endswith("]"),
+        json.dumps(filled),
+    )
     check(
         "Video keeps one mode selector and places references in the sidebar",
         page.locator("#image-controls .modes").is_hidden()

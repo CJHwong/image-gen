@@ -266,7 +266,14 @@
 
         <div id="video-controls" class="mode-controls video-controls" hidden>
           <div class="field prompt-field">
-            <div class="field-head"><label for="video-prompt">Prompt</label></div>
+            <div class="field-head">
+              <label for="video-prompt">Prompt</label>
+              <div class="head-actions">
+                <button type="button" class="pill" id="video-templates-toggle" aria-expanded="false"
+                  aria-controls="video-templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
+              </div>
+            </div>
+            <div class="menu" id="video-templates" role="menu" hidden></div>
             <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."></textarea>
           </div>
           <section id="video-source-panel" class="video-source-panel" aria-label="Video media">
@@ -371,6 +378,8 @@
   const countToggle = document.getElementById('count-toggle');
   const countMenu = document.getElementById('count-menu');
   const templatesToggle = document.getElementById('templates-toggle');
+  const videoTemplatesToggle = document.getElementById('video-templates-toggle');
+  const videoTemplatesMenu = document.getElementById('video-templates');
   const templatesMenu = document.getElementById('templates');
 
   function busy() {
@@ -550,6 +559,56 @@
     return src.slice(src.indexOf(',') + 1);
   }
 
+  // ---- The video prompt's templates -------------------------------------------
+  // The same menu the image form offers, drawn from the video model's own record and filling
+  // the video prompt. A template that names the reference image is left out while the video
+  // carries none, the way an image template that names the region token is left out while
+  // the brush is unavailable: without a still there is no frame to hold or to reach.
+  function videoTemplateOffered(template) {
+    if (!/reference image/.test(template.text)) return true;
+    return videoStudio.imageReferences.length > 0;
+  }
+
+  function renderVideoTemplates() {
+    const capabilities = videoCapabilities();
+    videoTemplatesMenu.replaceChildren();
+    const head = document.createElement('div');
+    head.className = 'menu-head';
+    head.textContent = 'Start from a template';
+    videoTemplatesMenu.append(head);
+    (capabilities ? capabilities.templates : []).forEach(function (template) {
+      if (!videoTemplateOffered(template)) return;
+      const option = menus.menuItem('', template.name, function () { useVideoTemplate(template.text); });
+      const note = document.createElement('span');
+      note.className = 'item-note';
+      note.textContent = template.hint;
+      option.querySelector('.item-text').append(note);
+      videoTemplatesMenu.append(option);
+    });
+    const foot = document.createElement('div');
+    foot.className = 'menu-foot';
+    foot.textContent = 'Press Tab to jump to the next [bracket].';
+    videoTemplatesMenu.append(foot);
+    menus.toggleMenu(videoTemplatesMenu);
+  }
+
+  function useVideoTemplate(text) {
+    const prompt = document.getElementById('video-prompt');
+    prompt.value = text;
+    syncVideoGenerateButton();
+    prompt.focus();
+    selectVideoPlaceholder(prompt, 0);
+  }
+
+  // Selects the next [placeholder] at or after a position, so typing replaces it. Returns
+  // false when none is left, and Tab then moves focus as usual.
+  function selectVideoPlaceholder(prompt, from) {
+    const found = /\[[^\]]+\]/.exec(prompt.value.slice(from));
+    if (!found) return false;
+    prompt.setSelectionRange(from + found.index, from + found.index + found[0].length);
+    return true;
+  }
+
   function shareImageWithVideo(entry) {
     dataUrlFor(entry).then(function (src) {
       videoStudio.addImageReference({
@@ -669,6 +728,7 @@
     });
     syncVideoSeedSummary();
     syncVideoFrameCount();
+    videoTemplatesToggle.hidden = !capabilities.templates.length;
   }
 
   function syncVideoFrameCount() {
@@ -736,6 +796,14 @@
   });
   document.getElementById('video-seed').addEventListener('input', syncVideoSeedSummary);
   document.getElementById('video-prompt').addEventListener('input', syncVideoGenerateButton);
+  videoTemplatesToggle.addEventListener('click', function () {
+    if (videoTemplatesMenu.hidden) renderVideoTemplates();
+    else menus.closeMenus();
+  });
+  document.getElementById('video-prompt').addEventListener('keydown', function (event) {
+    if (event.key !== 'Tab' || event.shiftKey) return;
+    if (selectVideoPlaceholder(event.target, event.target.selectionEnd)) event.preventDefault();
+  });
   syncVideoGenerateButton();
   document.querySelector('.video-ratios').addEventListener('click', function (event) {
     const button = event.target.closest('button[data-ratio]');

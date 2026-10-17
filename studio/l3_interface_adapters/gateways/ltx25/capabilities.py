@@ -1,4 +1,5 @@
 from studio.l1_entities.video_capabilities import VideoCapabilities, VideoShape
+from studio.l3_interface_adapters.gateways.prompt_aids import VIDEO_TEMPLATES
 
 
 def ltx25_capabilities() -> VideoCapabilities:
@@ -29,4 +30,5 @@ def ltx25_capabilities() -> VideoCapabilities:
         min_dimension=256,
         max_dimension=1280,
         dimension_step=64,
+        templates=VIDEO_TEMPLATES,
     )

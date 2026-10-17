@@ -381,7 +381,9 @@ def main():
             page.locator(".shot .region-mark").count() == 0 and page.locator(".region-tools").count() == 0,
             f"{page.locator('.shot .region-mark').count()} canvases",
         )
-        page.get_by_role("button", name="Templates").click()
+        # By id: the video workspace has a Templates button of its own, and the image form is
+        # hidden rather than absent while the video is in front.
+        page.locator("#templates-toggle").click()
         names = " ".join(page.locator("#templates [role=menuitem]").all_inner_texts())
         page.keyboard.press("Escape")
         check(
