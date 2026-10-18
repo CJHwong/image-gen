@@ -1703,6 +1703,79 @@ with sync_playwright() as playwright:
         },
         str(gallery_actions),
     )
+    # A render in flight owns the screen, and the strip is how the screen is taken back:
+    # picking a clip has to show that clip while the run keeps going, which is what the
+    # image strip already does with its waiting frame. The state is set the way the
+    # page's own poll sets it, because the stub render is over before a click can land.
+    pending_state = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          studio.setGenerationProgress(
+            {running: true, stage: 'running', step: 3, total: 11, phase: 1, stopping: false}, 12.5,
+            {width: 384, height: 384, modelName: 'LTX-2.5'});
+          return {
+            monitor: Boolean(document.querySelector('.video-render-placeholder')),
+            tile: document.querySelector('#video-gallery .video-gallery-pending')?.getAttribute('aria-pressed'),
+            selected: document.querySelectorAll('#video-gallery .video-clip[aria-pressed=true]').length,
+          };
+        }"""
+    )
+    check(
+        "a render in flight owns the screen and names the current entry in the strip",
+        pending_state == {"monitor": True, "tile": "true", "selected": 0},
+        str(pending_state),
+    )
+    picked = page.evaluate("""() => document.querySelector('#video-gallery .video-clip').dataset.clipId""")
+    page.locator("#video-gallery .video-clip").first.click()
+    switched = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          return {
+            monitor: Boolean(document.querySelector('.video-render-placeholder')),
+            tile: document.querySelector('#video-gallery .video-gallery-pending')?.getAttribute('aria-pressed'),
+            selected: document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId,
+            step: studio.generationProgress?.step,
+            clips: document.querySelectorAll('#video-gallery .video-clip').length,
+            prompt: document.querySelector('.video-output-prompt')?.textContent,
+            expected: studio.selectedClip()?.metadata?.prompt,
+          };
+        }"""
+    )
+    check(
+        "picking a clip during a render shows that clip and leaves the run alone",
+        switched["monitor"] is False
+        and switched["tile"] == "false"
+        and switched["selected"] == picked
+        and switched["step"] == 3
+        and switched["clips"] == 2
+        and switched["prompt"] == switched["expected"]
+        and bool(switched["expected"]),
+        json.dumps({**switched, "picked": picked}),
+    )
+    page.locator("#video-gallery .video-gallery-pending").click()
+    back_to_render = page.evaluate(
+        """() => ({
+          monitor: Boolean(document.querySelector('.video-render-placeholder')),
+          tile: document.querySelector('#video-gallery .video-gallery-pending')?.getAttribute('aria-pressed'),
+        })"""
+    )
+    check(
+        "the pending tile puts the render back on the screen",
+        back_to_render == {"monitor": True, "tile": "true"},
+        str(back_to_render),
+    )
+    page.evaluate("() => document.getElementById('video-studio').setGenerationProgress(null)")
+    settled = page.evaluate(
+        """() => ({
+          monitor: Boolean(document.querySelector('.video-render-placeholder')),
+          selected: document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId,
+        })"""
+    )
+    check(
+        "the render ending leaves the chosen clip on the screen",
+        settled == {"monitor": False, "selected": picked},
+        str(settled),
+    )
     # The strip reads newest first, so the arrows walk that way too: right is the older
     # clip. This starts on the newest, which a render selects, and comes back to it, so
     # the checks below read the clip the run just made.

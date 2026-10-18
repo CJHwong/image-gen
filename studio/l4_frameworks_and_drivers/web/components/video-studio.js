@@ -160,6 +160,9 @@ class VideoStudio extends LitElement {
   generationProgress = null;
   generationEpoch = 0;
   pendingRender = null;
+  // Whether a run in flight owns the screen. A new run takes it, and picking a clip
+  // takes it back, so the render keeps going while an older clip is on the monitor.
+  showRender = true;
   previewResume = null;
   sourcePanel = null;
   selectedReferenceId = null;
@@ -335,6 +338,7 @@ class VideoStudio extends LitElement {
   setGenerationProgress(state, elapsedSeconds, outputShape) {
     if (state?.running && !this.generationProgress) {
       this.generationEpoch += 1;
+      this.showRender = true;
       const video = this.querySelector('#video-preview');
       if (video) this.previewResume = {clipId: this.selectedClipId, time: video.currentTime};
     }
@@ -703,6 +707,7 @@ class VideoStudio extends LitElement {
     if (action === 'download-all-videos') this.downloadAllVideos();
     if (action === 'clear-video-gallery') this.clearVideoGallery();
     if (action === 'select-clip') this.selectClip(control.dataset.clipId);
+    if (action === 'show-render') this.showRenderMonitor();
     if (action === 'capture-video-frame') this.captureFrameForVideo();
     if (action === 'capture-image-frame') this.captureFrameForImage();
   }
@@ -1010,6 +1015,7 @@ class VideoStudio extends LitElement {
   selectClip(id) {
     this.closeOutputPromptSheet(false);
     this.selectedClipId = id;
+    this.showRender = false;
     this.previewResume = null;
     this.currentTime = 0;
     const clip = this.selectedClip();
@@ -1018,6 +1024,17 @@ class VideoStudio extends LitElement {
     this.renderError();
     this.renderSourceVideos();
     this.renderSelectedClip();
+  }
+
+  showRenderMonitor() {
+    if (!this.generationProgress) return;
+    this.closeOutputPromptSheet(false);
+    this.showRender = true;
+    this.currentTime = 0;
+    this.duration = 0;
+    this.renderPreview();
+    this.renderVideoGallery();
+    this.renderOutputDetails();
   }
 
   stepClip(delta) {
@@ -1192,7 +1209,7 @@ class VideoStudio extends LitElement {
     const root = this.querySelector('#video-output-details-root');
     if (!root) return;
     const clip = this.selectedClip();
-    const pending = Boolean(this.generationProgress && this.pendingRender);
+    const pending = Boolean(this.generationProgress && this.pendingRender && this.showRender);
     const metadata = pending ? videoMetadata(this.pendingRender) : clip?.metadata;
     if (!pending && !clip) {
       renderTemplate('', root);
@@ -1302,7 +1319,7 @@ class VideoStudio extends LitElement {
   renderPreview() {
     const preview = this.querySelector('#video-preview-content-root');
     if (!preview) return;
-    const content = this.generationProgress
+    const content = this.generationProgress && this.showRender
       ? this.renderProgressPlaceholder(this.generationProgress)
       : this.renderClip(this.selectedClip());
     renderTemplate(content, preview);
@@ -1396,6 +1413,10 @@ class VideoStudio extends LitElement {
 
   renderGallery() {
     const outputs = this.clips.filter((clip) => clip.kind === 'generated');
+    // One thing is current: the render while it owns the screen, and a clip otherwise.
+    // That is the same rule the image strip draws with, where the waiting frame and the
+    // image frames cannot both read as selected.
+    const renderOnScreen = Boolean(this.pendingRender && this.showRender);
     // The strip reads newest first, so this is the order it draws in, and the order the
     // arrow keys walk. The number stays the clip's own: it counts from the first clip of
     // the session and it is the one the preview edge carries.
@@ -1422,17 +1443,20 @@ class VideoStudio extends LitElement {
         </div>
         <div class="strip video-clips" role="group" aria-label="Generated videos">
           ${this.pendingRender ? html`
-            <div class="video-gallery-item video-gallery-pending frame pending" role="status" aria-label="Video render pending">
+            <button class="video-gallery-item video-gallery-pending frame pending${renderOnScreen ? ' selected' : ''}"
+              type="button" aria-label="Show the render in progress" aria-pressed=${renderOnScreen}
+              data-action="show-render">
               <span class="still video-clip-thumb pending-thumb">
                 <span class="video-pending-indicator" aria-hidden="true"></span>
                 <span>Rendering</span>
               </span>
               <span class="no">${String(outputs.length + 1).padStart(2, '0')}</span>
-            </div>` : ''}
+            </button>` : ''}
           ${outputs.length ? newestFirst.map((clip, position) => html`
             <div class="video-gallery-item">
-              <button class="frame video-clip${clip.id === this.selectedClipId ? ' selected' : ''}"
-                type="button" aria-label=${'Select video ' + clip.name} aria-pressed=${clip.id === this.selectedClipId}
+              <button class="frame video-clip${clip.id === this.selectedClipId && !renderOnScreen ? ' selected' : ''}"
+                type="button" aria-label=${'Select video ' + clip.name}
+                aria-pressed=${clip.id === this.selectedClipId && !renderOnScreen}
                 data-action="select-clip" data-clip-id=${clip.id}>
                 <span class="still video-clip-thumb">
                   ${clip.thumbnailUrl

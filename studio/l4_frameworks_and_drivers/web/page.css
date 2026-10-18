@@ -593,6 +593,8 @@
      the ring is blockified into its 16px box. */
   .video-gallery-item.video-gallery-pending.frame.pending .still { display: grid; align-content: center;
     justify-items: center; gap: 7px; border: 1px dashed var(--line-strong); color: var(--text-2); }
+  /* The render tile reads as current while it owns the screen, the way a clip does. */
+  .video-gallery-pending.selected .video-clip-thumb { outline: 1px solid var(--accent-fill); outline-offset: 2px; }
   .video-pending-indicator { width: 16px; height: 16px; border: 2px solid var(--line-strong); border-top-color: var(--accent-fill);
     border-radius: 50%; animation: video-pending-spin .9s linear infinite; }
   .video-clip-state { padding: 0 4px; color: var(--text-3); font-size: 9px; }
