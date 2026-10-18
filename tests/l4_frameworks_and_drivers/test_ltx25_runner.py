@@ -1,7 +1,9 @@
+import contextlib
 import json
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 from typing import cast
 
@@ -9,7 +11,7 @@ import pytest
 
 from studio.l1_entities.errors import Cancelled, StudioError
 from studio.l1_entities.video_job import VideoJob, VideoReference
-from studio.l4_frameworks_and_drivers.ltx25_runner import Ltx25Runner, _stop_process
+from studio.l4_frameworks_and_drivers.ltx25_runner import PROGRESS_WRAPPER, Ltx25Runner, _stop_process
 
 FILES = (
     "diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors",
@@ -146,9 +148,128 @@ def test_runner_wraps_the_distilled_sampler_when_progress_is_requested(tmp_path,
     # never fires for a stage's last step. The report must come before it.
     report = wrapper.index('f"STUDIO_STEP 1 {done_before + step} {total_steps}"')
     assert report < wrapper.index("        yield value"), "the report must precede the yield"
+    # The clip's two denoise passes share one built transformer, and the pass that
+    # ends frees it, so the decode behind it starts without it.
+    assert "blocks.DiffusionStage._transformer_ctx = holding" in wrapper
+    assert 'held["model"] = held["context"].__enter__()' in wrapper
+    assert "if this_pass >= 2:" in wrapper
     assert received_callback is callback
     assert reports == []
     assert result.mp4 == b"mp4 with progress"
+
+
+def _fake_ltx_modules(stage_class, denoise_chunks):
+    """The ltx modules the wrapper imports, so the injected code can run with no pipeline."""
+
+    def build(name, **attributes):
+        module = types.ModuleType(name)
+        for key, value in attributes.items():
+            setattr(module, key, value)
+        return module
+
+    distilled = build("ltx_pipelines.distilled", denoise_chunks=denoise_chunks, main=lambda: None)
+    blocks = build("ltx_pipelines.utils.blocks", DiffusionStage=stage_class)
+    samplers = build("ltx_pipelines.utils.samplers", tqdm=None)
+    constants = build(
+        "ltx_pipelines.utils.constants",
+        DISTILLED_SIGMA_VALUES=(0.0, 1.0, 2.0),
+        STAGE_2_DISTILLED_SIGMA_VALUES=(0.0, 1.0),
+    )
+    utils = build("ltx_pipelines.utils", blocks=blocks, samplers=samplers, constants=constants)
+    package = build("ltx_pipelines", distilled=distilled, utils=utils)
+    return {
+        "ltx_pipelines": package,
+        "ltx_pipelines.distilled": distilled,
+        "ltx_pipelines.utils": utils,
+        "ltx_pipelines.utils.blocks": blocks,
+        "ltx_pipelines.utils.samplers": samplers,
+        "ltx_pipelines.utils.constants": constants,
+    }
+
+
+def test_the_injected_wrapper_builds_the_transformer_once_and_frees_it_after_the_last_pass(monkeypatch):
+    """The wrapper is code the child runs, so run it. Against a fake pipeline it must build
+    the transformer on the first denoise pass, hand the same model to the second, and free
+    it when the last pass ends, so the decode behind it starts with that room free."""
+    built = []
+    served = []
+
+    class FakeContext:
+        def __enter__(self):
+            built.append("build")
+            return f"transformer-{len(built)}"
+
+        def __exit__(self, *_error):
+            built.append("free")
+            return False
+
+    class FakeStage:
+        _is_streaming = False
+
+        def _transformer_ctx(self, **_kwargs):
+            return FakeContext()
+
+        def denoise(self):
+            with self._transformer_ctx() as transformer:
+                served.append(transformer)
+
+    def denoise_chunks(stage, chunks=1):
+        def produce():
+            for _ in range(chunks):
+                stage.denoise()
+                yield "chunk"
+
+        return produce()
+
+    for name, module in _fake_ltx_modules(FakeStage, denoise_chunks).items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    exec(compile(PROGRESS_WRAPPER, "ltx25_progress.py", "exec"), {"__name__": "__main__"})
+
+    passes = sys.modules["ltx_pipelines.distilled"].denoise_chunks
+    stage = FakeStage()
+    assert built == [], "nothing builds before a pass runs"
+    assert list(passes(stage)) == ["chunk"]
+    assert built == ["build"], "the first pass builds the transformer once"
+    assert list(passes(stage, chunks=2)) == ["chunk", "chunk"]
+    assert built == ["build", "free"], "the second pass reuses the first build, then frees it"
+    assert served == ["transformer-1", "transformer-1", "transformer-1"]
+    # One slot: a second stage frees the first model rather than stacking on it, because
+    # two transformers of this size do not fit in the machine's memory together.
+    assert list(passes(FakeStage())) == ["chunk"]
+    assert built == ["build", "free", "build", "free"]
+
+
+def test_the_wrapper_leaves_a_streaming_stage_alone(monkeypatch):
+    """The block streaming path builds its blocks per pass and tears the stream down with
+    them, so a held model would fight it. The wrapper must take the stage's own context."""
+    built = []
+
+    class StreamingStage:
+        _is_streaming = True
+
+        def _transformer_ctx(self, **_kwargs):
+            built.append("build")
+            return contextlib.nullcontext("streamed")
+
+    def denoise_chunks(stage, chunks=1):
+        def produce():
+            for _ in range(chunks):
+                with stage._transformer_ctx() as model:
+                    assert model == "streamed"
+                yield "chunk"
+
+        return produce()
+
+    for name, module in _fake_ltx_modules(StreamingStage, denoise_chunks).items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    exec(compile(PROGRESS_WRAPPER, "ltx25_progress.py", "exec"), {"__name__": "__main__"})
+
+    passes = sys.modules["ltx_pipelines.distilled"].denoise_chunks
+    assert list(passes(StreamingStage())) == ["chunk"]
+    assert list(passes(StreamingStage())) == ["chunk"]
+    assert built == ["build", "build"], "a streamed stage is never held"
 
 
 def test_runner_reads_live_progress_records_from_the_child_process():

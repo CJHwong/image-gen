@@ -29,8 +29,11 @@ MODEL_REPOSITORY = "Lightricks/LTX-2.5"
 # How many of the pipeline's last lines a crash keeps.
 STDERR_TAIL_LINES = 12
 RUN_TIMEOUT_SECONDS = 3600
-PROGRESS_WRAPPER = """import sys
+PROGRESS_WRAPPER = """import contextlib
+import sys
 
+import ltx_pipelines.distilled as distilled
+import ltx_pipelines.utils.blocks as blocks
 import ltx_pipelines.utils.samplers as samplers
 from ltx_pipelines.utils.constants import DISTILLED_SIGMA_VALUES, STAGE_2_DISTILLED_SIGMA_VALUES
 
@@ -62,8 +65,82 @@ def report_steps(iterable, *args, **kwargs):
         yield value
 
 samplers.tqdm = report_steps
-from ltx_pipelines.distilled import main
-main()
+
+# A stage builds its transformer for each denoise pass and frees it when the pass
+# returns, so one clip reads the 39.1 GB file twice. The second read is waste: the
+# build does not depend on the shape of the latents, because the single GPU builder
+# ignores the video tools the stage hands it. Measured on the office M5 Pro, one
+# 384 x 384 clip of 73 frames, the second build cost 32.4 s and 36.2 s in two runs,
+# and holding the first build instead made the same clip: 73 frames of 73 identical
+# and no audio difference.
+#
+# The video encoder is the other block a clip builds twice, once for a reference frame
+# and once inside the upsampler. It is 0.59 GB and about a second of the upsampler's
+# 2.4 s, and it is not held. Sharing it means copying those two blocks' own call bodies,
+# which would drift from the pipeline and could skip the upsample step itself, or
+# caching inside the loader that builds it, which risks handing back the wrong model.
+# Neither is worth 0.7 percent of a clip.
+#
+# The hold ends when the second pass does. The pipeline runs one denoise pass per
+# stage, and its two stages are the two calls in stream_chunks, so the second pass is
+# the last one and the decode that wants the room comes after it. A run that reached
+# only one pass would hold its transformer until the process exits, which is the
+# memory this gives back and not correctness.
+#
+# One slot, because a clip has one stage: a pipeline that built a stage per pass would
+# otherwise hold a transformer per pass, and two of those do not fit on this machine.
+held = {"stage": None, "context": None, "model": None}
+
+def hold_transformer():
+    original = blocks.DiffusionStage._transformer_ctx
+
+    def holding(self, **kwargs):
+        # The block streaming path frees its blocks between passes by design.
+        if self._is_streaming:
+            return original(self, **kwargs)
+
+        @contextlib.contextmanager
+        def reuse():
+            if held["stage"] is not self:
+                release_held()
+                held["context"] = original(self, **kwargs)
+                held["model"] = held["context"].__enter__()
+                held["stage"] = self
+            yield held["model"]
+
+        return reuse()
+
+    blocks.DiffusionStage._transformer_ctx = holding
+
+def release_held():
+    if held["context"] is not None:
+        held["context"].__exit__(None, None, None)
+    held["stage"] = None
+    held["context"] = None
+    held["model"] = None
+
+def release_after_last_pass():
+    original = distilled.denoise_chunks
+    seen = {"passes": 0}
+
+    def counting(*args, **kwargs):
+        seen["passes"] += 1
+        this_pass = seen["passes"]
+
+        def exhaust():
+            try:
+                yield from original(*args, **kwargs)
+            finally:
+                if this_pass >= 2:
+                    release_held()
+
+        return exhaust()
+
+    distilled.denoise_chunks = counting
+
+hold_transformer()
+release_after_last_pass()
+distilled.main()
 """
 PROGRESS_RECORD = re.compile(r"STUDIO_STEP (\d+) (\d+) (\d+)")
 DOWNLOAD_SCRIPT = """import json
@@ -116,6 +193,9 @@ class Ltx25Runner:
                 self._enhancer_for(job),
             )
             if progress:
+                # The hold on the transformer rides with this wrapper, so a run that asks
+                # for no progress reports runs the pipeline directly and holds nothing.
+                # The studio always asks, so every run it makes takes the wrapper.
                 script_path = Path(scratch) / "ltx25_progress.py"
                 script_path.write_text(PROGRESS_WRAPPER, encoding="utf-8")
                 command = [python, str(script_path), *command[3:]]
