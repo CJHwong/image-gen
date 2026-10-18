@@ -1016,21 +1016,32 @@ seconds each.
 | First frame | Frame 0 sits 3.52 of 255 from the still it was given, and the clip evolves from there |
 | Last frame | The last frame sits 5.5 from the still against 12.8 at the first, so the ending converged on it |
 | Product turn | The pot turns, stays centred, and the label "PEARL" is rendered and held across all six frames |
-| Style and stock | The film look lands |
+| Style and stock | Draws the film look, but frames the picture with black columns down both sides. Not proven. The paragraph below, corrected 2026-10-18, records what the number really came from |
 
 The control is the useful half of the sample. With no template the frame is locked off: top
 strip 3.9, whole frame 12.8, and every change in it is the subject walking.
 
-The style template's own words were rewritten after this sample. Its first text opened "shot
-on [film stock or camera] with [palette and light]", and that wording draws a frame the text
-never asked for: black bands down both sides with rounded corners on the picture, like a phone
-upload. The outer 4% band of the frame measures 5.6 on the left and 1.2 on the right, where
-the bare control measures 107.3 and 81.2. Two other wordings left it standing: a clause asking
-for the picture to fill the frame (3.4 and 1.0), and a fill that named an editorial style
-instead of a documentary one (5.6 and 1.2). Naming the stock as the source of the colours
-rather than the camera that shot the clip does remove it, with every other word of the fill
-held: the same clip measures 38.0 and 36.5, and the picture fills the frame. So the shipped
-text reads "in the [colours and grain] of [film stock or camera]".
+The style template's own words were rewritten after this sample, and that rewrite rests on a
+number that belongs to another clip. Its first text opened "shot on [film stock or camera]
+with [palette and light]", and that wording draws a frame the text never asked for: black
+bands down both sides with rounded corners on the picture, like a phone upload. The outer 4%
+band of the frame measures 5.6 on the left and 1.2 on the right, where the bare control
+measures 107.3 and 81.2. Three wordings left it standing: a clause asking for the picture to
+fill the frame (3.4 and 1.0), a fill that named an editorial style instead of a documentary one
+(5.6 and 1.2), and the reworded stock clause on its own. The reading that fills the frame,
+38.0 and 36.5, belongs to 13-style-nofilm, and its fill differs from its pair in more than the
+stock clause: it says "in the warm natural colours and fine grain of Kodak Portra 400, in a
+clean editorial style", where the other says "shot on Kodak Portra 400 film with warm natural
+colours and fine grain, in a 1990s documentary style". Crediting those two numbers to the
+stock clause alone was wrong.
+
+The shipped text, which reads "in the [colours and grain] of [film stock or camera]", still
+draws the frame. Measured 2026-10-18: 16-audio-style-stock reads 5.6 and 1.7, and its control
+08-style-stock, filled the way the template invites, reads 5.5 and 1.7, and the contact sheets
+of both show the black columns and the rounded corners. Taking the word film out of the fill
+does not lift it: 17-style-no-word-film reads 5.6 and 1.8 against 16's 5.6 and 1.7, with every
+other word, the seed and the shape held. So the template is not proven, and one clip that
+fills the frame against five that do not is not enough to name the words that decide it.
 
 ### What did not, and why they are not offered
 
@@ -1042,6 +1053,35 @@ text reads "in the [colours and grain] of [film stock or camera]".
 
 The last frame template shipped with the sentence that failed removed: it promises the ending
 still and says nothing about an empty opening, which the clip did not deliver.
+
+### The sound direction, sampled 2026-10-18
+
+Each of the five shipped templates was rendered again with a sentence that names what is
+heard. The vendor's guide lists audio as one of the six elements of a video prompt, and the
+model's own enhancer writes one on every enhanced run, which the shipped templates did not
+invite. Every clip held its template's fill-in, its seed 7, its shape 1024 x 576 and its
+length of 121 frames, so a clip differs from the one it is paired with by that sentence and
+nothing else. One clip each, 330 to 444 seconds a clip.
+
+| Template | With the sentence, against its pair without |
+| --- | --- |
+| Camera move | The frame still moves: the top strip 22.08 from first to last against 16.66, the whole frame 24.58 against 19.33 |
+| First frame | The opening frame sits 3.48 of 255 from the still it was given, against 3.52 |
+| Last frame | The ending sits 5.52 from the still against 5.50, and the opening 12.88 against 12.76 |
+| Product turn | The pot turns, stays centred, and holds "PEARL" on every one of the six frames, as its pair does |
+| Style and stock | The look is unchanged, level 89.1 against 90.2, and both frames are pillarboxed, which is the fault above and not this sentence |
+
+The sentence costs no template its own promise. The soundtrack changed in all five pairs, by
+the mean level of the audio track: 12-audio-camera-move is 2.5 dB louder than 01-camera-move,
+and the other four run 6.2 to 32.9 dB quieter, the largest being 13-audio-first-frame at -61.2
+dB against -28.3 dB. Every clip carries an AAC track either way, 5.01 seconds, so nothing is
+lost to silence.
+
+What these numbers cannot say is whether the words named the sound the model made. A level
+says the track changed, not that the sea is the sea. Two things follow. The words are kept,
+because they cost the picture nothing and the guide asks for them. And a person has to listen
+before the words are trusted: "only the sound of the sea" left one clip all but silent, which
+is a plausible reading of the words and a poor soundtrack.
 
 ### What this sample does not settle
 

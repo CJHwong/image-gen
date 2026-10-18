@@ -18,9 +18,12 @@ to the negative prompt, not the sentence, and only where a test proved it.
 VIDEO_TEMPLATES is the same idea for a shot rather than a still, and it was sampled on
 LTX-2.5 on 2026-10-17: eight templates rendered once each at 121 frames on one seed, then
 judged against what each one's own text promises. Five shipped, and four more clips
-re-sampled the three that were wrong. One of those changed a shipped text: the style
-template names the stock as the source of the look rather than the camera that shot the
-clip, because the second wording draws a frame the text never asked for. PROMPTS.md holds
+re-sampled the three that were wrong. Five further clips on 2026-10-18 added a sentence that
+names what is heard, which is the sixth element the vendor's guide asks for and the one the
+templates did not invite; that sentence costs no template its own promise, and it stays. The
+style template's stock clause was rewritten on a number that belongs to a clip differing in
+more than that clause, and re-measured it does not lift the frame, so that rewrite is unproven
+and the template still draws black columns down both sides of the picture. PROMPTS.md holds
 the verdicts and the numbers, including the two that did not, and why.
 """
 
@@ -132,39 +135,42 @@ VIDEO_TEMPLATES = (
         "One move, held steady",
         "[Who or what] [does what] in [place] at [time of day]. The camera "
         "[pushes in slowly, pulls back, pans left to right, or rises], keeping [what stays in "
-        "frame]. [Light and mood]. One continuous shot, [lens], no cuts.",
+        "frame]. [Light and mood]. [Sound: what is heard]. One continuous shot, [lens], no cuts.",
     ),
     Template(
         "First frame",
         "Hold the opening still",
         "Keep the first frame exactly as the reference image. From there, [what happens next] "
-        "over [how long]. The camera [stays still, or moves how]. The light stays the same, one "
-        "continuous shot.",
+        "over [how long]. The camera [stays still, or moves how]. The light stays the same. "
+        "[Sound: what is heard]. One continuous shot.",
     ),
     Template(
         "Last frame",
         "Reach a given ending still",
         "[A wide or a close shot] of [the scene] at the start. By the end, the frame matches the "
-        "reference image: [what must be true at the end]. The camera [moves how], [light], one "
-        "continuous shot.",
+        "reference image: [what must be true at the end]. The camera [moves how], [light]. "
+        "[Sound: what is heard]. One continuous shot.",
     ),
     Template(
         "Product turn",
         "An object turning, with its label held",
         "[Product: material, colour, finish] on [surface] in [setting], turning slowly on a "
-        "turntable. [Light], [what is behind it]. The object stays centred, shallow depth of "
-        'field, the label text "[one or two words]" readable and spelled exactly.',
+        "turntable. [Light], [what is behind it]. [Sound: what is heard, or none]. The object "
+        'stays centred, shallow depth of field, the label text "[one or two words]" readable '
+        "and spelled exactly.",
     ),
     Template(
         "Style and stock",
         "One look for the whole clip",
-        # The stock names the colours and the grain, never the camera that shot the clip:
-        # "shot on Kodak Portra 400 film" draws black bands down both sides of the frame
-        # with rounded corners on the picture, like a phone upload, and the same fill with
-        # the stock named as the source of the look fills the frame. PROMPTS.md holds the
-        # three clips that separate the two.
+        # The film look lands, and so does a frame the text never asked for: black bands down
+        # both sides with rounded corners on the picture, like a phone upload. Naming the stock
+        # as the source of the colours was meant to lift it, on a clip that changed more than
+        # that clause. Sampled again on 2026-10-18, it does not: this fill, written the way the
+        # text invites, reads 5.6 and 1.7 on the outer 4% band, and the same fill without the
+        # word film reads 5.6 and 1.8. PROMPTS.md holds the clips and the numbers.
         "[Who or what] [does what] in [place], in the [colours and grain] of [film stock or "
-        "camera], in [style]. Visible grain, [lens], one continuous shot, no cuts.",
+        "camera], in [style]. Visible grain, [lens]. [Sound: what is heard]. One continuous "
+        "shot, no cuts.",
     ),
 )
 
