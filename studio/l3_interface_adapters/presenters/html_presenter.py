@@ -47,6 +47,19 @@ class HtmlPresenter:
                 "max_batch": active.max_batch,
             },
             "backends": [list(backend) for backend in view.backends],
+            "video": {
+                "backend": (
+                    {
+                        "id": view.active_video.backend_id,
+                        "name": view.active_video.name,
+                        "badge": view.active_video.badge,
+                    }
+                    if view.active_video
+                    else None
+                ),
+                "backends": [list(backend) for backend in view.video_backends],
+                "capabilities": asdict(view.active_video) if view.active_video else None,
+            },
             "modes": [asdict(mode) for mode in active.modes],
             # Which modes a prompt rewriter serves. Empty leaves the page's
             # toggle out, so a backend without one offers no dead button.
@@ -57,7 +70,6 @@ class HtmlPresenter:
         return (
             self._page.replace("__NAME__", html.escape(active.name))
             .replace("__BACKEND__", html.escape(active.backend_id))
-            .replace("__BADGE__", html.escape(active.badge))
             .replace("__STUDIO__", data)
         )
 
@@ -149,6 +161,21 @@ class HtmlPresenter:
         return (
             f'<div class="progress-state" data-stage="{state.stage}"'
             f' data-step="{state.step}" data-total="{state.total}"'
-            f' data-label="{html.escape(state.label, quote=True)}"'
+            f' data-label="{html.escape(state.label, quote=True)}" data-kind="{state.kind}"'
             f' data-stopping="{1 if state.stopping else 0}"></div>{POLLER}'
+        )
+
+    @staticmethod
+    def video_progress(state: RunProgress) -> str:
+        return json.dumps(
+            {
+                "running": state.running,
+                "stage": state.stage,
+                "step": state.step,
+                "total": state.total,
+                "phase": state.phase,
+                "kind": state.kind,
+                "stopping": state.stopping,
+                "request_id": state.request_id,
+            }
         )

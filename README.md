@@ -1,6 +1,6 @@
 <h1 align="center"><img src="docs/images/logo.svg" width="120" alt=""><br>image-gen</h1>
 
-A local image generation page for Apple Silicon. Write a prompt, get an image, then say what to change. One page, one adapter per model. The server saves no image or prompt. Your browser keeps the images, with their prompts, until you clear them.
+A local multimedia studio for Apple Silicon image generation and video pipelines. Write a prompt, share still references, and move frames between the two workspaces. The server saves no prompt or image. Your browser keeps results until you clear them.
 
 ![The page after an edit: the elevator's beach door turned into a snowstorm, with the before and after slider on the print](docs/images/hero.jpg)
 
@@ -8,13 +8,13 @@ A local image generation page for Apple Silicon. Write a prompt, get an image, t
 
 This walk-through makes the image above: first a beach outside an elevator, then the same elevator in a snowstorm. It needs a Mac with Apple Silicon and [uv](https://docs.astral.sh/uv/). It was built on a machine with 64 GB of memory.
 
-1. Clone the repo and start the page.
+1. Clone the repo and start the page. The server does not load model weights at startup.
 
        git clone git@github.com:CJHwong/image-gen.git
        cd image-gen
        uv run studio
 
-   The first start downloads the Qwen-Image-2.1 weights, about 33 GB. When the terminal says "Ready", open http://127.0.0.1:8765.
+   When the terminal says "Ready", open http://127.0.0.1:8765. The first image run downloads the official Qwen Turbo checkpoint, about 32.5 GB.
 
 2. Paste this prompt into **Prompt**, pick **16:9** under **Size**, and press **Generate**.
 
@@ -37,19 +37,25 @@ Both images stay in the strip at the bottom, also after a reload.
 ## How to
 
 - **Use another port:** `uv run studio --port 9000`.
+- **Use full Qwen-Image-2.1:** `uv run studio --backend qwen21`.
+- **Use Viggle Turbo:** `uv run studio --backend viggle_turbo`.
 - **Save memory on qwen21:** `uv run studio -q 8` loads the weights as int8.
-- **Use FLUX.2:** set up its weights (see [Models](#models)), then `uv run studio --backend flux2`. The title of the page becomes a menu that switches between the models. To offer both every time, add `"flux2"` to `visible_backends` in [studio.toml](studio.toml).
+- **Use FLUX.2:** set up its weights (see [Models](#models)), then `uv run studio --backend flux2`. The title of the page becomes an image-model menu. Add `"flux2"` to `visible_backends` in [studio.toml](studio.toml) to offer it every time.
+- **Choose a video model:** open the Video workspace. Its model selector uses `default_video_backend` and `visible_video_backends`, separate from image models.
 - **Write a prompt the model follows:** start from the **Templates** menu, and add a style from the **Look** section. Each model offers only the Look options that passed a test on it. [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) has the tests.
 - **Finish an image:** in **Edit**, the **Look** section holds the finishing rows: exposure, white balance, grade, lens, a film finish, and retouch. A Retouch pick wants an area, so draw the mark first and the page names it in the sentence. The mark says where to look, not what may change: the change can still reach past it, which [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) measures. The other rows are whole-frame, with or without a mark.
 - **Edit several pictures at once:** put each one in **Images to edit**, and set the choice under the list to one result each. Each image is edited on its own, and every result lands beside the picture it came from, with its own before and after. Left as one picture, several images are composed into a single new image instead. The words in the prompt box lead every image, and the row beside a thumbnail adds what that one needs. A press of **Rewrite** writes a row from its own picture, and you can correct it. A batch whose every row carries words runs with the prompt box empty, the way a marked region already does.
 - **Reuse a seed or a prompt:** open the **⋯** menu under the image. It also offers the image as a reference for the next run.
 - **Keep an image outside the browser:** use the download button under the image.
-- **Work in private:** open the theme menu (the aperture button, top right) and turn off **Keep in this browser**. The kept images leave the browser, and new ones stay in the tab until a reload.
+- **Work in private:** open the theme menu (the aperture button, top right) and turn off **Keep in this browser**. This clears saved images and videos. New outputs stay in the tab until a reload.
 - **Change the theme:** pick one in the theme menu. The page remembers it.
 
   ![The four themes: Darkroom, Leica M, Kodak Instamatic and Polaroid SX-70](docs/images/themes.jpg)
 
-- **Work on the page without a model:** `uv run studio --stub`. Each model keeps its form, but a run shows fake steps and returns a placeholder image. It uses no GPU.
+- **Work on the page without a model:** `uv run studio --stub`. Image runs return placeholder images. Video requests return metadata only, with no fake video file. The stub uses no GPU.
+- **Share media between workspaces:** use image references as Video keyframes. Capture a timeline frame for Image or set it as a Video keyframe with a target frame and strength.
+- **Add video sources:** use the Video controls in the right sidebar. One **Add media** door takes both kinds, and a drop or a paste goes through it too; the file's own type decides whether it becomes an image keyframe or a source clip. Image keyframes and generated clips stay in separate galleries.
+- **Track and cancel a video render:** progress appears in the preview. Each tab follows and cancels only its own render. Cancel keeps the prompt and references. Each clip records its seed, settings, elapsed time, and prompt.
 
 ## Reference
 
@@ -59,7 +65,7 @@ Both images stay in the strip at the bottom, also after a reload.
 |---|---|---|
 | `--port` | `8765` | The port of the page. |
 | `--host` | `127.0.0.1` | The address the server binds. |
-| `--backend` | `default_backend` | Open on this model, and add it to the models the page offers. |
+| `--backend` | `default_backend` | Open on this image model, and add it to the image models the page offers. |
 | `-q`, `--quantize` | the `studio.toml` value | Quantize the weights of the opening model: 3, 4, 5, 6 or 8 bits. |
 | `--config` | `studio.toml` | The settings file. |
 | `--stub` | off | Fake every engine: timed steps and placeholder images, no weights. |
@@ -70,6 +76,8 @@ Both images stay in the strip at the bottom, also after a reload.
 |---|---|
 | `default_backend` | The model the page opens with. |
 | `visible_backends` | The models the page offers. With more than one, the title becomes a menu. |
+| `default_video_backend` | The video model selected when the page opens. |
+| `visible_video_backends` | The video models the Video workspace offers. |
 | `[qwen21] quantize` | 0 for bf16, or the bits for quantized weights. |
 | `[flux2] quantize` | The bits for the FLUX.2 weights. |
 | `[flux2] model_dir` | The folder of the FLUX.2 weights. |
@@ -89,17 +97,21 @@ Both images stay in the strip at the bottom, also after a reload.
 
 | Model | Adapter | Modes | Weights |
 |---|---|---|---|
-| Qwen-Image-2.1 (default) | `gateways/qwen21` | generate and img2img, and instruction edit with up to 10 images, all through mflux (MLX) | downloads itself |
-| Viggle Turbo | `gateways/viggle` | the same, in six steps | 33 GB above, plus a 1.3 GB adapter |
+| Qwen-Image-2.1-Turbo (default) | `gateways/qwen21_turbo` | generate, img2img, and instruction edit with up to 10 images, on the checkpoint's own 8-node schedule | downloads on first image run, about 32.5 GB |
+| Qwen-Image-2.1 | `gateways/qwen21` | generate, img2img, and instruction edit with up to 10 images, through mflux (MLX) | downloads on first use |
+| Viggle Turbo | `gateways/viggle` | the same modes, in six steps | Qwen base weights, plus a 1.3 GB adapter |
 | FLUX.2 klein-base-9B, uncensored | `gateways/flux2` | generate and img2img, edit with up to 4 images, all through mflux (MLX) | manual setup below |
+| LTX-2.5 | `gateways/ltx25` | text-to-video and still-keyframe video generation | six split files download on first video generation, about 71 GB |
 
-**The prompt aids are per model.** A Look option or a template is offered only where it passed a test on that model, because an option tuned on the 40-step base is not evidence on a distilled schedule. Qwen-Image-2.1 offers 31 Look options and 15 templates, and its edit form offers 15 more options in six rows: exposure, white balance, grade, lens, a film finish, and retouch. Viggle Turbo offers the 30 Look options and 15 templates its own six-step sample kept, and the same 15 edit options in six rows, which its own sample kept in full. FLUX.2 offers the 11 options and 8 templates it was tested with, and no edit rows. The tests, their fixtures and their limits are in [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md).
+**The prompt aids are per model.** A Look option or a template appears only after it passes a test on that model. The official Turbo checkpoint offers the base model's aids, because they were sampled on its own eight-node table on 2026-10-16: all 31 generate options, 15 edit options and 15 templates ran beside their own bare fixtures. Thirty of the 31 generate options landed, and only Deep focus did not, which is documented rather than cut, since this backend's catalog is the base model's by design. Its cost fits were measured on that table on an M5 Pro with BF16 weights, with and without a starting image, and its reference estimate follows mflux's remaining steps at the selected strength. The generated images still need visual review. Qwen-Image-2.1 offers 31 Look options and 15 templates, and its edit form offers 15 more options in six rows. Viggle Turbo offers only the prompt aids its six-step sample kept. FLUX.2 offers the 11 options and 8 templates it was tested with. The tests and limits are in [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md).
 
 **Marking a region.** In edit mode, **Mark a region** turns the print into a drawing surface: a brush in three widths, four colours, a loupe that follows the brush at three times the size, undo and clear. It needs an image from the strip, because the brush draws on the print and an upload has no print. Each region travels as a last, separate image, in the palette colour that names it, on black, and the prompt names that image and each area's colour. Measured on Qwen-Image-2.1 with the mask and the sentence the page sends, one seed and 20 steps, on a drawn shape whose edge the mark matched: the change landed 15.8 times more inside the marked area than outside it, and the rest of the frame moved by 4.3 of 255. On the fixture the earlier figure came from, rebuilt from what [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md) records, the same edit scored 28.8 against 37.5 on the diffusers engine this repo has since removed, and on a mark over a patch of a uniform surface 3.1 against 2.4. The two engines are comparable and neither dominates; one seed on one fixture is not a benchmark either way. Where the mark's edge meets the object's, the mark's own colour does not appear; where a hand-drawn mark reaches past its object it can, which is the next paragraph's point. The wording is not what carries it: naming the colour scored the same as naming the image, within noise. And the figure is only ever a statement about the picture it was taken on. Measured again on 2026-10-06, in one run through one metric: a mark over a uniform surface scores 3.1x, one that matches a filled object's own edge 15.8x, and the circle fixture 28.8x, with the same recolour inside all three times and the whole difference in what changed outside. A region figure is a property of the scene as much as of the tool, and two figures from two scenes say nothing about either. Viggle Turbo offers the tool as well, on its own measurement: at six steps a mark holds where the marked area is an object's own edge, 21.0x against the base model's 28.8x on the same scene, and bounds a patch of uniform surface no better than the base does, 2.2x against 3.1x. Its page path was proven end to end as well, on three marks drawn on the print: the run whose mark followed the object's edge scored 25.8x. FLUX.2 does not offer the tool, because it has not been tested with a region. The verdicts, and what the numbers do and do not settle, are in [PROMPTS.md](studio/l3_interface_adapters/gateways/PROMPTS.md).
 
 **The marked area is what gets repainted.** The extent of the change is the area the mark covers, not the object under it: measured at 22.0% coverage the change spilled 21.4% past the object, against 14.0% at 18.9% coverage, and neither the mask's colour nor the roughness of its edge moved that. So keep the mark close to what should change, and reach for the thin brush on anything small.
 
-Both adapters generate through MLX, so this server runs on Apple Silicon. It refuses to start a real studio where MLX is missing; `--stub` still works there, because it fakes the engines. Porting generation to another vendor is not built. The decisions it needs are in [PORTABILITY.md](studio/l3_interface_adapters/gateways/qwen21/PORTABILITY.md).
+The image adapters generate through MLX, so image generation runs on Apple Silicon. A real studio refuses to start where MLX is missing. The `--stub` option still works there. Porting image generation to another vendor is not built. See [PORTABILITY.md](studio/l3_interface_adapters/gateways/qwen21/PORTABILITY.md).
+
+**Qwen-Image-2.1-Turbo.** The default uses the official full checkpoint, not Viggle's LoRA. On the first image run, it downloads `Qwen/Qwen-Image-2.1-Turbo` into `[qwen21_turbo].model_dir`. Set that path to use another disk or a preloaded checkpoint. The server starts before it loads model weights. It samples the checkpoint's own eight-node sigma table, so eight steps is the count and no other is offered, and its time estimates were measured on that table with BF16 weights. "Why it looks like this" has the measurement and the reason.
 
 **Qwen-Image-2.1.** The weights are `Qwen/Qwen-Image-2.1` on HuggingFace. They are not gated, about 33 GB in bf16. They download into `~/.cache/huggingface` on the first run (`HF_HOME` moves the cache).
 
@@ -112,6 +124,24 @@ Both adapters generate through MLX, so this server runs on Apple Silicon. It ref
 Use `hf`, not `huggingface-cli`: huggingface_hub 2.x deprecated the old name, and it now exits without downloading anything.
 
 The adapter is passed to the model unmerged, which is what its card asks for: mflux merges by default, and merging into bf16 loses about 30 percent of what the adapter changes. Six steps is the only step count it was trained for, so the page offers no other, and it runs without guidance, so there is no negative prompt to set. It offers no Looks, no templates and no region marking yet: those were tested on the 40-step base and not on this schedule.
+
+**LTX-2.5 video.** The first video generation downloads six required files from the gated official model into `[ltx25].model_dir`. Later runs reuse them. The server reads `python_path` and `model_dir` from `studio.toml`.
+
+The video form's rewrite switch, which starts on, lengthens the prompt twice: once with the studio's own rewriter, where the longer text can be read and edited, and once inside the pipeline with the video model's own enhancer. That second pass needs a checkpoint the weight download above does not know, so fetch it once and point `[ltx25].prompt_enhancer_gemma_root` at it:
+
+       hf download google/gemma-4-E2B-it --local-dir ~/Library/Caches/models/gemma-4-E2B-it
+
+About 10 GB. Without it a run whose switch is on refuses with that line rather than failing inside the pipeline over a path. The pipeline replaces the prompt with what that pass writes and logs it as "Enhanced prompt: ...". The runner reads the child's output for its step markers and drops the rest, so a clip's record names the text the studio sent rather than the text the transformer read.
+
+Accept the model terms and run `uv run hf auth login` once before the first video generation. The required weights total about 71 GB. The official LTX-2 source supports Apple MPS and CUDA. Install its Python runtime once:
+
+       git clone https://github.com/Lightricks/LTX-2.git ~/Workspace/LTX-2
+       cd ~/Workspace/LTX-2
+       uv sync
+
+The Video source panel sits beside its prompt in the right sidebar. Image references become keyframes. Source clips stay separate from generated video results. The timeline can capture a clip frame as an image keyframe or send it to the Image workspace. The imported clip itself is not a video-conditioning input.
+
+The selected video model supplies its frame shapes and default, duration limits and step, duration presets and default, frame rate, seed range, reference limit, and reference strength controls through `VideoCapabilities`. LTX opens on the square, as the image form does, and its lowest rung is a 384 × 384 frame. It supports 9 to 361 frames in steps of 8 at 24 fps, and its duration presets use 121, 241, and 361 frames. The UI sends an explicit frame count so the timeline and keyframes have a fixed target. The pipeline runs in a child process, which releases its model weights when generation ends. The two-stage LTX pipeline requires both dimensions to be multiples of 64, so every frame size it offers sits on that grid.
 
 **FLUX.2 klein-base-9B.** mflux reads one diffusers-layout folder, and its name must contain `klein-base-9b`. The default is `~/Library/Caches/models/mflux-klein-base-9b-uncensored`; `model_dir` in `studio.toml` moves it. It takes about 33 GB.
 
@@ -145,7 +175,12 @@ The adapter is passed to the model unmerged, which is what its card asks for: mf
 - **One engine for qwen21.** Generate and instruction edit both run through mflux on MLX. Editing needs the Qwen3-VL vision tower, which mflux ported in 0.21.0; before that it ran on a diffusers pipeline in a child process, which held 38.7 GiB on MPS and had to free the mflux model before every edit.
 - **Viggle Turbo runs six steps and no more, after spiking its nine-step mode.** Its card offers a second mode: seven steps on the adapter, then the adapter off and two steps on the base model, on a wider sigma table. Both halves are reachable from here, mflux's scheduler registry takes a nine-node table by name and a runtime adapter switches off when each layer's scale is set to zero, and both were proved working on real weights. It still does not win. On one scene and one seed, nine steps scored 21.1x containment against six's 21.2x, so it buys nothing where six steps is weak, and it took 38.2s against 27.3s. The only visible change was on a plain generate, where nine steps kept more glaze detail and added background grain. A spike that does not win is still worth the run: it is the difference between a mode that was measured and one that was assumed.
 - **A batch is images in a row, not a real batch.** On this machine a batched flux2 run was 2 to 8% slower per image than one at a time, and it used more memory. One at a time also shows each image as soon as it is done.
+- **A video render shows one percentage for both of its stages.** The LTX-2.5 distilled pipeline denoises a clip twice: once at its own resolution, then again after the spatial upsampler. The runner asks for one window and passes no chunk flags, so each stage samples once, and both stages arrive as one count of steps so the number cannot reset halfway through. Measured on the office machine, one 5 second 1024x576 clip: the pipeline logged 8 steps then 3, and the page read step 1 of 11 at 72s and step 9 of 11 at 150s. The sampler also breaks out of its loop on the terminal sigma instead of running its iterator dry, so a step is reported as it starts. A report written after the iterator's yield never fired for a stage's last step, and the bar parked at 10 of 11 for the rest of the run.
+- **The transformer is built once per clip, not once per stage.** A stage builds its transformer for each denoise pass and frees it when the pass returns, so one clip read the 39.1 GB file twice, 78 GB of the 115 GB a clip loads. The runner's wrapper keeps the first build and hands the same model to the second pass, then frees it when that pass ends, which is the last one: the pipeline runs one denoise pass per stage, its two stages are the two calls in `stream_chunks`, and the decode that wants the room comes after them. The build does not depend on the shape of the latents, because the single GPU builder ignores the video tools the stage hands it, so no shape enters the build; that was checked at the one shape measured here. Measured on the office M5 Pro, one 384 x 384 clip of 73 frames: the second build cost 32.4 s and 36.2 s in two runs, and with the hold the second pass entered its denoising loop in the same millisecond as its build line, against a 32.4 s gap without. Both runs made the same clip: 73 of 73 frames identical and no audio difference. The block streaming path is left alone, because it frees its blocks between passes by design. At the largest shape the form offers, 1280 x 704 at 73 frames, the second build cost 40.0 s without the hold and 0.003 s with it, and the hold's own window, which covers the upsampler, cost 1.3 s there, 1.9 s against 3.2 s. The two runs' totals are not comparable and I do not quote them as a gain: the run with the hold took 499.8 s against 393.2 s, and all of that difference sits in the first stage, whose first step took 131.7 s against 26.7 s. That step swings with the machine rather than with this change, because the plain wrapper measured 20.1 s and 110.3 s at 384 x 384 in the same evening. The release lands before the decode builds its VAE, so the decode cannot see the hold at all.
+- **A clip's first denoise step cost 20 s to 110 s in the runs measured, and the machine's memory moved with it.** On the office M5 Pro, one 384 x 384 clip of 73 frames: the first step of the first stage took 20.1 s and 30.5 s in two runs with the machine to itself, and 110.3 s in a run while the studio's own server was up, RAM held 63 GB of page cache, and swap held 7.7 GB of 9 GB. Those runs differ in more than one thing, so this points at the memory without proving it. The steps after the first cost 0.8 s to 4 s. A clip is 11 steps whatever its length, because the distilled schedule is a table: 3 seconds of video and 15 seconds of video run the same steps, and length changes the tokens in each step and not the count. So a 15 second clip costs about twice a 3 second one and not five times, and the wait is the load and the first use rather than the frames.
+- **The Turbo checkpoint is sampled on the table it ships.** mflux builds `linspace(1, 1/steps, steps)` plus a zero for this checkpoint and never reads the `sample_sigmas` it carries: the grep for that name over the mflux package finds nothing, and the model card says the opposite, that the table "is loaded automatically" and that `num_inference_steps` alone does not override it. So `gateways/qwen21_turbo_schedule.py` registers the checkpoint's own eight nodes as a scheduler, the way mflux registers Viggle's six, and eight nodes means eight steps. Measured 2026-10-16 on the office machine, one prompt and two seeds at 768 x 768: the two tables differ by RMS 26.3 and 35.3, as much as 8 steps differ from 40, and the linear table carries 2.5 to 3.1 more edge energy. Two seeds and one prompt say which way a schedule moves a picture, not which is better; the shipped one is the publisher's own and the one they evaluated. Both were also timed at 8, 20 and 40 steps, which is a flat 1.41 s/step with about 0.6s of fixed cost at 768 x 768, and detail stops improving past 20: edge energy reads 18.28, 19.11 and 19.36 at 8, 20 and 40 steps.
 - **One run at a time.** The GPU is full with one run, and two only slow each other. A run from a second tab gets a message to wait, not a place in a queue.
+- **One model family in memory.** Image and video workspaces keep separate model choices, but they share one memory slot. The server loads weights only when a run needs them. A workspace switch releases the inactive model. Prompt rewriting uses the same lock and releases its weights when the rewrite ends. Within a run, a model the run uses more than once is held until its last use, and a model it uses once is freed when that use ends. The video transformer is the one held today, and a batch of images holds its engine for the whole batch. A clip builds its video encoder twice as well, 0.59 GB and about a second of the upsampler's 2.4 s, and that one is left alone: sharing it means either copying two blocks' own call bodies, which would drift from the pipeline and could skip the upsample step itself, or caching inside the loader that builds it, which risks handing back the wrong model. Neither is worth 0.7 percent of a clip. The sizes decide what can be held together: on a 64 GB machine the LTX transformer is 39.1 GB and the text encoder it needs beside it is 24.5 GB, which is 63.6 GB of the machine and leaves nothing for macOS and the server, so those two are never resident together and a clip loads them in turn. A workspace switch is what gives the slot back.
 - **The server keeps nothing, and it binds 127.0.0.1.** It holds neither the prompt nor the image. An edit does write its reference images into a temporary directory for the length of that one run and removes it afterward, because mflux's edit call takes paths rather than images. That is the only thing this server puts on disk. The browser keeps the images in its own storage, which belongs to the address and port, so a server on another port shows an empty strip.
 
 ## Licenses

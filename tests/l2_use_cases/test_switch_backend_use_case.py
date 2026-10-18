@@ -12,6 +12,7 @@ import pytest
 from studio.l1_entities.errors import BackendBusy, UnknownBackend
 from studio.l2_use_cases.switch_backend_use_case import SwitchBackendUseCase
 from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
+from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import InMemoryModelResidencyGateway
 from tests.support.fakes import FakeBackendGateway
 
 
@@ -41,6 +42,10 @@ class SwitchSetup:
             default_id="first",
             visible_ids=("first", "second"),
         )
+        self.residency = InMemoryModelResidencyGateway(
+            {"first": self.first, "second": self.second, "hidden": self.hidden}
+        )
+        self.residency.activate("first")
         self.engine_lock = threading.Lock()
 
 
@@ -49,39 +54,40 @@ def switch_setup():
     return SwitchSetup()
 
 
-def test_a_switch_frees_the_old_backend_before_the_new_one_loads(switch_setup):
-    SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock).execute("second")
-    assert switch_setup.log == ["release first", "load second"]
+def test_a_switch_frees_the_old_backend_and_defers_loading_the_new_one(switch_setup):
+    SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock, switch_setup.residency).execute("second")
+    assert switch_setup.log == ["release first"]
     assert switch_setup.catalog.active_id() == "second"
+    assert switch_setup.residency.active_id() == "second"
 
 
 def test_switching_to_the_backend_already_active_does_nothing(switch_setup):
     # A reload here would drop a warm engine for no gain.
-    SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock).execute("first")
+    SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock, switch_setup.residency).execute("first")
     assert switch_setup.log == []
 
 
 def test_a_backend_the_page_cannot_offer_is_refused(switch_setup):
     with pytest.raises(UnknownBackend):
-        SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock).execute("hidden")
+        SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock, switch_setup.residency).execute("hidden")
     assert switch_setup.log == [] and switch_setup.catalog.active_id() == "first"
 
 
 def test_an_unknown_backend_is_refused(switch_setup):
     with pytest.raises(UnknownBackend):
-        SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock).execute("nope")
+        SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock, switch_setup.residency).execute("nope")
     assert switch_setup.catalog.active_id() == "first"
 
 
 def test_a_switch_waits_rather_than_freeing_an_engine_under_a_run(switch_setup):
     with switch_setup.engine_lock, pytest.raises(BackendBusy):
-        SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock).execute("second")
+        SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock, switch_setup.residency).execute("second")
     assert switch_setup.log == [] and switch_setup.catalog.active_id() == "first"
 
 
 def test_the_engine_lock_is_free_again_after_a_switch(switch_setup):
     # A switch that kept the lock would refuse every later run, and the page would
     # report a busy model with nothing running.
-    SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock).execute("second")
+    SwitchBackendUseCase(switch_setup.catalog, switch_setup.engine_lock, switch_setup.residency).execute("second")
     assert switch_setup.engine_lock.acquire(blocking=False) is True
     switch_setup.engine_lock.release()

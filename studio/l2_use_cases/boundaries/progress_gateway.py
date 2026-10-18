@@ -12,17 +12,18 @@ class ProgressGateway(ABC):
     """
 
     @abstractmethod
-    def begin(self, label: str) -> None:
+    def begin(self, label: str, kind: str = "image", request_id: str | None = None) -> None:
         """The run has started but no step has come in yet."""
 
     @abstractmethod
-    def set_step(self, step: int, total: int) -> None: ...
+    def set_step(self, step: int, total: int, phase: int = 0) -> None: ...
 
     @abstractmethod
     def finish(self) -> None: ...
 
     @abstractmethod
-    def request_cancel(self) -> None: ...
+    def request_cancel(self, request_id: str | None = None) -> bool:
+        """Cancel an image run, or the matching video request when an ID is given."""
 
     @abstractmethod
     def cancel_requested(self) -> bool: ...

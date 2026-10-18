@@ -43,6 +43,7 @@ def uses():
             "rewrite",
             "read_rewrite_progress",
             "cancel_rewrite",
+            "release_model",
         )
     }
 
@@ -91,6 +92,13 @@ def test_a_rewrite_carries_the_prompt_and_the_pictures(controller, uses):
     request = uses["rewrite"].execute.call_args.args[0]
     assert (request.prompt, request.mode) == ("a cat", "edit")
     assert [(reference.width, reference.height) for reference in request.references] == [(40, 30)]
+    # The image form names no workspace, and the image one is what it is.
+    assert request.workspace == "image"
+
+
+def test_a_video_rewrite_says_which_workspace_asked(controller, uses):
+    controller.rewrite({"prompt": "a cat on a wall", "mode": "generate", "workspace": "video"})
+    assert uses["rewrite"].execute.call_args.args[0].workspace == "video"
 
 
 def test_the_progress_is_the_one_the_use_case_reports(controller, uses):
@@ -102,6 +110,11 @@ def test_the_progress_is_the_one_the_use_case_reports(controller, uses):
 def test_a_cancel_stops_the_run_in_flight(controller, uses):
     controller.cancel()
     assert uses["cancel"].execute.call_count == 1
+
+
+def test_a_workspace_switch_releases_the_resident_model(controller, uses):
+    controller.release_model()
+    assert uses["release_model"].execute.call_count == 1
 
 
 def test_the_rewrite_state_is_the_one_the_use_case_reports(controller, uses):

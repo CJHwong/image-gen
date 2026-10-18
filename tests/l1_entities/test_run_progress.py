@@ -44,6 +44,12 @@ def test_stopping_is_separate_from_running():
     assert stopping.running and stopping.stopping
 
 
+def test_phase_identifies_the_current_sampler_pass():
+    progress = RunProgress(running=True, stage="running", step=2, total=3, phase=2)
+
+    assert progress.phase == 2
+
+
 def test_progress_is_frozen_so_a_poll_cannot_edit_the_answer():
     # The page renders one poll per HTTP response. A frozen answer cannot be
     # edited by the presenter while it reads it.

@@ -12,7 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from studio.l2_use_cases.boundaries.backend_catalog_gateway import BackendCatalogGateway
+from studio.l2_use_cases.boundaries.model_residency_gateway import ModelResidencyGateway
 from studio.l2_use_cases.boundaries.progress_gateway import ProgressGateway
 
 # An engine inside this process can only look at a step, and the encode before the first
@@ -28,13 +28,13 @@ class CancelRunUseCase:
     def __init__(
         self,
         progress: ProgressGateway,
-        catalog: BackendCatalogGateway,
+        residency: ModelResidencyGateway,
         patience: float = PATIENCE_SECONDS,
         clock: Callable[[], float] = time.monotonic,
         wait: Callable[[float], None] = time.sleep,
     ):
         self._progress = progress
-        self._catalog = catalog
+        self._residency = residency
         self._patience = patience
         self._clock = clock
         self._wait = wait
@@ -42,7 +42,8 @@ class CancelRunUseCase:
         self._lock = threading.Lock()
 
     def execute(self) -> None:
-        self._progress.request_cancel()
+        if not self._progress.request_cancel():
+            return
         with self._lock:
             if self._escalating:
                 return  # one watch per cancel is enough
@@ -60,7 +61,7 @@ class CancelRunUseCase:
                 return
             # Free the engine. A child is killed outright; an engine inside this process
             # frees its model, and the flag stops it at the next step either way.
-            self._catalog.get(self._catalog.active_id()).release()
+            self._residency.release()
         finally:
             with self._lock:
                 self._escalating = False

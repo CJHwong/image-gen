@@ -18,6 +18,13 @@ function editing() {
   return document.getElementById('mode-edit').checked;
 }
 
+// Which workspace the form is in. One form serves both, and the page writes the mode
+// onto it, so this asks the form rather than keeping a copy: a tab switch that moved
+// one copy and not the other would leave a press on the wrong prompt box.
+function video() {
+  return page.el.form.dataset.mediaMode === 'video';
+}
+
 function currentMode() {
   return page.modes[editing() ? 'edit' : 'generate'];
 }
@@ -90,6 +97,8 @@ function spell(seconds) {
 // mirrors on every change. What stays here is the list itself, the zone that
 // fills it, and the three things the page owns: the form's flag, the file
 // input's `multiple`, and the Remove all button.
+let nextReferenceId = 1;
+
 function referenceLimit() {
   return maxReferences();
 }
@@ -108,6 +117,7 @@ function renderReferences() {
   page.el.referenceInput.multiple = editing();
   document.getElementById('clear-reference').hidden = count < 2;
   pushReferences();
+  page.renderMediaActions();
   refreshForm();
   page.region().sync();
   // An empty stage says what to do next, and that depends on the references.
@@ -135,7 +145,14 @@ function addReference(b64, name, source) {
     page.notify('info', 'Edit takes at most ' + maxReferences() + ' images.');
     return;
   }
-  const entry = { b64: b64, name: name, width: 0, height: 0, source: source || null };
+  const entry = {
+    id: 'reference-' + nextReferenceId++,
+    b64: b64,
+    name: name,
+    width: 0,
+    height: 0,
+    source: source || null,
+  };
   page.references().push(entry);
   probeSize(entry);
   renderReferences();
@@ -207,7 +224,8 @@ function editResolution() {
   const reference = lastReference();
   if (!reference || !reference.width) return 1024;
   const side = Math.round(Math.sqrt(reference.width * reference.height));
-  const cap = currentMode().estimate && currentMode().estimate.match_cap;
+  const estimate = estimateModel();
+  const cap = estimate && estimate.match_cap;
   return cap ? Math.min(side, cap) : side;
 }
 
@@ -469,6 +487,11 @@ function costKey() {
     + (twoPass() ? ' two-pass' : '');
 }
 
+function estimateModel() {
+  const mode = currentMode();
+  return page.references().length && mode.reference_estimate ? mode.reference_estimate : mode.estimate;
+}
+
 // The images a run will carry: the references, and the mask when one is drawn.
 // Each one is encoded and attended to, so the count is part of the cost.
 function sentReferences() {
@@ -498,29 +521,31 @@ function targetPixels() {
 
 // Seconds per step for the form as it stands, from what this device has
 // shown so far or else from the backend's constants.
-function stepSeconds() {
-  const model = currentMode().estimate;
-  if (!model) return 0;
+function stepSeconds(estimate) {
+  const costModel = estimate || estimateModel();
+  if (!costModel) return 0;
   // The constant holds the passes it was measured with, so rescale it to the
   // passes the form asks for. A learned rate is already per pass count.
-  const passes = (twoPass() ? 2 : 1) / (model.two_pass ? 2 : 1);
+  const passes = (twoPass() ? 2 : 1) / (costModel.two_pass ? 2 : 1);
   const learned = page.learnedCost[costKey()];
   const cost = learned === undefined
-    ? model.step_cost * passes * referenceFactor(model) : learned;
-  return cost * Math.pow(targetPixels() / 1e6, model.exponent);
+    ? costModel.step_cost * passes * referenceFactor(costModel) : learned;
+  return cost * Math.pow(targetPixels() / 1e6, costModel.exponent);
 }
 
 function estimate() {
   const count = imageCount();
   const images = count > 1 ? count + ' images' : '';
-  const model = currentMode().estimate;
-  if (!model || !paramSpec('steps')) return images;
+  const costModel = estimateModel();
+  if (!costModel || !paramSpec('steps')) return images;
   // Every run of a one-each batch carries one reference, so the mode's own growth for several
   // references does not apply to any of them.
   const steps = Number(document.getElementById('steps').value) || 0;
-  const perStep = stepSeconds();
-  const overhead = model.overhead_per_image ? count * model.overhead : model.overhead;
-  const time = 'about ' + spell(count * steps * perStep + overhead);
+  const measuredSteps = costModel.strength_scales_steps && page.references().length
+    ? stepsToRun() : steps;
+  const perStep = stepSeconds(costModel);
+  const overhead = costModel.overhead_per_image ? count * costModel.overhead : costModel.overhead;
+  const time = 'about ' + spell(count * measuredSteps * perStep + overhead);
   return images ? images + ', ' + time : time;
 }
 
@@ -907,6 +932,7 @@ let rewriteQueue = [];
 // prompt hands back your own words and not the paragraph a model wrote.
 let rewrittenFrom = null;
 
+
 // What one press rewrites, in order: the words in the box, then the words in each
 // marked area, in the order the areas were drawn. Each answer lands where its
 // instruction lives, so nothing is written twice, and a marked run whose rows carry
@@ -917,8 +943,15 @@ let rewrittenFrom = null;
 // that image, and lands each answer in that image's own row. The box keeps the words
 // that were typed in it: they are the instruction the rows are written from, and they
 // stay the words of a run that was never pressed.
+//
+// The video workspace has one box and no rows, and a clip is one shot, so a press
+// there is always one item.
 function rewriteItems() {
   const items = [];
+  if (video()) {
+    if (document.getElementById('video-prompt').value.trim()) items.push({ kind: 'video' });
+    return items;
+  }
   if (eachOffered()) {
     page.references().forEach(function (_, place) {
       const text = (eachText[place] || '').trim() || page.el.promptInput.value.trim();
@@ -936,13 +969,25 @@ function rewriteItems() {
 }
 
 function rewriteWhere(item) {
-  if (item.kind === 'prompt') return 'the prompt';
+  if (item.kind === 'video' || item.kind === 'prompt') return 'the prompt';
   if (item.kind === 'image') return 'the words for image ' + (item.place + 1);
   return 'the ' + page.region().name(item.colour) + ' area';
 }
 
+// The video workspace is offered the generate rewriter: a video is drawn from words,
+// and the workspace's own picture is a frame the clip must hold rather than a picture
+// the rewriter reads an instruction from. A backend with no generate rewriter offers
+// the button nowhere, video included.
 function rewriteOffered() {
-  return (page.studio.rewrite_modes || []).indexOf(currentMode().id) >= 0;
+  return (page.studio.rewrite_modes || []).indexOf(video() ? 'generate' : currentMode().id) >= 0;
+}
+
+
+// Either run holds the one GPU, and the rewriter is a second model that fits beside
+// neither, so a press waits for both. The page marks each run on the body, and reading
+// those classes keeps this out of the runs' own start and stop paths.
+function runInFlight() {
+  return page.busy() || document.body.classList.contains('video-busy');
 }
 
 // Which verb shows is the DOM's and never the cascade's. The run button's labels
@@ -955,8 +1000,6 @@ function showRewriteVerb(button, stage) {
 }
 
 function renderRewriteButton() {
-  const button = document.getElementById('rewrite-toggle');
-  if (!button) return;
   // The card's own Edit this empties the form a rewrite writes into, so it reads this and
   // locks itself while a press runs. The run button waits for the same reason, through
   // `blocker`. The stage is asked to draw again for those changes, and only when the answer
@@ -966,18 +1009,28 @@ function renderRewriteButton() {
     document.body.classList.toggle('rewriting', writing);
     renderRunButton();
     page.renderStage();
+    // The video workspace's run button waits for a press the same way, and the page draws
+    // that one from this class.
+    page.syncVideoGenerate();
   }
-  button.hidden = !rewriteOffered();
+  // One button per workspace, and only one of them is ever on screen. They carry the
+  // same job, so they are drawn from the same state here rather than twice.
   const items = rewriteItems();
-  showRewriteVerb(button, rewriteStage);
-  button.disabled = rewriteStage === 'preparing' || rewriteStage === 'stopping'
-    || (rewriteStage === 'idle' && (page.busy() || !items.length));
   const stage = rewriteStages[rewriteStage];
-  button.title = stage ? stage.title : rewriteTitle(items);
+  const busy = runInFlight();
+  ['rewrite-toggle', 'video-rewrite-toggle'].forEach(function (id) {
+    const button = document.getElementById(id);
+    if (!button) return;
+    button.hidden = !rewriteOffered();
+    showRewriteVerb(button, rewriteStage);
+    button.disabled = rewriteStage === 'preparing' || rewriteStage === 'stopping'
+      || (rewriteStage === 'idle' && (busy || !items.length));
+    button.title = stage ? stage.title : rewriteTitle(items);
+  });
   // The readout belongs to a run while one is going, so a rewrite only borrows
   // it when nothing else is. Without this a press looks like nothing happened
   // for half a minute, and the button stays live for a second press.
-  if (page.busy()) return;
+  if (busy) return;
   const status = document.getElementById('status');
   status.hidden = rewriteStage === 'idle';
   if (stage) page.el.statusText.textContent = rewriteStage === 'writing' ? rewriteStatus() : stage.status;
@@ -988,6 +1041,11 @@ function renderRewriteButton() {
 // A batch is the third case: the pictures differ, so the press writes one instruction for
 // each of them, and one press over four images is four times the wait.
 function rewriteTitle(items) {
+  if (video()) {
+    return items.length
+      ? 'Rewrite the prompt into a longer instruction before generating'
+      : 'Write a prompt to rewrite first';
+  }
   if (items.length && items[0].kind === 'image') {
     return items.length === 1
       ? 'Write out the words for that image, read from that image'
@@ -1068,7 +1126,7 @@ async function startRewrite() {
   for (const item of items) {
     let result;
     try {
-      result = item.kind === 'prompt' ? await rewritePrompt()
+      result = item.kind === 'video' || item.kind === 'prompt' ? await rewritePrompt()
         : item.kind === 'image' ? await rewriteImage(item)
           : await rewriteRow(item);
     } catch (error) {
@@ -1103,12 +1161,19 @@ function cancelRewrite() {
 // it, and not the mask: the mask is a technical picture, and the rewriter is asked
 // about the scene. A caller that names its own pictures is asking about those alone,
 // which is how one image of a batch gets an instruction that names it.
+//
+// A video rewrite names the workspace it is in and the generate rewriter, and sends no
+// picture: the video's reference is a frame the clip has to hold, and what is being
+// lengthened is the direction of a shot. The workspace travels with the request because
+// only an image form has a size list for a suggested shape to land in.
 async function askRewriter(prompt, pictures) {
+  const inVideo = video();
   const images = pictures || page.references().map(function (reference) { return reference.b64; });
   const body = new URLSearchParams();
-  body.set('mode', currentMode().id);
+  body.set('mode', inVideo ? 'generate' : currentMode().id);
+  body.set('workspace', inVideo ? 'video' : 'image');
   body.set('prompt', prompt);
-  body.set('references', JSON.stringify(images));
+  body.set('references', JSON.stringify(inVideo ? [] : images));
   const answer = await fetch('/rewrite', { method: 'POST', body: body });
   const text = await answer.text();
   let result;
@@ -1124,11 +1189,24 @@ async function askRewriter(prompt, pictures) {
 // The box's own words, written out at length. A cancelled rewrite answers with no
 // prompt, so nothing here is applied: the box keeps the words the user typed and
 // `rewrittenFrom` stays as it was.
+//
+// The video workspace's one item is its own prompt box, and the press there writes
+// back into it alone. `rewrittenFrom` is not kept for a video: that field is what the
+// stage's own Reuse prompt hands back, and a video output's Reuse prompt restores the
+// words its run sent, which are these.
 async function rewritePrompt() {
-  const promptInput = page.el.promptInput;
+  const inVideo = video();
+  const promptInput = inVideo ? document.getElementById('video-prompt') : page.el.promptInput;
   const typed = promptInput.value.trim();
   const result = await askRewriter(typed);
   if (result.cancelled) return result;
+  if (inVideo) {
+    promptInput.value = result.prompt;
+    // The page syncs the video's run button and its frame count off this event, so the
+    // box is asked for one rather than the page being reached into.
+    promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+    return result;
+  }
   rewrittenFrom = typed;
   promptInput.value = result.prompt;
   growPrompt();
@@ -1189,11 +1267,16 @@ function holdPanel(reason, on) {
 function applyHold() {
   const reason = Array.from(holds).join(' ');
   held = [];
+  page.el.form.dataset.panelHeld = 'true';
   page.el.form.querySelectorAll('input, textarea, select, button').forEach(function (control) {
-    // The Run button is Cancel while a run is going, and the rewrite button is
-    // Cancel while a rewrite is writing, so holding either would trap the user
-    // with no way out.
-    if (control.id === 'go' || control.id === 'rewrite-toggle') return;
+    // The Run button is Cancel while a run is going, and each rewrite button is
+    // Cancel while its own rewrite is writing, so holding any of them would trap the
+    // user with no way out. The video rewrite's button needs no rule of its own here:
+    // a run of either kind leaves it disabled, which a pointer block cannot undo.
+    if (
+      control.id === 'go' || control.id === 'rewrite-toggle'
+      || control.id === 'video-generate' || control.id === 'video-rewrite-toggle'
+    ) return;
     const text = control.tagName === 'TEXTAREA' || (control.tagName === 'INPUT' && control.type === 'text');
     if (text) {
       if (control.readOnly) return;
@@ -1209,6 +1292,7 @@ function applyHold() {
 }
 
 function releaseHold() {
+  delete page.el.form.dataset.panelHeld;
   held.forEach(function (entry) {
     const control = entry[0];
     if (entry[1] === 'readOnly') control.readOnly = false;
@@ -1224,6 +1308,7 @@ function releaseHold() {
 }
 
 const handle = {
+  holdPanel: holdPanel,
   editing: editing,
   currentMode: currentMode,
   paramSpec: paramSpec,
@@ -1255,6 +1340,7 @@ const handle = {
   targetRatio: targetRatio,
   targetPixels: targetPixels,
   costKey: costKey,
+  estimateModel: estimateModel,
   stepSeconds: stepSeconds,
   estimate: estimate,
   refreshForm: refreshForm,
@@ -1341,10 +1427,14 @@ function wire() {
     addFiles(event.dataTransfer.files);
   });
   document.addEventListener('paste', function (event) {
+    if (document.getElementById('form').dataset.mediaMode === 'video') return;
     const files = event.clipboardData ? event.clipboardData.files : [];
-    if (!files.length) return;  // a text paste goes to the field as usual
+    const images = Array.from(files || []).filter(function (file) {
+      return file.type.startsWith('image/');
+    });
+    if (!images.length) return;  // a text paste goes to the field as usual
     event.preventDefault();
-    addFiles(files);
+    addFiles(images);
   });
   document.getElementById('clear-reference').addEventListener('click', function () {
     page.setReferences([]);
@@ -1387,13 +1477,19 @@ function wire() {
 
   document.getElementById('each-choice').addEventListener('change', renderEachChoice);
 
-  document.getElementById('rewrite-toggle').addEventListener('click', function () {
-    // The press is Cancel once the rewriter writes, and dead while it loads its
-    // weights, because a load has nothing to stop.
-    if (rewriteStage === 'writing') { cancelRewrite(); return; }
-    if (rewriteStage !== 'idle') return;
-    if (page.busy() || !rewriteItems().length) return;
-    startRewrite();
+  // One handler for both buttons: each press is Cancel once the rewriter writes, and
+  // dead while it loads its weights, because a load has nothing to stop. Which prompt
+  // the press reads is the workspace's answer, not the button's.
+  // One handler for both buttons: each press is Cancel once the rewriter writes, and
+  // dead while it loads its weights, because a load has nothing to stop. Which prompt
+  // the press reads is the workspace's answer, not the button's.
+  ['rewrite-toggle', 'video-rewrite-toggle'].forEach(function (id) {
+    document.getElementById(id).addEventListener('click', function () {
+      if (rewriteStage === 'writing') { cancelRewrite(); return; }
+      if (rewriteStage !== 'idle') return;
+      if (runInFlight() || !rewriteItems().length) return;
+      startRewrite();
+    });
   });
 
   // The prompt box carries an instruction the button depends on, so its state is
@@ -1402,6 +1498,13 @@ function wire() {
     rewrittenFrom = null;   // typing again is your own words, not the rewrite's
     renderRewriteButton();
   });
+
+  // The video prompt's box is page.html's own field, and the page listens on it to sync
+  // the video run button. The rewrite reads the same box for its own state, so it draws
+  // from the same event: once when the box is typed in, and once when a press writes into
+  // it, which is the event the press raises for the page. Typing after a press is your own
+  // words again, so the next run lengthens them rather than leaving them as they are.
+  document.getElementById('video-prompt').addEventListener('input', renderRewriteButton);
 
   // Watching the class the page already sets for a run keeps this out of the run's
   // own start and stop paths, which are easy to get wrong.

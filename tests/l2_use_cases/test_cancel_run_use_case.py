@@ -17,9 +17,12 @@ from studio.l1_entities.image_job import ImageResult
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.run_image_use_case import RunImageRequest, RunImageUseCase
 from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
+from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
+    InMemoryModelResidencyGateway,
+)
 from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
 from studio.l3_interface_adapters.gateways.in_memory_reference_store_gateway import InMemoryReferenceStoreGateway
-from tests.support.fakes import FakeBackendGateway
+from tests.support.fakes import FakeBackendGateway, FakeModelResidencyGateway
 
 
 def _watch_threads(known: set[int | None]) -> list[threading.Thread]:
@@ -38,7 +41,7 @@ def test_a_second_cancel_while_a_watch_runs_starts_no_second_watch():
     # A double click sends two cancels. One watch per cancel is enough, because a
     # second watcher would free the same engine twice.
     backend = FakeBackendGateway()
-    catalog = InMemoryBackendCatalogGateway({"fake": backend}, "fake", ("fake",))
+    residency = FakeModelResidencyGateway()
     progress = InMemoryProgressGateway()
     progress.begin("1 of 2")
     inside = threading.Event()
@@ -50,7 +53,7 @@ def test_a_second_cancel_while_a_watch_runs_starts_no_second_watch():
         inside.set()
         gate.wait(5)
 
-    cancel = CancelRunUseCase(progress, catalog, patience=10.0, wait=wait)
+    cancel = CancelRunUseCase(progress, residency, patience=10.0, wait=wait)
     known = {thread.ident for thread in threading.enumerate()}
     cancel.execute()
     assert inside.wait(5), "the watch never entered its loop"
@@ -62,12 +65,24 @@ def test_a_second_cancel_while_a_watch_runs_starts_no_second_watch():
     assert backend.events == []
 
 
+def test_an_image_cancel_does_not_watch_or_stop_a_video_run():
+    progress = InMemoryProgressGateway()
+    progress.begin("", kind="video", request_id="video-run")
+    residency = FakeModelResidencyGateway()
+    cancel = CancelRunUseCase(progress, residency, patience=0)
+
+    cancel.execute()
+
+    assert progress.cancel_requested() is False
+    assert residency.events == []
+
+
 def test_a_run_that_stops_as_the_window_ends_keeps_its_engine():
     # The watch frees the engine only while the run is still in flight when the
     # window ends. A reload costs the next run 3.8s for mflux, so the net reads
     # the run again rather than firing on the clock alone.
     backend = FakeBackendGateway()
-    catalog = InMemoryBackendCatalogGateway({"fake": backend}, "fake", ("fake",))
+    residency = FakeModelResidencyGateway()
     progress = InMemoryProgressGateway()
     progress.begin("1 of 2")
     now = [0.0]
@@ -76,7 +91,7 @@ def test_a_run_that_stops_as_the_window_ends_keeps_its_engine():
         now[0] = 100.0  # the window ends on this tick
         progress.finish()  # and the run stops in the same moment
 
-    cancel = CancelRunUseCase(progress, catalog, patience=5.0, clock=lambda: now[0], wait=wait)
+    cancel = CancelRunUseCase(progress, residency, patience=5.0, clock=lambda: now[0], wait=wait)
     known = {thread.ident for thread in threading.enumerate()}
     cancel.execute()
     _join_watch_threads(known)
@@ -115,8 +130,9 @@ def run_with_cancel(backend, patience=0.05):
     """Start a run, cancel it once it is inside the engine, and report what happened."""
     progress = InMemoryProgressGateway()
     catalog = InMemoryBackendCatalogGateway({"fake": backend}, "fake", ("fake",))
-    run = RunImageUseCase(catalog, progress, InMemoryReferenceStoreGateway())
-    cancel = CancelRunUseCase(progress, catalog, patience=patience, wait=lambda seconds: time.sleep(0.005))
+    residency = InMemoryModelResidencyGateway({"fake": backend})
+    run = RunImageUseCase(catalog, progress, InMemoryReferenceStoreGateway(), residency=residency)
+    cancel = CancelRunUseCase(progress, residency, patience=patience, wait=lambda seconds: time.sleep(0.005))
     outcome: dict = {}
 
     def go():

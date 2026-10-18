@@ -236,9 +236,10 @@ The progress card is htmx's. It polls `hx-get="/progress"` and swaps `#progress`
 If Lit renders that subtree the two fight and the poll loses. So `progress-card.js`
 renders the shell and **htmx owns the children**.
 
-The run stays an htmx post. The region composition depends on the
-`event.detail.parameters` hook, and moving it to `fetch` would move the mask
-contract as well. That is a separate change, with its own risk.
+Image runs stay htmx posts. Region composition depends on the
+`event.detail.parameters` hook, and moving that route to `fetch` would move
+the mask contract as well. Video generation uses a separate JSON fetch because
+its request carries frame-indexed still references and returns MP4 bytes.
 
 ## The static route
 
@@ -320,7 +321,9 @@ place. `#counter` is the one entry that must keep NOT existing.
    stylesheet and `Lightnone` without it, and the markup carries no text node
    between them. `verify_ui.py` reads the name both ways, the second with
    `page.css` refused.
-8. The backend badge keeps its `title`.
+8. The tab title is the workspace and the model it runs, as `Image - <model>` or
+   `Video - <model>`, and a run puts its percent in front of that. It carried the
+   image model's name alone, which read wrong in the video workspace.
 9. `#strip-note` keeps its wording, including "N images" and "in this tab".
 10. `#go` keeps its `data-state`, one of `idle`, `busy` and `stopping`, set
     wherever the body's `busy` and `stopping` classes change, and `verify_ui.py`

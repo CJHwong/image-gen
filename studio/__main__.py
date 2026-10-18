@@ -1,14 +1,13 @@
-"""A local web page for image generation. The server logs and saves nothing.
+"""A local web studio for image and video generation. The server logs and saves nothing.
 
-The server writes neither the prompt nor the image to disk: the image goes from
-the engine to the page as an in-page data URL, so no EXIF or prompt text is
-embedded either. The browser keeps the images and their prompts until Clear all,
-unless "Keep in this browser" is off in the page. The server binds 127.0.0.1 by
-default. Its one outbound request is the htmx script from a CDN, which carries
-no prompt data.
+The server keeps no prompt or result after a request. Image edits and video runs
+use temporary files for references and output, then remove them. The browser
+keeps results until Clear all, unless "Keep in this browser" is off. The server
+binds 127.0.0.1 by default. The page loads htmx and Lit from CDNs. Neither gets
+prompt data.
 
 USAGE:
-    uv run studio                      # http://127.0.0.1:8765, the default backend
+    uv run studio                      # http://127.0.0.1:8765, official Qwen Turbo
     uv run studio --port 9000
     uv run studio --backend qwen21 -q 8
     uv run studio --stub --port 8832   # the page on fake engines, for page work
@@ -29,7 +28,7 @@ DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Serve a local image generation page. The server logs and saves nothing."
+        description="Serve a local multimedia generation studio. The server logs and saves nothing."
     )
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8765, help="port (default 8765)")
@@ -81,14 +80,11 @@ def main():
     rewriters = rewriter_cache_line(config)
     if rewriters:
         print(rewriters, flush=True)
-    capabilities = studio.active_capabilities()
-    print(f"Loading {capabilities.name} ({capabilities.badge}). The first run may download the weights.", flush=True)
-    try:
-        studio.prepare.execute()
-    except Exception as error:
-        sys.exit(f"Could not load the model: {error}")
     print(f"\nReady on http://{args.host}:{args.port}", flush=True)
-    print("Nothing is kept: an edit's references live in a temp folder for that run. Ctrl-C to stop.\n", flush=True)
+    print(
+        "Models load on first use. Switching workspaces releases inactive model memory. Ctrl-C to stop.\n",
+        flush=True,
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

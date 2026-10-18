@@ -3,6 +3,7 @@
 import gc
 from collections.abc import Callable
 from contextlib import contextmanager
+from copy import copy
 
 from studio.l1_entities.errors import Cancelled
 
@@ -90,3 +91,13 @@ def lora_kwargs(path: str | None, scale: float = 1.0) -> dict:
     if path is None:
         return {}
     return {"lora_paths": [path], "lora_scales": [scale], "bake_lora": False}
+
+
+def official_turbo_model_config():
+    """Use the official Turbo card's identity sigma shift without changing base Qwen."""
+    from mflux.models.common.config.model_config import ModelConfig
+
+    model_config = copy(ModelConfig.qwen_image_21())
+    model_config.requires_sigma_shift = False
+    model_config.sigma_shift_terminal = None
+    return model_config

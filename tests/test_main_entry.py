@@ -56,8 +56,8 @@ def test_a_good_run_serves_until_ctrl_c_then_frees_the_engine(tmp_path, monkeypa
     server.serve_forever.assert_called_once_with()
     server.server_close.assert_called_once_with()
     printed = capsys.readouterr().out
-    assert "Loading Qwen-Image-2.1 (bf16)." in printed
     assert "Ready on http://127.0.0.1:8931" in printed and "Stopped." in printed
+    assert "Models load on first use" in printed and "Loading Qwen" not in printed
 
 
 def test_the_startup_line_names_the_rewriters_before_the_click(tmp_path, monkeypatch, capsys):
@@ -74,8 +74,8 @@ def test_the_startup_line_names_the_rewriters_before_the_click(tmp_path, monkeyp
     line = next(row for row in printed.splitlines() if row.startswith("Rewriters: "))
     assert line.startswith("Rewriters: generate ")
     assert ", edit " in line
-    # Above the loading line, so it is read before the wait it warns about starts.
-    assert printed.index("Rewriters: ") < printed.index("Loading Qwen-Image-2.1")
+    # The cache note appears before the ready line, before the user tries a rewrite.
+    assert printed.index("Rewriters: ") < printed.index("Ready on http://127.0.0.1:8932")
 
 
 def test_a_backend_with_no_rewriter_prints_no_line(tmp_path):
@@ -115,14 +115,13 @@ def test_a_machine_with_no_engine_exits_before_the_port_is_bound(tmp_path, monke
         entry.main()
 
     message = exit_message(exits)
-    assert message.startswith("Cannot run here: no MLX on this machine")
+    assert message.startswith("Cannot run here: no MLX GPU is available")
     assert "PORTABILITY.md" in message  # the message names the remedy
     server_class.assert_not_called()
 
 
 def test_a_busy_port_exits_with_the_message_that_names_the_flag(tmp_path, monkeypatch):
-    """The bind happens before the load, so a taken port costs a second instead
-    of the minute a weight load takes. The message has to say what to do next."""
+    """A taken port fails before the page starts, and the message names the fix."""
     monkeypatch.setattr(entry, "ThreadingHTTPServer", Mock(side_effect=OSError(48, "Address already in use")))
     argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path)), "--port", "8765")
 
@@ -134,21 +133,21 @@ def test_a_busy_port_exits_with_the_message_that_names_the_flag(tmp_path, monkey
     )
 
 
-def test_a_model_that_will_not_load_exits_with_the_error(tmp_path, monkeypatch, capsys):
-    """A load failure reaches the user as one line, not as a traceback under a
-    server that never answers."""
-    studio = Mock()
-    studio.active_capabilities.return_value = SimpleNamespace(name="Qwen-Image-2.1", badge="int4")
-    studio.prepare.execute.side_effect = RuntimeError("out of memory")
+def test_startup_does_not_load_or_prewarm_a_model(tmp_path, monkeypatch, capsys):
+    """The server starts without model memory; the first run loads its model."""
+    studio = SimpleNamespace(handler=Mock(), shutdown=Mock())
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
     monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
-    monkeypatch.setattr(entry, "ThreadingHTTPServer", Mock(return_value=Mock()))
+    monkeypatch.setattr(entry, "ThreadingHTTPServer", Mock(return_value=server))
     argv(monkeypatch, "--config", str(settings_file(tmp_path)))
 
-    with pytest.raises(SystemExit) as exits:
-        entry.main()
+    assert entry.main() is None
 
-    assert exit_message(exits) == "Could not load the model: out of memory"
-    assert "Loading Qwen-Image-2.1 (int4)." in capsys.readouterr().out
+    studio.shutdown.assert_called_once_with()
+    printed = capsys.readouterr().out
+    assert "Ready on http://127.0.0.1:8765" in printed
+    assert "Models load on first use" in printed
 
 
 def test_running_the_package_as_a_script_reaches_main(tmp_path, monkeypatch):

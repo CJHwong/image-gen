@@ -19,9 +19,9 @@ from studio.l2_use_cases.describe_studio_use_case import StudioView
 from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
 from studio.l2_use_cases.run_image_use_case import NextRun, RunImageResponse
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
-from tests.support.fakes import fake_capabilities
+from tests.support.fakes import fake_capabilities, fake_video_capabilities
 
-PAGE = "<title>__NAME__</title><input value=__BACKEND__><b>__BADGE__</b><script>const STUDIO = __STUDIO__;</script>"
+PAGE = "<title>__NAME__</title><input value=__BACKEND__><script>const STUDIO = __STUDIO__;</script>"
 
 
 def presenter():
@@ -58,7 +58,7 @@ def response(next_run=None, reference=-1):
 def test_the_page_carries_the_capabilities():
     caps = fake_capabilities(name="Fake </script> engine")
     body = presenter().page(StudioView(active=caps, backends=(("fake", "Fake", "What it is."),)))
-    assert "<title>Fake &lt;/script&gt; engine</title>" in body and "<b>bf16</b>" in body
+    assert "<title>Fake &lt;/script&gt; engine</title>" in body
     assert "<input value=fake>" in body  # the form names the backend it was built for
     studio = studio_data(body)
     assert studio["backend"]["max_batch"] == 4 and studio["backends"] == [["fake", "Fake", "What it is."]]
@@ -79,6 +79,21 @@ def test_the_page_is_told_which_modes_a_rewriter_serves():
     # An empty list leaves the page's rewrite toggle out, so the list has to arrive.
     view = StudioView(active=fake_capabilities(), backends=(), rewrite_modes=("generate", "edit"))
     assert studio_data(presenter().page(view))["rewrite_modes"] == ["generate", "edit"]
+
+
+def test_the_page_receives_video_capabilities_and_a_separate_model_list():
+    view = StudioView(
+        active=fake_capabilities(),
+        backends=(("fake", "Fake", "Image model"),),
+        active_video=fake_video_capabilities("video-one", "Video One"),
+        video_backends=(("video-one", "Video One", "Video model"),),
+    )
+
+    data = studio_data(presenter().page(view))
+
+    assert data["video"]["backend"] == {"id": "video-one", "name": "Video One", "badge": "24 fps"}
+    assert data["video"]["backends"] == [["video-one", "Video One", "Video model"]]
+    assert data["video"]["capabilities"]["shapes"][0] == {"ratio": "16:9", "width": 960, "height": 544}
 
 
 def test_an_image_becomes_an_item():
@@ -182,11 +197,31 @@ def test_failures_become_one_line(error, text):
 
 def test_progress_carries_numbers_and_the_next_poll():
     body = presenter().progress(
-        RunProgress(running=True, stage="running", step=3, total=8, label="1 of 2", stopping=True)
+        RunProgress(running=True, stage="running", step=3, total=8, label="1 of 2", stopping=True, kind="image")
     )
-    assert 'data-stage="running" data-step="3" data-total="8" data-label="1 of 2" data-stopping="1"' in body
+    assert (
+        'data-stage="running" data-step="3" data-total="8" data-label="1 of 2" data-kind="image" data-stopping="1"'
+        in body
+    )
     assert body.endswith('hx-target="#progress" hx-swap="innerHTML"></div>')
     assert presenter().progress(RunProgress()).startswith("<div hx-get")
+
+
+def test_video_progress_includes_the_sampler_pass():
+    body = presenter().video_progress(
+        RunProgress(running=True, stage="running", step=2, total=3, kind="video", phase=2, request_id="run-a")
+    )
+
+    assert json.loads(body) == {
+        "running": True,
+        "stage": "running",
+        "step": 2,
+        "total": 3,
+        "phase": 2,
+        "kind": "video",
+        "stopping": False,
+        "request_id": "run-a",
+    }
 
 
 def test_the_chain_remembers_that_each_image_is_edited_on_its_own():

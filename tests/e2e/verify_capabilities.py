@@ -128,6 +128,15 @@ def main():
         page.goto(url)
         check("the title is a switch with three backends", not page.is_disabled("#backend-toggle"))
         check("the qwen21 page has both modes", not page.is_disabled("#mode-edit"))
+        # The form opens on the lowest tier of the shape it opens on, so a prompt can be tried
+        # before it is worth a megapixel. The checks about the estimate are about the negative
+        # prompt, which doubles the denoise, so they pick the megapixel tier first.
+        check(
+            "the form opens on the lowest tier",
+            page.inner_text("#size-caption") == f"512 {TIMES} 512",
+            page.inner_text("#size-caption"),
+        )
+        page.get_by_role("button", name="1 MP").click()
         page.click("#advanced summary")
         check("guidance shows in generate", visible(page, "#guidance"))
         check("steps start at the spec default", page.input_value("#steps") == "40", page.input_value("#steps"))
@@ -161,6 +170,8 @@ def main():
         check("guidance without a negative runs one pass", seconds(blank) == seconds(before), f"{before} -> {blank}")
         page.fill("#prompt", "")
 
+        # Back to the tier the form opens on, so the checks below read the default.
+        page.get_by_role("button", name="0.3 MP").click()
         check("no Clear without a seed", not visible(page, "#clear-seed"))
         page.fill("#seed", "7")
         check("Clear shows with a seed", visible(page, "#clear-seed"))
@@ -171,7 +182,7 @@ def main():
         check("tiers are labeled by megapixels", tiers == ["0.3 MP", "0.6 MP", "1 MP", "1.8 MP"], str(tiers))
         check(
             "the pixel size shows once",
-            page.inner_text("#size-caption") == f"1024 {TIMES} 1024" and not any(TIMES in tier for tier in tiers),
+            page.inner_text("#size-caption") == f"512 {TIMES} 512" and not any(TIMES in tier for tier in tiers),
             page.inner_text("#size-caption"),
         )
 
@@ -322,7 +333,6 @@ def main():
         check("the caret stays with three backends", page.locator("#backend-toggle .icon").is_visible())
         check("an undeclared mode is disabled", page.is_disabled("#mode-edit"))
         check("the mode takes its label from the spec", page.inner_text("label[for=mode-generate]").strip() == "Draw")
-        check("the badge comes from the backend", page.inner_text(".badge") == "int4")
         check("the prompt hint comes from the spec", page.get_attribute("#prompt", "placeholder") == "Tiny prompt hint")
         check("no templates button without templates", not visible(page, "#templates-toggle"))
         check("no Look without Looks", not visible(page, "#look"))
@@ -382,7 +392,9 @@ def main():
             page.locator(".shot .region-mark").count() == 0 and page.locator(".region-tools").count() == 0,
             f"{page.locator('.shot .region-mark').count()} canvases",
         )
-        page.get_by_role("button", name="Templates").click()
+        # By id: the video workspace has a Templates button of its own, and the image form is
+        # hidden rather than absent while the video is in front.
+        page.locator("#templates-toggle").click()
         names = " ".join(page.locator("#templates [role=menuitem]").all_inner_texts())
         page.keyboard.press("Escape")
         check(

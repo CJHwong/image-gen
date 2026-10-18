@@ -58,8 +58,6 @@ RUN_IDLE = "#go[data-state='idle']"
 RUN_STOPPING = "#go[data-state='stopping']"
 # A kept frame names itself, and the mode it was made in, in its aria-label.
 FRAME = re.compile(r"^(generate|edit), seed ")
-# The badge that carries the weights, found by the title the contract keeps.
-BADGE = "[title='The weights loaded']"
 # The drawing tools, each of which names itself.
 BRUSH = re.compile(r"^Brush width")
 # How long a prompt rewrite may take. The qwen21 rewriter is a fine-tuned 9B model
@@ -189,7 +187,7 @@ def rewrite_prompt(page, button, typed):
     rewriter's.
     """
     with page.expect_response(lambda response: response.url.endswith("/rewrite"), timeout=REWRITE_TIMEOUT) as answer:
-        button.click()
+        rewrite_now(page)
     body = json.loads(answer.value.text())
     page.wait_for_function(
         "(typed) => document.getElementById('prompt').value.trim() !== typed",
@@ -197,6 +195,12 @@ def rewrite_prompt(page, button, typed):
         timeout=REWRITE_TIMEOUT,
     )
     return body
+
+
+def rewrite_now(page):
+    """The press that rewrites: the longer text lands in the box, where it can be read and
+    edited before any time is spent."""
+    page.click("#rewrite-toggle")
 
 
 def button(page, name):
@@ -361,7 +365,6 @@ with sync_playwright() as playwright:
     check("no leave warning when empty", not leave_blocked(page))
     # LEFT: a decorative class, and the claim is that it is absent.
     check("the top plate has no privacy line", page.locator(".topbar .privacy").count() == 0)
-    check("the dial shows the weights", page.inner_text(BADGE) == "bf16")
     # LEFT: an id the page publishes, and the claim is that it is absent.
     check("the top plate has no frame counter", page.locator("#counter").count() == 0)
     # LEFT: `#status` is an id the page publishes, and it is not in the design's
@@ -441,7 +444,8 @@ with sync_playwright() as playwright:
     # is an id the page publishes, and it is not in the design's contract.
     page.locator("#tier-sizes").get_by_role("button").first.click()
     page.click("#advanced summary")
-    page.fill("#steps", "8")
+    # A live model can finish eight steps before the busy-state checks sample it.
+    page.fill("#steps", "24")
     page.dispatch_event("#steps", "input")
     page.click("#count-toggle")
     check("a batch goes up to 4", page.locator("#count-menu [role=menuitemradio]").count() == 4)
@@ -512,21 +516,29 @@ with sync_playwright() as playwright:
         return [Math.round(plate.bottom - bar.bottom), bar.height / plate.height];
     }""")
     check("the Kodak print rises from the bottom edge", bar[0] == 0 and bar[1] < 0.5, str(bar))
-    # LEFT: the same drawing, held across a mode switch to see that it is the same node.
+    # LEFT: the same drawing stays in the stage while the sidebar is locked.
     card = page.evaluate_handle("document.querySelector('.card')")
-    page.click("label[for=mode-edit]")
     check(
-        "a mode switch keeps the running frame",
+        "the running frame stays in the stage",
         page.evaluate("(card) => card === document.querySelector('.card')", card),
     )
-    page.click("label[for=mode-generate]")
+    mode_lock = page.evaluate(
+        """() => document.querySelector('#form').dataset.panelHeld === 'true'
+          && document.querySelector('#mode-generate').checked
+          && document.querySelector('#mode-edit').style.pointerEvents === 'none'
+          && getComputedStyle(document.querySelector('.controls')).pointerEvents === 'none'"""
+    )
+    check("the mode selector stays locked while rendering", mode_lock)
     check(
         "the count is part of the run button",
         page.evaluate(
             "document.getElementById('count-toggle').previousElementSibling === document.getElementById('go')"
         ),
     )
-    check("the count is locked while running", page.is_disabled("#count-toggle"))
+    check(
+        "the count is locked while running",
+        page.locator("#count-toggle").evaluate("button => button.style.pointerEvents === 'none'"),
+    )
     check("leave warning while running", leave_blocked(page))
     check("tab title shows progress", page.title().startswith("("), page.title())
     check(
@@ -641,7 +653,7 @@ with sync_playwright() as playwright:
         and page.input_value("#prompt").startswith("A ceramic teapot"),
     )
     toggle_look(page, "Light", "Overcast")
-    check("tab title back to normal", page.title() == "Qwen-Image-2.1", page.title())
+    check("tab title back to normal", page.title() == "Image - Qwen-Image-2.1", page.title())
     time.sleep(1)
     page.screenshot(path=OUT + "2-result.png")
 

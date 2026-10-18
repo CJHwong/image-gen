@@ -11,7 +11,7 @@ from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l3_interface_adapters.gateways.image_sizes import match_reference_size
 from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook, lora_kwargs, release_mlx_buffers
 from studio.l3_interface_adapters.gateways.png_images import to_pil, to_png
-from studio.l3_interface_adapters.gateways.qwen21.capabilities import MATCH
+from studio.l3_interface_adapters.gateways.qwen_image_controls import MATCH
 
 
 def generate_kwargs(job: ImageJob, scheduler: str = "linear") -> dict:
@@ -47,7 +47,7 @@ def generate_kwargs(job: ImageJob, scheduler: str = "linear") -> dict:
     return kwargs
 
 
-def build_model(quantize, hook: StepHook, lora_path: str | None = None):
+def build_model(quantize, hook: StepHook, lora_path: str | None = None, model_path: str | None = None):
     """Build the model and register mflux's MemorySaver and the step hook.
 
     MemorySaver drops the 17.5 GB Qwen3-VL text encoder before the denoising
@@ -62,7 +62,17 @@ def build_model(quantize, hook: StepHook, lora_path: str | None = None):
     from mflux.callbacks.instances.memory_saver import MemorySaver
     from mflux.models.qwen21.variants.txt2img.qwen_image_21 import QwenImage21
 
-    model = QwenImage21(quantize=quantize, **lora_kwargs(lora_path))
+    if model_path is None:
+        model = QwenImage21(quantize=quantize, **lora_kwargs(lora_path))
+    else:
+        from studio.l3_interface_adapters.gateways.mflux_runtime import official_turbo_model_config
+
+        model = QwenImage21(
+            quantize=quantize,
+            model_path=model_path,
+            model_config=official_turbo_model_config(),
+            **lora_kwargs(lora_path),
+        )
     model.callbacks.register(MemorySaver(model=model, keep_transformer=True, cache_limit_bytes=None, num_seeds=1))
     model.callbacks.register(hook)
     return model
@@ -75,11 +85,13 @@ class Qwen21Generator:
         build: Callable = build_model,
         lora_path: str | None = None,
         scheduler: str = "linear",
+        model_path: str | None = None,
     ):
         self._quantize = quantize
         self._build = build
         self._lora_path = lora_path
         self._scheduler = scheduler
+        self._model_path = model_path
         self._hook = StepHook()
         self._model = None
 
@@ -88,7 +100,10 @@ class Qwen21Generator:
 
     def _loaded(self):
         if self._model is None:
-            self._model = self._build(self._quantize, self._hook, self._lora_path)
+            if self._model_path is None:
+                self._model = self._build(self._quantize, self._hook, self._lora_path)
+            else:
+                self._model = self._build(self._quantize, self._hook, self._lora_path, model_path=self._model_path)
         return self._model
 
     def release(self) -> None:

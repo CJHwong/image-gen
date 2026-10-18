@@ -11,15 +11,17 @@ button from it: a rewrite is worth cancelling, and the page can only offer that
 while the model is writing rather than loading.
 """
 
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
 from studio.l1_entities.capabilities import Capabilities
-from studio.l1_entities.errors import Cancelled, InvalidJob
+from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob
 from studio.l1_entities.image_job import ReferenceImage
 from studio.l2_use_cases.boundaries.backend_catalog_gateway import BackendCatalogGateway
+from studio.l2_use_cases.boundaries.model_residency_gateway import ModelResidencyGateway
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.boundaries.rewrite_progress_gateway import RewriteProgressGateway
 
@@ -38,6 +40,10 @@ class RewriteRequest:
     prompt: str
     mode: str
     references: tuple[ReferenceImage, ...] = ()
+    workspace: str = "image"
+    """Which workspace asked, "image" or "video". The two name their shapes
+    differently: an image mode picks from a size list, and a video picks from its own
+    shapes, so the ratio the rewriter suggests is looked up only for an image."""
 
 
 @dataclass(frozen=True)
@@ -88,44 +94,60 @@ class RewritePromptUseCase:
         catalog: BackendCatalogGateway,
         progress: RewriteProgressGateway,
         clock: Callable[[], float] = time.monotonic,
+        *,
+        engine_lock: threading.Lock,
+        residency: ModelResidencyGateway,
     ):
         self._rewriter = rewriter
         self._catalog = catalog
         self._progress = progress
         self._clock = clock
+        self._engine_lock = engine_lock
+        self._residency = residency
 
     def execute(self, request: RewriteRequest) -> RewriteResponse:
         if not request.prompt.strip():
             raise InvalidJob("Write something to rewrite first.")
         if request.mode not in self._rewriter.modes():
             raise InvalidJob(f"This backend rewrites no {request.mode} prompt.")
-        started = self._clock()
-        for backend_id in self._catalog.visible_ids():
-            self._catalog.get(backend_id).release()
-        # A cancel that arrived when nothing was in flight is stale, and a fresh
-        # rewrite must not be born cancelled. The run's use case clears its own the
-        # same way, for the same reason.
-        self._progress.clear_cancel()
-        # The page polls this state for the whole rewrite, so it learns which side
-        # of the load it is on: a cold rewriter loads about 19 GB before it writes.
-        self._progress.begin()
+        if not self._engine_lock.acquire(blocking=False):
+            raise BackendBusy("The model is busy with a run in another tab. Wait for it, or cancel it there.")
+        started = 0.0
+        progress_started = False
         try:
-            rewrite = self._rewriter.rewrite(
-                request.prompt,
-                request.mode,
-                request.references,
-                self._progress.writing,
-                self._progress.cancel_requested,
-            )
-        except Cancelled:
-            # The page asked for this, so it is not a failure and it carries no
-            # words. The rewriter is the one model the two jobs do not share, so
-            # giving its memory back is what the cancel is for, and this is the
-            # thread whose loop has just stopped.
-            self._rewriter.release()
-            return RewriteResponse(prompt=request.prompt, size=None, elapsed=self._clock() - started, cancelled=True)
+            started = self._clock()
+            self._residency.release()
+            # A cancel from an earlier request must not stop this rewrite.
+            self._progress.clear_cancel()
+            self._progress.begin()
+            progress_started = True
+            try:
+                rewrite = self._rewriter.rewrite(
+                    request.prompt,
+                    request.mode,
+                    request.references,
+                    self._progress.writing,
+                    self._progress.cancel_requested,
+                )
+            except Cancelled:
+                return RewriteResponse(
+                    prompt=request.prompt,
+                    size=None,
+                    elapsed=self._clock() - started,
+                    cancelled=True,
+                )
+            # A video's shape comes from its own controls, and its form has no size
+            # list for a ratio to match. Looking one up there would name an image size
+            # that the video never offered.
+            size = None
+            if rewrite.ratio and request.workspace == "image":
+                capabilities = self._catalog.get(self._catalog.active_id()).capabilities()
+                size = _size_for(rewrite.ratio, capabilities, request.mode)
+            return RewriteResponse(prompt=rewrite.prompt, size=size, elapsed=self._clock() - started)
         finally:
-            self._progress.finish()
-        capabilities = self._catalog.get(self._catalog.active_id()).capabilities()
-        size = _size_for(rewrite.ratio, capabilities, request.mode) if rewrite.ratio else None
-        return RewriteResponse(prompt=rewrite.prompt, size=size, elapsed=self._clock() - started)
+            try:
+                if progress_started:
+                    self._progress.finish()
+                self._rewriter.release()
+            finally:
+                self._engine_lock.release()

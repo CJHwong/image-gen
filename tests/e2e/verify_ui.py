@@ -13,14 +13,13 @@ The stub is enough, since this checks the page and not a model. It keeps each
 backend's real form and fakes only the engine, so the controls here are the ones
 the real backend declares, and a run finishes in seconds instead of minutes:
 
-    uv run studio --stub --port <port>
+    uv run studio --stub --backend qwen21 --port <port>
     uv run --with playwright python tests/e2e/verify_ui.py <port>
     uv run --with playwright python tests/e2e/verify_ui.py <port> --headed    # watch it run
     uv run --with playwright python tests/e2e/verify_ui.py <port> --coverage  # and measure
 
-The picker is offered only while studio.toml lists more than one backend, and it
-lists the two this suite switches between. So the shipping settings are the ones
-to run it against, and the switch needs no flag.
+The suite starts on qwen21 and switches to Viggle Turbo. The official Turbo
+backend remains in the picker as the configured default and third option.
 """
 
 import contextlib
@@ -55,11 +54,16 @@ IDLE = "#go[data-state='idle']"
 VERB_IS_CANCEL = "() => document.getElementById('rewrite-toggle').innerText.trim() === 'Cancel'"
 VERB_IS_REWRITE = "() => document.getElementById('rewrite-toggle').innerText.trim() === 'Rewrite'"
 FRAME = re.compile(r"^(generate|edit), seed ")
-# The two models studio.toml offers, in the picker's order. The switch is between
-# these, so what ships decides them. Each name is read exactly: the second carries
+# The base and Viggle models the suite compares. The official Turbo checkpoint is
+# also in the shipping picker, but this suite measures prompt aids only on these.
+# Each name is read exactly: the second carries
 # the first inside it, and a substring match would find both rows.
 FIRST = "Qwen-Image-2.1"
 SECOND = "Qwen-Image-2.1-viggle-turbo"
+# The configured default. Named here because one block reads its form, and because
+# "Qwen-Image-2.1" is a substring of this name, so every role query for the base
+# model also finds this one and only an exact name tells them apart.
+TURBO = "Qwen-Image-2.1-Turbo"
 results = []
 
 # The page reads a reference from a file, so the upload path needs real pixels on
@@ -172,7 +176,10 @@ def toggle_reads(name):
     and the second model's name carries the first one inside it, so a role query
     would find the old title and pass before the page had reloaded at all.
     """
-    return "() => document.querySelector('#backend-toggle .name').textContent === " + json.dumps(name)
+    return (
+        "() => { const label = document.querySelector('#backend-toggle .name'); "
+        "return label && label.textContent === " + json.dumps(name) + "; }"
+    )
 
 
 def set_steps(page, steps):
@@ -215,6 +222,12 @@ def rewrite_verb(page):
     that is hidden contributes nothing.
     """
     return page.locator("#rewrite-toggle").inner_text().strip()
+
+
+def rewrite_now(page):
+    """The press that rewrites: the longer text lands in the box, where it can be read and
+    edited before any time is spent."""
+    page.click("#rewrite-toggle")
 
 
 def stroke(page, box, start, end):
@@ -305,6 +318,54 @@ with sync_playwright() as playwright:
         f"{rules} rules",
     )
 
+    # The default backend's own form, read here and nowhere else: every Look, template
+    # and run check below happens after the suite switches to the base model. It gets a
+    # page of its own because the run below lands a frame, and an extra frame in the
+    # strip moves the numbering those checks read. It selects the backend by name rather
+    # than reading which one the server holds: that is state an earlier run leaves
+    # wherever it stopped, which is why a guard on it skipped silently once already.
+    default_context = browser.new_context(viewport={"width": 1440, "height": 900})
+    default = default_context.new_page()
+    default.goto(URL)
+    started_on = default.evaluate("() => STUDIO.backend.name")
+    default.click("#backend-toggle")
+    default.get_by_role("menuitemradio", name=TURBO, exact=True).click()
+    default.wait_for_function(toggle_reads(TURBO), timeout=180000)
+    turbo_steps = default.input_value("#steps")
+    check(
+        "the default backend names itself in full, where a substring query cannot tell",
+        default.locator("#backend-toggle .name").inner_text().strip() == TURBO,
+        default.locator("#backend-toggle .name").inner_text().strip(),
+    )
+    check(
+        "and its own sampling table decides its step count, with no range to move",
+        (turbo_steps, default.get_attribute("#steps", "min"), default.get_attribute("#steps", "max"))
+        == ("8", "8", "8"),
+        turbo_steps,
+    )
+    check(
+        "and it offers the Look rows and the templates the base model has",
+        default.locator("#look").is_visible() and default.locator("#templates-toggle").is_visible(),
+    )
+    held = frames(default)
+    run_once(default, "a pear on a table", steps=int(turbo_steps))
+    default.wait_for_timeout(600)
+    check(
+        "a run on the default backend finishes at that count and lands a frame",
+        frames(default) == held + 1,
+        f"{frames(default)} frames",
+    )
+    # Put the server back where it was found. The backend is the server's own state and
+    # this suite's main page holds its own view of it, so a switch to the model the page
+    # already shows is deliberately a no-op that does not reload: leaving the server on
+    # another backend would send the next run there, and a two-step run on this one is
+    # refused, which reads as a page that never finished.
+    if started_on != TURBO:
+        default.click("#backend-toggle")
+        default.get_by_role("menuitemradio", name=started_on, exact=True).click()
+        default.wait_for_function(toggle_reads(started_on), timeout=180000)
+    default_context.close()
+
     # A live region is not a role a browser computes, so both hosts carry the
     # role outright and a query reaches them by role instead of by id. The toast
     # host is always in the tree, so it is read here; the run readout is read
@@ -317,11 +378,13 @@ with sync_playwright() as playwright:
     )
 
     # The header, and the mode the page opens on.
+    # The studio opens on Turbo, so the header names that model, and the base model's
+    # name is the prefix of it either way.
     check(
-        "the header names the model and its badge",
-        page.get_by_role("button", name="Qwen-Image-2.1").is_visible()
-        and page.locator("[title='The weights loaded']").inner_text().strip() == "bf16",
-        page.locator("[title='The weights loaded']").inner_text().strip(),
+        "the header names the model",
+        page.get_by_role("button", name=re.compile(r"^Qwen-Image-2\.1")).is_visible()
+        and page.locator("#backend-toggle .name").inner_text().strip().startswith("Qwen-Image-2.1"),
+        page.locator("#backend-toggle").inner_text().replace("\n", " "),
     )
     check("Generate is the mode the page opens on", page.get_by_role("radio", name="Generate").is_checked())
 
@@ -390,8 +453,8 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="3:2", exact=True).click()
     submitted = page.locator("#size").input_value()
     check(
-        "a ratio chip sets the size the form submits",
-        submitted == "1152x768" and "768" in page.locator("#size-caption").inner_text(),
+        "a ratio chip sets the size the form submits, at the shape's lowest tier",
+        submitted == "768x512" and "768 × 512" in page.locator("#size-caption").inner_text(),  # noqa: RUF001
         f"{submitted} / {page.locator('#size-caption').inner_text()}",
     )
     # The chip in force marks itself and only it: `aria-pressed` is what a
@@ -426,6 +489,15 @@ with sync_playwright() as playwright:
     )
     page.get_by_role("button", name="3:2", exact=True).click()
 
+    # The aid checks read the base model, so the suite switches to it explicitly: that
+    # makes the run the same whether the server opened on it or on the default backend.
+    # It is not a claim that the default has no Looks, which it now does.
+    page.click("#backend-toggle")
+    page.get_by_role("menuitemradio", name=FIRST, exact=True).click()
+    page.wait_for_function(toggle_reads(FIRST), timeout=180000)
+    check("the full model shows its Look controls", page.locator("#look").is_visible())
+    page.fill("#prompt", "a pear on a table")
+    page.dispatch_event("#prompt", "input")
     # A Look chip names itself on its row, marks itself, and reaches the model in
     # the prompt. A pick closes the row, so the mark is read by opening it again.
     page.click("details:has(summary:has-text('Look')) summary")
@@ -668,7 +740,7 @@ with sync_playwright() as playwright:
     page.fill("#prompt", "a pear")
     page.dispatch_event("#prompt", "input")
     typed = page.locator("#prompt").input_value()
-    page.click("#rewrite-toggle")
+    rewrite_now(page)
     page.wait_for_function("() => document.querySelector('#prompt').value.length > 7", timeout=120000)
     rewritten = page.locator("#prompt").input_value()
     check(
@@ -684,7 +756,7 @@ with sync_playwright() as playwright:
     page.fill("#prompt", "a pear")
     page.dispatch_event("#prompt", "input")
     typed = page.locator("#prompt").input_value()
-    page.click("#rewrite-toggle")
+    rewrite_now(page)
     page.wait_for_timeout(300)
     check(
         "the rewrite button is locked while the rewriter gets ready",
@@ -1520,8 +1592,9 @@ with sync_playwright() as playwright:
 
     # The badge on an edit names the frame it was made from, and that name is a way
     # back to it. The way back is read from what the stage says once it arrives,
-    # not from a file name: one download carries the model, the mode and the seed,
-    # and only Download all puts the frame number in front of a name.
+    # not from a file name: one download carries the model, the mode, the seed and
+    # the moment it was made, and only Download all puts the frame number in front
+    # of a name.
     source_link = page.get_by_role("button", name=re.compile("^Show frame "))
     wanted = source_link.get_attribute("aria-label").replace("Show frame ", "")
     check("an edit names the frame it was made from", source_link.count() == 1, wanted)
@@ -1667,7 +1740,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(600)
     page.fill("#prompt", "a pear")
     page.dispatch_event("#prompt", "input")
-    page.click("#rewrite-toggle")
+    rewrite_now(page)
     page.wait_for_function("() => document.querySelector('#prompt').value.length > 7", timeout=120000)
     asked = json.loads(rewrites[-1].get("references", "[]")) if rewrites else []
     check(
@@ -2040,7 +2113,10 @@ with sync_playwright() as playwright:
     check(
         "each frame downloads under the name of the model that made it",
         any("-qwen21-generate-" in name for name in downloads)
-        and any("-viggle_turbo-generate-" in name for name in downloads),
+        and any("-viggle_turbo-generate-" in name for name in downloads)
+        # The moment it was made goes last, so two frames off one seed and one model do
+        # not land on one file name.
+        and any(re.search(r"-qwen21-generate-\d+-\d{8}-\d{6}\.png$", name) for name in downloads),
         str(downloads),
     )
     # The region tool is offered here too, on this model's own measurement. Its brush
@@ -2112,7 +2188,7 @@ with sync_playwright() as playwright:
     page.dispatch_event("#prompt", "input")
     # The id, not the name: this button carries three labels, and the name a role
     # query computes is all of them at once.
-    page.click("#rewrite-toggle")
+    rewrite_now(page)
     page.wait_for_timeout(2500)
     check(
         "a rewrite that cannot reach the server says so",
@@ -2237,7 +2313,7 @@ with sync_playwright() as playwright:
     watercolour = "Watercolor painting on textured paper, soft washes, visible brush edges."
     written.fill("#prompt", LONG_PROMPT)
     written.dispatch_event("#prompt", "input")
-    written.click("#rewrite-toggle")
+    rewrite_now(written)
     written.wait_for_function(
         "() => document.querySelector('#prompt').value.includes('written for the stub')", timeout=120000
     )
@@ -2306,7 +2382,7 @@ with sync_playwright() as playwright:
     written.fill("#prompt", "a pear on a table")
     written.dispatch_event("#prompt", "input")
     before = len(rewrites_here)
-    written.click("#rewrite-toggle")
+    rewrite_now(written)
     # The card's own Edit this switches the mode, and that empties the prompt and the Look,
     # so it is locked for the length of the press and comes back when the press ends.
     written.wait_for_timeout(700)
@@ -2393,7 +2469,7 @@ with sync_playwright() as playwright:
     written.get_by_label("What changes in the orange area?").fill("make it a stone wall")
     written.get_by_label("What changes in the red area?").fill("warm the tiles")
     written.wait_for_timeout(200)
-    written.click("#rewrite-toggle")
+    rewrite_now(written)
     written.wait_for_function(
         "() => document.querySelector('[aria-label=\"What changes in the orange area?\"]')"
         ".value.includes('written for the stub')",
@@ -2631,7 +2707,7 @@ with sync_playwright() as playwright:
     )
     asked = []
     watch_rewrites(per_image, asked)
-    per_image.click("#rewrite-toggle")
+    rewrite_now(per_image)
     per_image.wait_for_function(
         "() => [...document.querySelectorAll('#each-rows textarea')].every(row => row.value.trim() !== '')",
         timeout=60000,
@@ -2755,7 +2831,7 @@ with sync_playwright() as playwright:
     rows = per_image.locator("#each-rows textarea")
     pressed_again = []
     watch_rewrites(per_image, pressed_again)
-    per_image.click("#rewrite-toggle")
+    rewrite_now(per_image)
     # The rows already hold the words this press is about to replace, so "every row is filled" is
     # true the moment it is asked and the press gets read before it has posted: one request of
     # two. The wait is for the press to be over, which the body says and the stale rows do not.

@@ -1,21 +1,18 @@
-"""What the Qwen-Image-2.1 backend offers the page, and the limits the core checks."""
+"""What the Qwen-Image-2.1 backend offers the page, and what its runs cost.
 
-from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
-from studio.l3_interface_adapters.gateways.prompt_aids import (
-    EDIT_LOOKS,
-    EDIT_TEMPLATES,
-    GENERATE_LOOKS,
-    GENERATE_TEMPLATES,
-)
-from studio.l3_interface_adapters.gateways.qwen_image_sizes import (
-    EDIT_MATCH_CAP,
-    EDIT_RESOLUTIONS,
-    SIZES,
-)
+The controls are the family's and live in `qwen_image_controls`. What is here is
+what this checkpoint decides for itself: its identity, its step count, and the
+fits measured on its own weights.
+"""
 
-MATCH = "match"
-MAX_REFERENCES = 10
-MAX_BATCH = 4
+from studio.l1_entities.capabilities import Capabilities, Estimate
+from studio.l3_interface_adapters.gateways.qwen_image_controls import (
+    MAX_BATCH,
+    edit_estimate,
+    edit_mode,
+    generate_mode,
+    steps_param,
+)
 
 # Cost, before you spend it. Measured 2026-10-05 on an M5 Pro, 64 GB, bf16, two
 # points at each size 20 steps apart so the fixed cost and the per-step cost
@@ -64,87 +61,16 @@ REFERENCE_STEP_GROWTH = 0.20  # one more reference multiplies the step cost by 1
 GENERATE_OVERHEAD = 3  # per image; the model is already resident. Measured 1.3s at 0.59 MP and 7.9s at 1.05 MP
 EDIT_OVERHEAD = 30
 
-STEPS = ParamSpec(id="steps", kind="number", default=40, minimum=1, maximum=100, integer=True, step=1)
-NEGATIVE = ParamSpec(id="negative", kind="text", default="")
-SIZE = ParamSpec(
-    id="size",
-    kind="choice",
-    default="1024x1024",
-    choices=(
-        *(Choice(f"{width}x{height}", label) for label, width, height in SIZES),
-        Choice(MATCH, "Match reference (about 1 MP)"),
-    ),
-)
-# A negative prompt works only through true CFG, which needs guidance above 1
-# and runs two passes per step. 2.5 is the value PROMPTS.md tested it at.
-GUIDANCE = ParamSpec(id="guidance", kind="number", default=1.0, minimum=0, maximum=10, step=0.5, with_negative=2.5)
-# mflux skips this share of the schedule: init_time_step = max(1, int(steps *
-# strength)). RMS distance from the reference, one pear at 8 steps: 17.1 at
-# 0.15, 4.0 at 0.55, 2.5 at 0.85, and 74.5 with no reference. Every strength
-# stays close to the reference, so drop the reference when the prompt should win.
-STRENGTH = ParamSpec(id="strength", kind="number", default=0.4, minimum=0.05, maximum=1, step=0.05)
-RESOLUTION = ParamSpec(
-    id="resolution",
-    kind="choice",
-    default=MATCH,
-    choices=(
-        Choice(MATCH, "Match the reference"),
-        *(Choice(str(side), f"about {side} x {side}") for side in EDIT_RESOLUTIONS),
-    ),
-)
-CFG = ParamSpec(id="cfg", kind="number", default=1.0, minimum=1, maximum=10, step=0.5, with_negative=2.5)
+# 40 steps is this checkpoint's own setting, and its range is the span it was
+# measured over. The Turbo checkpoint pins its count elsewhere, because its
+# schedule has eight nodes and no other count is one it was distilled for.
+STEPS = steps_param(default=40, minimum=1, maximum=100)
 
-GENERATE = ModeSpec(
-    id="generate",
-    label="Generate",
-    params=(SIZE, STEPS, GUIDANCE, STRENGTH, NEGATIVE),
-    max_references=1,  # mflux's generate_image takes one image_path
-    prompt_hint="Describe the image. Put any text you want rendered in quotes.",
-    looks=GENERATE_LOOKS,
-    templates=GENERATE_TEMPLATES,
-    estimate=Estimate(GENERATE_STEP_COST, GENERATE_STEP_EXPONENT, GENERATE_OVERHEAD, overhead_per_image=True),
-)
-EDIT = ModeSpec(
-    id="edit",
-    label="Edit",
-    params=(RESOLUTION, STEPS, CFG, NEGATIVE),
-    min_references=1,
-    max_references=MAX_REFERENCES,
-    prompt_hint="For example: make it night, with the lights on",
-    prompt_required="An edit instruction is required.",
-    templates=EDIT_TEMPLATES,
-    # The edit Look, all six rows and every option of them, because this model is the one
-    # they were sampled on: 18 options, 15 that landed and 3 that did not, on 2026-10-10.
-    # PROMPTS.md holds the table. A whole-frame option lands here: the model keeps the rest
-    # of the picture and applies the look it was asked for, and the composition held in
-    # every sample. What the mark does not do is bound a retouch, so a picked Retouch
-    # option reaches past the drawn area. PROMPTS.md records that too.
-    looks=EDIT_LOOKS,
-    estimate=Estimate(
-        EDIT_STEP_COST,
-        EDIT_STEP_EXPONENT,
-        EDIT_OVERHEAD,
-        # Every image of a batch is its own run, so each one pays the encode before
-        # its first step. The model stays resident, so there is no pipeline build
-        # to count. See EDIT_OVERHEAD above.
-        overhead_per_image=True,
-        match_cap=EDIT_MATCH_CAP,
-        per_reference=REFERENCE_STEP_GROWTH,
-    ),
-    # Measured 2026-10-05 on the in-process mflux engine, one seed and 20 steps, on a
-    # drawn shape whose edge the mark matched: the change landed 15.8x more inside the
-    # marked area than outside it, and the rest of the frame moved by 4.3 of 255.
-    #
-    # The engine swap is a wash on this, not a win. On the fixture the old figure came
-    # from, the diffusers child this replaced read 37.5x against 28.8x here, and on a
-    # mark over a uniform surface, where only the mark can bound the change, 2.4x
-    # against 3.1x. One seed on one fixture settles neither direction, so neither claim
-    # is made. PROMPTS.md holds the tables and their limits.
-    region_marking=True,
-    # Each reference is edited on its own through the same single-image call the mode
-    # was measured with, so a batch adds runs and not a new engine path.
-    each_reference=True,
-)
+GENERATE_ESTIMATE = Estimate(GENERATE_STEP_COST, GENERATE_STEP_EXPONENT, GENERATE_OVERHEAD, overhead_per_image=True)
+EDIT_ESTIMATE = edit_estimate(EDIT_STEP_COST, EDIT_STEP_EXPONENT, EDIT_OVERHEAD, REFERENCE_STEP_GROWTH)
+
+GENERATE = generate_mode(STEPS, GENERATE_ESTIMATE, None)
+EDIT = edit_mode(STEPS, EDIT_ESTIMATE)
 
 
 def qwen21_capabilities(badge: str) -> Capabilities:

@@ -43,7 +43,7 @@ Each option names what to show, never what to leave out. The exception is Real p
 
 ## Edit Look
 
-The edit form offers its own **Look**, and a pick adds one sentence after your instruction. These rows are separate from the generate ones because the edit model keeps the rest of the picture by itself: an option here is either a change to the whole frame or a change to the area you marked. Every option passed a test on Qwen-Image-2.1 on 2026-10-10, one seed, 20 steps, 768 on the short side, each one beside the bare fixture: see "The edit Look test". Viggle Turbo offers the same 15, because its own six steps kept them all: see "The edit rows, measured 2026-10-10". FLUX.2 offers no edit rows yet, because it has not been sampled on its own.
+The edit form offers its own **Look**, and a pick adds one sentence after your instruction. These rows are separate from the generate ones because the edit model keeps the rest of the picture by itself: an option here is either a change to the whole frame or a change to the area you marked. Every option passed a test on Qwen-Image-2.1 on 2026-10-10, one seed, 20 steps, 768 on the short side, each one beside the bare fixture: see "The edit Look test". Viggle Turbo offers the same 15, because its own six steps kept them all: see "The edit rows, measured 2026-10-10". The official Turbo checkpoint offers them as well, on its own eight-node table: see "The official Turbo test". FLUX.2 offers no edit rows yet, because it has not been sampled on its own.
 
 | Row | Options | What it adds |
 |---|---|---|
@@ -233,7 +233,7 @@ Fifteen samples took 32 to 41 s each at 768 x 512, and the three at 768 x 768 to
 | Add fine film grain across the frame, like 400 ISO film | Add visible film grain across the frame, like a high ISO color film | The grain is coarse and carries color mottle. Grain size is fixed in pixels, so it reads finer on a larger output than the 768 it was judged at |
 | Brighten the eyes slightly, keeping the iris colour and the catchlights | Brighten the whites of the eyes and deepen the iris, keeping the catchlights | The iris did change, and richer amber is what the option does |
 
-**What this sample does not settle.** One seed per option, which is the bar the generate rows were held to and no more; a look that failed here can still be re-run on a second seed. The two fixtures are one portrait and one street, so the exposure, white balance and grade verdicts are statements about those scenes and not about the words in general. The Retouch sentences were measured at one mark shape each, drawn by a script. Nothing here measures Viggle Turbo or FLUX.2, which offer no edit rows until they are sampled on their own schedules.
+**What this sample does not settle.** One seed per option, which is the bar the generate rows were held to and no more; a look that failed here can still be re-run on a second seed. The two fixtures are one portrait and one street, so the exposure, white balance and grade verdicts are statements about those scenes and not about the words in general. The Retouch sentences were measured at one mark shape each, drawn by a script. Nothing here measures Viggle Turbo, the official Turbo checkpoint or FLUX.2. The first two have rows of their own, in "The Viggle Turbo test" and "The official Turbo test"; FLUX.2 offers no edit rows, because it has not been sampled on its own schedule.
 
 ### The avoid-part test
 
@@ -547,6 +547,117 @@ What this does not settle: one sample, one seed and one instruction, and the ans
 quality is not read here. The subject each answer names is found by looking for that
 subject's own words in it, which is a reader and not a judgement.
 
+### The official Turbo test
+
+The official Turbo checkpoint samples its own eight-node sigma table, so the aids
+were sampled on that schedule rather than inherited. Measured 2026-10-16 on the
+office machine, eight steps on that table, seed 1234, 768 x 768, bf16.
+
+The fixture was "a cat wearing a suit", the one the Look test used. Each option ran
+next to the bare prompt, one contact sheet per row. Two rows are about people and a
+cat cannot judge them, so Realism and Portrait ran again on "a woman in her thirties
+reading at a cafe window", the fixture of the avoid-part test. Every prompt went
+through the page's own composition: the option's sentence after the user's text,
+closed with a full stop, and an avoid part sent as the negative prompt, which is what
+raises the scale to 2.5 and turns true CFG on.
+
+The sample covered every aid this backend offers: 31 generate options, the 15 edit
+options, and all 15 templates, in 61 runs of the image plus their bare controls.
+
+| Row | Option | Result |
+|---|---|---|
+| Medium | Documentary | Works: natural exposure, real fur and cloth |
+| Medium | Phone snapshot | Works: flatter light, uneven framing, a room behind |
+| Medium | Watercolor | Works: soft washes on textured paper, visible brush edges |
+| Medium | Ink drawing | Works: fine black linework and cross-hatching on white |
+| Medium | 3D render | Works: smooth rounded shapes, soft studio light |
+| Medium | Skeleton | Works: skull, spine, ribs and limb bones in the pose, the suit still on the body |
+| Film | Portra 400 | Works: warm natural color |
+| Film | Fuji 400H | Works: cool soft pastel tones |
+| Film | Ektachrome | Works: high contrast, deep clean shadows |
+| Film | Black and white | Works: strong grain and high contrast, the Tri-X look its sentence names |
+| Color | Warm | Works: amber and cream, a warm brown suit |
+| Color | Cool | Works: blue and teal, a cool grey cat |
+| Color | Muted | Works: desaturated |
+| Color | Vivid | Works: saturated without going poster flat |
+| Light | Soft window light | Works: a visible window, soft shadow on the left. The shot widens, as on the base model |
+| Light | Golden hour | Works: low warm sun, long shadows. Widens the shot |
+| Light | Studio | Works: even light, a plain seamless backdrop, and no light stand in the picture |
+| Light | Overcast | Works: soft diffuse light, gentle shadows |
+| Light | Night with neon | Works: a neon sign, a wet street and its reflections. Widens the shot |
+| Camera | Close-up 85mm | Works: tighter on the head, more blur behind |
+| Camera | Wide 24mm | Works: a bookshelf comes back into the frame |
+| Camera | Top-down | Works: a true overhead view |
+| Camera | Low angle | Works: looking up at the subject |
+| Camera | Telephoto | Works: the subject comes closer and the background compresses |
+| Camera | Deep focus | Does not land: identical to the bare fixture, which has no depth in it to recover. The Viggle sample cut this option for the same reason. It ships here anyway, because this backend's catalog is the base model's by design and one option that changes nothing costs a user nothing |
+| Room for text | Left | Works: the subject moves right and a plain area opens on the left |
+| Room for text | Right | Works: the subject moves left and a plain area opens on the right |
+| Room for text | Top | Works: the subject drops and a wide plain area opens across the top |
+| Realism | Real person | Works on the woman fixture, with its avoid part at guidance 2.5: a plain, candid person rather than a posed beauty portrait |
+| Portrait | Over the shoulder | Works: the person turns three-quarters, one side of the face in shadow |
+| Portrait | Candid glance | Works: caught unposed, gaze slightly off camera |
+
+#### The edit rows
+
+The 15 options ran on this checkpoint's own two fixtures, generated at the seed and
+prompts the earlier edit table records: a street at 768 x 512 for the five whole-frame
+rows, and a portrait at 768 x 768 for Retouch. Each option ran beside its own fixture,
+because for an edit the question is what the sentence changed. A Retouch sentence
+carries the mark's token, so it went with the token replaced by the number of the image
+holding the mask, and the mask itself was an ellipse in the palette's orange on black
+over the face, which is what the page sends.
+
+| Row | Option | Result |
+|---|---|---|
+| Exposure | Brighter | Works: clearly brighter, the pale walls keep their texture |
+| Exposure | Darker | Works: the shadow side goes moody and the highlights stay |
+| White balance | Cooler | Works: blue in the shopfronts and on the paving |
+| White balance | Warmer | Works: a strong clean golden cast, the composition untouched |
+| Grade | Teal and orange | Works: teal in the street, warm on the wall, the jacket stays yellow |
+| Grade | Muted filmic | Works: soft contrast, lifted blacks, a warm fade |
+| Lens | Shallow depth | Works: the subject sharp against a heavy bright bokeh |
+| Lens | Wider view | Works: more of the street in frame, the subject further off |
+| Lens | Telephoto | Works: the subject closer, the frame tighter, the background softer |
+| Finish | Film grain | Works: visible grain across the frame |
+| Finish | Vignette | Works: the corners fall off gradually, with no visible circle |
+| Finish | Halation | Works: a warm bloom on the bright edges |
+| Retouch | Smooth the skin | Works: the face reads retouched, the hair and sweater untouched |
+| Retouch | Brighten the eyes | Works: the eyes open up and read brighter |
+| Retouch | Clear a blemish | Works: the skin clears. The mark does not bound it, as the region table below and the base model's own note both record |
+
+#### The templates
+
+Each template ran with its first fill-in, and the two that ask for lettering were
+judged on the lettering.
+
+| Template | Result |
+|---|---|
+| Portrait photo | Works: every slot followed, light from the left, 85mm, a plain blurred background |
+| Product shot | Works: the mug, the oak table, the napkin, the window light, space on the right |
+| Landscape | Works: the fjord, the red boathouse, the gravel path leading the eye |
+| Poster with text | Works: "Midnight Sessions", "Friday, doors at eight" and "The Old Ship, Hackney" all exact |
+| Illustration | Works: gouache, the fox on the right third, the palette named |
+| Deadpan absurdity | Works: a horse waiting by the launderette machines while the people carry on |
+| Banner | Works: "BUILD FASTER" and "Ship every Friday" exact, the badge reads "New", 16:9 |
+| Change a color or material | Works: the oilskin jacket goes deep red and matte, the same cut, seams and pockets |
+| Replace the background | Works: the woman in a sunlit kitchen with a kettle and a window box |
+| Add text | Works: a "Bakery" sign above the shopfront, dark green painted serif, legible |
+| Alternate reality | Works: the same street in 1920, a horse cart and gas lamps |
+| Add an object | Works: the dog on the cobbles with its shadow, the man glancing down and smiling |
+| Turn into a skeleton | Works: the woman's bones reading a book, in her pose |
+| Turn into a pose figure | Works: a jointed grey figure in the same pose |
+| Mark a region | Works, subtly: the eyes read slightly brighter than the bare portrait and it is hard to separate the two by eye at this size |
+
+**What this sample does not settle.** One seed per option, the bar the generate rows
+were held to and no more; an option that failed here can still be re-run on a second
+seed. The two fixtures are one cat and one woman, so the exposure, white balance and
+grade verdicts are statements about those scenes and not about the words in general.
+The Retouch and Mark a region sentences were measured at one mark shape each, drawn by
+a script. Deep focus is the only option this schedule did not reward; the Viggle sample
+cut it and this one keeps it, for the reason its row above gives. The mark's containment
+on this checkpoint is measured separately, in "The same metric on three scenes" below.
+
 ## Marking a region
 
 The page's **Mark a region** tool sends the marked area as the last image of the
@@ -798,11 +909,24 @@ of them moved.
 | Viggle Turbo | wall | 6 | 12.6% | 78.89 | 35.78 | 2.2x |
 | Viggle Turbo | sign | 6 | 12.8% | 67.72 | 5.69 | 11.9x |
 | Viggle Turbo | circle | 6 | 7.9% | 117.04 | 5.58 | 21.0x |
+| Turbo, rebuilt scenes | wall | 8 | 12.7% | 104.67 | 2.10 | 49.8x |
+| Turbo, rebuilt scenes | sign | 8 | 12.9% | 164.86 | 5.47 | 30.2x |
+| Turbo, rebuilt scenes | circle | 8 | 8.0% | 164.89 | 5.77 | 28.6x |
 | Qwen-Image-2.1, engine built directly | wall | 20 | 12.6% | 89.55 | 29.18 | 3.1x |
 
 `wall` marks a patch of a uniform surface. `sign` marks a filled rectangle that has an
 edge of its own. `circle` is the 2026-09-26 fixture, rebuilt from what this file records,
 so it is a reconstruction and not the same run.
+
+The three Turbo rows are this checkpoint's own, measured 2026-10-16 at its eight steps, on
+scenes rebuilt the same way. Read them as the same method on different pictures, and not
+as three more points on the rows above: the ratio is the mean change inside the mark over
+the mean change outside it, so a flat scene with little outside the mark to move scores
+high. The circle is the row to compare, because it is drawn as the 2026-09-26 fixture was,
+which puts the mark's edge on the circle's edge exactly: Turbo holds the mark as well as
+the twenty-step base model does, 28.6x against 28.8x, and better than the six-step
+distillation's 21.0x. Its wall and sign read higher than every row above them, and that is
+a statement about the reconstructions rather than about the mark.
 
 Three readings, and none of them is a defect in a harness:
 
@@ -857,3 +981,128 @@ All three runs did the same thing to the picture. The whole circle came back blu
 including the part outside the mark, the grey background held, and the model's own
 shading on the circle's rim stayed. So the mark reached the engine through the page, the
 sentence named it, and the change landed on the object the mark was drawn over.
+
+## The video templates
+
+### How they were sampled
+
+Eight templates were written for LTX-2.5, each rendered once at the model's own defaults:
+121 frames, 24 fps, 1024 x 576, seed 7, no references, one clip each, the same flags the
+studio's runner passes. A ninth clip carried the bare sentence "A woman in a red coat walks
+along a beach at sunset", which is the subject of the first template without its direction,
+so a template's effect could be told apart from the subject's own motion. Every clip was
+then judged against what its own text promises, from six frames spread across it and from
+four numbers: the change between consecutive sampled frames, the same for the top quarter of
+the frame, the mean level, and, for the two keyframe templates, the distance from the still
+they were given.
+
+The top quarter is in the measure because a subject walking across a locked-off shot leaves
+it alone: a strip that moves says the frame itself moved. That is what separates a camera
+move from a walk.
+
+Seed 7, the office machine, one clip each. The clips cost 308 to 496 seconds each, 430.9 for
+the first.
+
+Four more clips followed. One re-sampled the light template with a different wording, and
+three chased the frame the style template drew. Each one kept the same seed, the same shape
+and the same fill-in, so a pair differs by the one clause that changed. They cost 389 to 471
+seconds each.
+
+### What works
+
+| Template | Evidence |
+| --- | --- |
+| Camera move | The top strip moved 16.7 across the clip against the bare control's 3.9, and the whole frame 19.3 against 12.8. The frame moves and the subject stays framed |
+| First frame | Frame 0 sits 3.52 of 255 from the still it was given, and the clip evolves from there |
+| Last frame | The last frame sits 5.5 from the still against 12.8 at the first, so the ending converged on it |
+| Product turn | The pot turns, stays centred, and the label "PEARL" is rendered and held across all six frames |
+
+The control is the useful half of the sample. With no template the frame is locked off: top
+strip 3.9, whole frame 12.8, and every change in it is the subject walking.
+
+The style template's own words were rewritten after this sample, and that rewrite rests on a
+number that belongs to another clip. Its first text opened "shot on [film stock or camera]
+with [palette and light]", and that wording draws a frame the text never asked for: black
+bands down both sides with rounded corners on the picture, like a phone upload. The outer 4%
+band of the frame measures 5.6 on the left and 1.2 on the right, where the bare control
+measures 107.3 and 81.2. Three wordings left it standing: a clause asking for the picture to
+fill the frame (3.4 and 1.0), a fill that named an editorial style instead of a documentary one
+(5.6 and 1.2), and the reworded stock clause on its own. The reading that fills the frame,
+38.0 and 36.5, belongs to 13-style-nofilm, and its fill differs from its pair in more than the
+stock clause: it says "in the warm natural colours and fine grain of Kodak Portra 400, in a
+clean editorial style", where the other says "shot on Kodak Portra 400 film with warm natural
+colours and fine grain, in a 1990s documentary style". Crediting those two numbers to the
+stock clause alone was wrong.
+
+The shipped text, which reads "in the [colours and grain] of [film stock or camera]", still
+draws the frame. Measured 2026-10-18: 16-audio-style-stock reads 5.6 and 1.7, and its control
+08-style-stock, filled the way the template invites, reads 5.5 and 1.7, and the contact sheets
+of both show the black columns and the rounded corners. Taking the word film out of the fill
+does not lift it: 17-style-no-word-film reads 5.6 and 1.8 against 16's 5.6 and 1.7, with every
+other word, the seed and the shape held. So the template is not proven, and one clip that
+fills the frame against five that do not is not enough to name the words that decide it.
+
+That paragraph was rewritten again on 2026-10-18, when the clip that fills the frame was run
+again beside its pair. Two clips, the stock clause held and the style phrase moved, everything
+else the same, seed 7, 1024 x 576, 121 frames: `30-style-editorial-fill`, which reads "in the
+warm natural colours and fine grain of Kodak Portra 400, in a clean editorial style", measures
+5.3 and 0.9 on the outer 4% band, and `31-style-documentary-fill`, one style phrase away,
+measures 5.2 and 1.6. Both are pillarboxed, so the style phrase does not decide it, and the
+38.0 that 13-style-nofilm measured does not reproduce: the same clause and the same style
+phrase draw the frame tonight. Seven of the eight fills sampled now sit between 5.2 and 6.1,
+against a bare control's 107.3 and 81.2, and six wordings were tried, among them one that asks
+the picture to fill the frame. So the frame is what asking a video prompt for a film look
+does, and the template was dropped rather than offered with the fault. Its text is in
+`prompt_aids.py`, where it sat, with this evidence.
+
+### What did not, and why they are not offered
+
+| Template | Evidence |
+| --- | --- |
+| Style and stock | Draws the film look and a frame the text never asked for: black columns down both sides with rounded corners on the picture. 5.2 to 6.1 on the outer 4% band for seven of eight fills, against a bare control's 107.3 and 81.2, and no wording lifted it. Dropped 2026-10-18 |
+| Loop | First frame against last 14.72 while the palette matched to a point, so the content moved rather than the light. A seamless loop wants near zero |
+| One action | One continuous shot, but the empty cup to full arc never read, and the camera drifted closer after being told to stay put |
+| Light changes | Two wordings, and both lose on the camera. The first asked for a pan and brightened where dusk should darken: level 91.6 to 96.6, and the top strip 43 to 49. The second asks for the camera locked off and names no pan, and the top strip still moves 38 to 42 against the bare control's 1.7 to 2.0, while the picture drifts forward down the street. The level turns the right way this time, 79.1 to 76.7, so the words can name the direction; they cannot hold the camera |
+
+The last frame template shipped with the sentence that failed removed: it promises the ending
+still and says nothing about an empty opening, which the clip did not deliver.
+
+### The sound direction, sampled 2026-10-18
+
+Each of the five shipped templates was rendered again with a sentence that names what is
+heard. The vendor's guide lists audio as one of the six elements of a video prompt, and the
+model's own enhancer writes one on every enhanced run, which the shipped templates did not
+invite. Every clip held its template's fill-in, its seed 7, its shape 1024 x 576 and its
+length of 121 frames, so a clip differs from the one it is paired with by that sentence and
+nothing else. One clip each, 330 to 444 seconds a clip.
+
+| Template | With the sentence, against its pair without |
+| --- | --- |
+| Camera move | The frame still moves: the top strip 22.08 from first to last against 16.66, the whole frame 24.58 against 19.33 |
+| First frame | The opening frame sits 3.48 of 255 from the still it was given, against 3.52 |
+| Last frame | The ending sits 5.52 from the still against 5.50, and the opening 12.88 against 12.76 |
+| Product turn | The pot turns, stays centred, and holds "PEARL" on every one of the six frames, as its pair does |
+| Style and stock | The look is unchanged, level 89.1 against 90.2, and both frames are pillarboxed, which is the fault above and not this sentence |
+
+The sentence costs no template its own promise. The soundtrack changed in all five pairs, by
+the mean level of the audio track: 12-audio-camera-move is 2.5 dB louder than 01-camera-move,
+and the other four run 6.2 to 32.9 dB quieter, the largest being 13-audio-first-frame at -61.2
+dB against -28.3 dB. Every clip carries an AAC track either way, 5.01 seconds, so nothing is
+lost to silence.
+
+What these numbers cannot say is whether the words named the sound the model made. A level
+says the track changed, not that the sea is the sea. Two things follow. The words are kept,
+because they cost the picture nothing and the guide asks for them. And a person has to listen
+before the words are trusted: "only the sound of the sea" left one clip all but silent, which
+is a plausible reading of the words and a poor soundtrack.
+
+### What this sample does not settle
+
+- One clip per template, one seed. A template that failed here might pass on another seed,
+  or on another fill-in: one of the three that failed was re-sampled once, and the style
+  template, which shipped, three times.
+- One length and one shape, both the model's defaults. Nothing here says what these words do
+  at 2 seconds or at 640 x 384.
+- The reference strength control was not sampled. Both keyframe clips used 1.0.
+- The camera move template originally ended "Locked off on a tripod", which contradicts a
+  moving camera, and the model drew a tripod standing in the sand. The shipped text drops it.

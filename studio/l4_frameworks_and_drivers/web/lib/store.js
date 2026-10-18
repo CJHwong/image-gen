@@ -22,7 +22,7 @@
 // The fields a stored record carries besides its two pictures. A record is read
 // back into a gallery entry, so the list is the shape both ends agree on.
 const KEPT_FIELDS = ['id', 'seed', 'width', 'height', 'steps', 'elapsed', 'position', 'mode', 'prompt',
-  'typed', 'look', 'negative', 'sources', 'backend', 'backendId'];
+  'typed', 'look', 'negative', 'sources', 'backend', 'backendId', 'at'];
 
 const channel = new BroadcastChannel('studio-gallery');
 
@@ -32,6 +32,7 @@ let page = null;
 // The handle is opened once and kept: a browser that refuses one is only
 // reachable at that first moment.
 let database = null;
+let videoDatabase = null;
 
 function openStore() {
   if (!database) {
@@ -52,6 +53,29 @@ function inStore(access, work) {
     return new Promise(function (resolve, reject) {
       const transaction = store.transaction('images', access);
       const request = work(transaction.objectStore('images'));
+      transaction.oncomplete = function () { resolve(request ? request.result : undefined); };
+      transaction.onabort = function () { reject(transaction.error); };
+    });
+  });
+}
+
+function openVideoStore() {
+  if (!videoDatabase) {
+    videoDatabase = new Promise(function (resolve, reject) {
+      const request = indexedDB.open('studio-video-gallery', 1);
+      request.onupgradeneeded = function () { request.result.createObjectStore('clips', { keyPath: 'id' }); };
+      request.onsuccess = function () { resolve(request.result); };
+      request.onerror = function () { reject(request.error); };
+    });
+  }
+  return videoDatabase;
+}
+
+function inVideoStore(access, work) {
+  return openVideoStore().then(function (store) {
+    return new Promise(function (resolve, reject) {
+      const transaction = store.transaction('clips', access);
+      const request = work(transaction.objectStore('clips'));
       transaction.oncomplete = function () { resolve(request ? request.result : undefined); };
       transaction.onabort = function () { reject(transaction.error); };
     });
@@ -88,6 +112,73 @@ function keep(entry) {
   });
 }
 
+function keepVideo(clip, mp4, thumbnail) {
+  if (!page.keeping()) return Promise.resolve(false);
+  const record = {
+    id: clip.id,
+    name: clip.name,
+    duration: clip.duration,
+    metadata: clip.metadata,
+    createdAt: clip.createdAt,
+    mp4: mp4,
+    thumbnail: thumbnail || null,
+  };
+  return inVideoStore('readwrite', function (clips) { return clips.put(record); }).then(function () {
+    return true;
+  }).catch(function (error) {
+    page.notify('error', 'The browser did not keep video ' + clip.name + ': ' + error.message
+      + ' It stays in this tab until a reload.');
+    return false;
+  });
+}
+
+function keepVideoThumbnail(id, thumbnail) {
+  if (!page.keeping()) return Promise.resolve(false);
+  return inVideoStore('readwrite', function (clips) {
+    const request = clips.get(id);
+    request.onsuccess = function () {
+      if (!request.result) return;
+      request.result.thumbnail = thumbnail;
+      clips.put(request.result);
+    };
+    return request;
+  }).then(function () {
+    return true;
+  }).catch(function (error) {
+    page.notify('error', 'The browser did not keep the thumbnail for video ' + id + ': ' + error.message);
+    return false;
+  });
+}
+
+function loadVideos() {
+  if (!page.keeping()) return Promise.resolve([]);
+  return inVideoStore('readonly', function (clips) { return clips.getAll(); }).then(function (records) {
+    return records.sort(function (first, second) { return first.createdAt - second.createdAt; });
+  }).catch(function (error) {
+    page.notify('error', 'The saved videos did not load: ' + error.message);
+    return [];
+  });
+}
+
+function removeVideo(id) {
+  if (!page.keeping()) return Promise.resolve(false);
+  return inVideoStore('readwrite', function (clips) { return clips.delete(id); }).then(function () {
+    return true;
+  }).catch(function (error) {
+    page.notify('error', 'The browser did not remove video ' + id + ': ' + error.message);
+    return false;
+  });
+}
+
+function clearVideos() {
+  return inVideoStore('readwrite', function (clips) { return clips.clear(); }).then(function () {
+    return true;
+  }).catch(function (error) {
+    page.notify('error', 'The saved videos were not removed: ' + error.message);
+    return false;
+  });
+}
+
 // Delete from the store, then tell the other tabs. The work is the caller's,
 // because what goes is the caller's to name. With keeping off there is nothing
 // stored, and each tab's strip is its own.
@@ -116,8 +207,11 @@ function load() {
 function announce(on) {
   channel.postMessage({ kind: 'keep', on: on });
   if (on) return;
-  inStore('readwrite', function (images) { images.clear(); }).catch(function (error) {
-    page.notify('error', 'The kept images were not removed: ' + error.message);
+  Promise.all([
+    inStore('readwrite', function (images) { return images.clear(); }),
+    inVideoStore('readwrite', function (clips) { return clips.clear(); }),
+  ]).catch(function (error) {
+    page.notify('error', 'The kept media were not removed: ' + error.message);
   });
 }
 
@@ -139,8 +233,13 @@ channel.addEventListener('message', function (event) {
 
 const handle = {
   keep: keep,
+  keepVideo: keepVideo,
+  keepVideoThumbnail: keepVideoThumbnail,
   forget: forget,
   load: load,
+  loadVideos: loadVideos,
+  removeVideo: removeVideo,
+  clearVideos: clearVideos,
   announce: announce,
   blobOf: blobOf,
   fields: function () { return KEPT_FIELDS; },

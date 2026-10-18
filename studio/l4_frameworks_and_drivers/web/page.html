@@ -31,6 +31,7 @@
 <script type="module" src="/page/components/image-strip.js"></script>
 <script type="module" src="/page/components/toast-host.js"></script>
 <script type="module" src="/page/components/progress-card.js"></script>
+<script type="module" src="/page/components/video-studio.js"></script>
 <script type="module" src="/page/lib/store.js"></script>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <link rel="stylesheet" href="/page/page.css">
@@ -70,8 +71,11 @@
             aria-controls="backend-menu" disabled><span class="name">__NAME__</span><svg class="icon"><use href="#i-caret"/></svg></button></h1>
           <div class="menu" id="backend-menu" role="menu" hidden></div>
         </div>
-        <span class="badge" title="The weights loaded">__BADGE__</span>
       </div>
+      <nav class="workspace-tabs" id="workspace-tabs" role="group" aria-label="Workspace">
+        <button type="button" id="media-image-mode" aria-pressed="true">Image</button>
+        <button type="button" id="media-video-mode" aria-pressed="false">Video</button>
+      </nav>
       <div class="readout">
         <span class="status" id="status" role="status" aria-live="polite" hidden><span class="dot"></span><span id="status-text"></span></span>
         <button type="button" id="guide-toggle" class="icon-btn" aria-expanded="false"
@@ -84,7 +88,7 @@
       </div>
     </header>
 
-    <section class="stage">
+    <section class="stage" id="image-stage">
       <div class="canvas" id="canvas"></div>
       <div class="stage-bar" id="stage-bar" hidden></div>
       <!-- The messages are components/toast-host.js, which draws them from its
@@ -92,6 +96,8 @@
            by and the polite live region it already had. -->
       <toast-host class="toasts" id="toasts" role="status" aria-live="polite"></toast-host>
     </section>
+
+    <video-studio id="video-studio" hidden></video-studio>
 
     <section class="strip-wrap" id="strip-wrap" hidden>
       <div class="strip-head">
@@ -114,10 +120,11 @@
   </div>
 
   <aside>
-    <form id="form" class="mode-generate" hx-post="/generate" hx-target="#incoming" hx-swap="beforeend">
+    <form id="form" class="mode-generate" data-media-mode="image" hx-post="/generate" hx-target="#incoming" hx-swap="beforeend">
       <input type="hidden" name="backend" value="__BACKEND__">
       <div class="controls">
-        <div class="modes" role="radiogroup" aria-label="Mode">
+        <div id="image-controls" class="mode-controls">
+        <div class="modes" role="radiogroup" aria-label="Image mode">
           <input type="radio" name="mode" id="mode-generate" value="generate" checked>
           <label for="mode-generate"><svg class="icon"><use href="#i-sparkle"/></svg>Generate</label>
           <input type="radio" name="mode" id="mode-edit" value="edit">
@@ -167,6 +174,9 @@
             <reference-list></reference-list>
           </div>
           <input id="reference" type="file" accept="image/*" hidden>
+          <button type="button" class="text-btn share-video" id="share-references-video" hidden>
+            Share references with Video
+          </button>
           <!-- What several images mean. Composed into one picture is what an edit from several
                has always done; one result each is the batch. The mode declares whether the page
                may offer the choice, so a form that does not declare it is the form it was. -->
@@ -252,9 +262,105 @@
             </div>
           </div>
         </details>
+        </div>
+
+        <div id="video-controls" class="mode-controls video-controls" hidden>
+          <div class="field prompt-field">
+            <div class="field-head">
+              <label for="video-prompt">Prompt</label>
+              <div class="head-actions">
+                <button type="button" class="pill" id="video-templates-toggle" aria-expanded="false"
+                  aria-controls="video-templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
+                <!-- The video prompt is lengthened by the backend's own rewriter, the one
+                     the image form uses for a generate prompt: a video is drawn from
+                     words, and this workspace's picture is a frame the clip must hold
+                     rather than the thing the rewriter is asked about. The button
+                     carries the same three verbs the image form's does, and `hidden`
+                     picks one, never a rule in the cascade. -->
+                <button type="button" class="pill" id="video-rewrite-toggle" hidden
+                  title="Rewrite the prompt into a longer instruction before generating"><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle">Rewrite</span><span class="rewrite-cancel" hidden>Cancel</span><span class="rewrite-stopping" hidden>Stopping&hellip;</span></button>
+              </div>
+            </div>
+            <div class="menu" id="video-templates" role="menu" hidden></div>
+            <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."></textarea>
+          </div>
+          <section id="video-source-panel" class="video-source-panel" aria-label="Video media">
+            <div class="video-source-panel-head">
+              <strong>Media</strong>
+              <div class="video-source-actions">
+                <button class="text-btn" type="button" data-action="add-media">Add media</button>
+              </div>
+            </div>
+            <!-- What the two kinds are for stays visible once media arrives; the zone below is
+                 the invitation, and it goes away when the first file lands. -->
+            <p class="caption">Image references guide the generated video. Source clips help you pick frames. Paste with &#8984;P.</p>
+            <!-- One door for both kinds. A drop, a paste and the chooser all hand their files to
+                 `addMediaFiles`, which reads each file's own type, so the form never asks which
+                 kind is coming. The zone takes the click and the key the way the image form's
+                 zone does; the panel around it takes the drop. -->
+            <div class="video-media-empty" id="video-media-empty" data-action="add-media"
+              tabindex="0" role="button" aria-label="Add image references or source clips">
+              <svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>
+              <div>
+                <strong>Add an image reference or a source clip</strong>
+                <span>Optional. Drop, paste or choose one.</span>
+              </div>
+            </div>
+            <section class="video-source-group" id="video-source-group" aria-label="Source clips" hidden>
+              <div class="video-source-group-head">
+                <strong>Source clips</strong><span id="video-source-count"></span>
+              </div>
+              <div class="video-source-list" id="video-source-list"></div>
+            </section>
+            <section class="video-reference-tray" id="video-reference-tray" aria-label="Image references" hidden>
+              <div class="video-reference-head">
+                <div><strong>Image references</strong><span id="video-reference-count">0 images</span></div>
+              </div>
+              <div class="video-references" id="video-references"></div>
+            </section>
+            <input id="video-media-upload" type="file" accept="image/*,video/*" multiple hidden>
+          </section>
+          <div class="video-output-options">
+            <div class="field">
+              <div class="field-head">
+                <label for="video-duration">Duration</label>
+                <output class="caption num" id="video-duration-value"></output>
+              </div>
+              <input id="video-duration" type="range" aria-label="Video duration">
+              <div class="video-duration-presets" role="group" aria-label="Duration presets">
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-head">
+                <span class="label">Frame shape</span>
+                <span class="caption num" id="video-frame-count"></span>
+              </div>
+              <div class="video-ratios" role="group" aria-label="Video frame shape">
+              </div>
+            </div>
+            <!-- The sizes of the shape in front, lowest first. A prompt is worth testing
+                 before it is worth four minutes, so the low rungs are the point of this row.
+                 A model that offers one size for a shape carries no row at all. -->
+            <div class="field">
+              <span class="label">Resolution</span>
+              <div class="seg" id="video-resolutions" role="group" aria-label="Video resolution">
+              </div>
+            </div>
+          </div>
+          <details id="video-advanced">
+            <summary>Advanced <span class="values num" id="video-seed-summary">Random seed</span></summary>
+            <div class="advanced">
+              <div class="field">
+                <div class="field-head"><label for="video-seed">Seed</label></div>
+                <input id="video-seed" type="number" step="1" inputmode="numeric" placeholder="Random">
+                <span class="caption">Leave blank for a random seed.</span>
+              </div>
+            </div>
+          </details>
+        </div>
       </div>
 
-      <div class="footer">
+      <div class="footer" id="image-footer">
         <div class="run menu-anchor">
         <button id="go" type="submit" data-state="idle">
           <run-button id="run-labels" data-state="idle"></run-button>
@@ -267,6 +373,10 @@
         <div class="menu up" id="count-menu" role="menu" hidden></div>
         </div>
         <input type="hidden" id="count" name="count" value="1">
+      </div>
+      <div class="footer video-footer" id="video-footer" hidden>
+        <button id="video-generate" type="button" disabled>Generate video</button>
+        <span class="visually-hidden" id="video-request-status" role="status" aria-live="polite"></span>
       </div>
     </form>
   </aside>
@@ -295,6 +405,8 @@
   const countToggle = document.getElementById('count-toggle');
   const countMenu = document.getElementById('count-menu');
   const templatesToggle = document.getElementById('templates-toggle');
+  const videoTemplatesToggle = document.getElementById('video-templates-toggle');
+  const videoTemplatesMenu = document.getElementById('video-templates');
   const templatesMenu = document.getElementById('templates');
 
   function busy() {
@@ -329,13 +441,670 @@
   // shape in flight. The form asks for each through the getters on its door.
   const referenceInput = document.getElementById('reference');
   const refsZone = document.getElementById('refs');
+  const videoStudio = document.getElementById('video-studio');
+  let mediaMode = new URLSearchParams(location.search).get('workspace') === 'video' ? 'video' : 'image';
+  let workspaceSwitchPending = false;
+  let videoRunState = 'idle';
+  let videoRunRequestId = null;
+  let formApi = null;
 
   // The references are the page's array, not the form's, because a run posts it
   // and `verify_capabilities.py` reads it by name out of the page's global
   // scope. The form asks for it and reassigns through the two helpers below.
   let references = [];
 
-  let formApi = null;
+  function renderMediaActions() {
+    document.getElementById('share-references-video').hidden = mediaMode !== 'image' || !references.length;
+  }
+
+  function setWorkspaceControlsDisabled() {
+    const disabled = workspaceSwitchPending || videoRunState !== 'idle';
+    document.getElementById('media-image-mode').disabled = disabled;
+    document.getElementById('media-video-mode').disabled = disabled;
+  }
+
+  function syncVideoGenerateButton() {
+    const button = document.getElementById('video-generate');
+    const prompt = document.getElementById('video-prompt').value.trim();
+    const waiting = videoRunState === 'starting' || videoRunState === 'stopping';
+    /* A rewrite is a second model and the video engine does not fit beside it, so the run
+       waits for the press, said on the button rather than as an error after it, the way the
+       image form's own run button waits through `blocker`. The form marks a press on the
+       body, which is the signal the image form's buttons read too. */
+    const rewriting = document.body.classList.contains('rewriting');
+    button.disabled = waiting || rewriting || (videoRunState === 'idle' && !prompt);
+  }
+
+  function setVideoRunState(state) {
+    videoRunState = state;
+    const active = state !== 'idle';
+    const stopping = state === 'stopping';
+    const button = document.getElementById('video-generate');
+    document.body.classList.toggle('video-busy', active);
+    document.body.classList.toggle('video-stopping', stopping);
+    form.setAttribute('aria-busy', String(active));
+    if (formApi) formApi.holdPanel('Locked while the video is being made.', active);
+    /* The button carries the video run's verbs: it starts the run, and while one
+       goes it is the way out of it. It says Cancel and not Cancel render, because
+       the button already sits in the video workspace's own footer and the word
+       it cancels is the one next to it. */
+    button.textContent = stopping ? 'Stopping…' : active ? 'Cancel' : 'Generate video';
+    syncVideoGenerateButton();
+    setWorkspaceControlsDisabled();
+    renderBackendSelector();
+    // The rewrite's own button waits for both runs, and it reads the class this
+    // just set. The form draws it from the state it owns, so it is asked to.
+    if (formApi) formApi.renderRewriteButton();
+  }
+
+  function newVideoRequestId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, function (byte) { return byte.toString(16).padStart(2, '0'); }).join('');
+  }
+
+  // What the browser tab says. The workspace decides the first word, because the two
+  // workspaces run different models, and a title naming only the image model read wrong
+  // in the video one. A run's progress goes in front of it, so a run can be watched from
+  // another tab.
+  function workspaceTitle() {
+    const video = mediaMode === 'video';
+    const family = video ? STUDIO.video : STUDIO;
+    const model = family && family.backend ? family.backend.name : '';
+    return (video ? 'Video' : 'Image') + (model ? ' - ' + model : '');
+  }
+
+  function setTitle(prefix) {
+    document.title = (prefix || '') + workspaceTitle();
+  }
+
+  function applyMediaMode(next) {
+    mediaMode = next;
+    form.dataset.mediaMode = mediaMode;
+    const video = mediaMode === 'video';
+    document.getElementById('media-image-mode').setAttribute('aria-pressed', String(!video));
+    document.getElementById('media-video-mode').setAttribute('aria-pressed', String(video));
+    document.getElementById('image-stage').hidden = video;
+    videoStudio.hidden = !video;
+    document.getElementById('image-footer').hidden = video;
+    document.getElementById('video-footer').hidden = !video;
+    document.getElementById('strip-wrap').hidden = video || (!gallery.length && !busy());
+    document.getElementById('video-controls').hidden = !video;
+    document.getElementById('image-controls').hidden = video;
+    setWorkspaceControlsDisabled();
+    renderMediaActions();
+    renderBackendSelector();
+    // The rewrite button belongs to the workspace on screen: the image form offers the
+    // rewriter of the mode in force, and the video form offers the generate one.
+    if (formApi) formApi.renderRewriteButton();
+    setTitle('');
+  }
+
+  async function setMediaMode(next) {
+    if (next === mediaMode) {
+      applyMediaMode(next);
+      return;
+    }
+    if (workspaceSwitchPending || videoRunState !== 'idle') return;
+    workspaceSwitchPending = true;
+    setWorkspaceControlsDisabled();
+    try {
+      const answer = await fetch('/workspace', {
+        method: 'POST',
+        body: new URLSearchParams({ workspace: next }),
+      });
+      const text = await answer.text();
+      if (!answer.ok || text.trim()) {
+        const message = new DOMParser().parseFromString(text, 'text/html').body.textContent;
+        throw new Error(message || 'Model is busy.');
+      }
+      applyMediaMode(next);
+    } catch (error) {
+      showToast('info', error.message);
+    } finally {
+      workspaceSwitchPending = false;
+      setWorkspaceControlsDisabled();
+    }
+  }
+
+  function dataUrlFor(entry) {
+    if (entry.b64) return Promise.resolve('data:image/png;base64,' + entry.b64);
+    return kept.blobOf(entry.src).then(function (blob) {
+      return new Promise(function (resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = function () { resolve(reader.result); };
+        reader.onerror = function () { reject(reader.error || new Error('The image could not be read.')); };
+        reader.readAsDataURL(blob);
+      });
+    });
+  }
+
+  function shareReferencesWithVideo() {
+    references.forEach(function (reference) {
+      videoStudio.addImageReference({
+        id: reference.id,
+        name: reference.name,
+        src: 'data:image/png;base64,' + reference.b64,
+        base64: reference.b64,
+      });
+    });
+    setMediaMode('video');
+  }
+
+  function base64FromDataUrl(src) {
+    return src.slice(src.indexOf(',') + 1);
+  }
+
+  // ---- The video prompt's templates -------------------------------------------
+  // The same menu the image form offers, drawn from the video model's own record and filling
+  // the video prompt. A template that names the reference image is left out while the video
+  // carries none, the way an image template that names the region token is left out while
+  // the brush is unavailable: without a still there is no frame to hold or to reach.
+  function videoTemplateOffered(template) {
+    if (!/reference image/.test(template.text)) return true;
+    return videoStudio.imageReferences.length > 0;
+  }
+
+  function renderVideoTemplates() {
+    const capabilities = videoCapabilities();
+    videoTemplatesMenu.replaceChildren();
+    const head = document.createElement('div');
+    head.className = 'menu-head';
+    head.textContent = 'Start from a template';
+    videoTemplatesMenu.append(head);
+    (capabilities ? capabilities.templates : []).forEach(function (template) {
+      if (!videoTemplateOffered(template)) return;
+      const option = menus.menuItem('', template.name, function () { useVideoTemplate(template.text); });
+      const note = document.createElement('span');
+      note.className = 'item-note';
+      note.textContent = template.hint;
+      option.querySelector('.item-text').append(note);
+      videoTemplatesMenu.append(option);
+    });
+    const foot = document.createElement('div');
+    foot.className = 'menu-foot';
+    foot.textContent = 'Press Tab to jump to the next [bracket].';
+    videoTemplatesMenu.append(foot);
+    menus.toggleMenu(videoTemplatesMenu);
+  }
+
+  // Writes the video prompt the way a person does: the box carries the words, and the event
+  // says so. Everything that reads the box listens for that event, and a plain `.value =`
+  // raises none: the run button and the rewrite button both went stale until a keystroke.
+  function setVideoPrompt(text) {
+    const prompt = document.getElementById('video-prompt');
+    prompt.value = text;
+    prompt.dispatchEvent(new Event('input', { bubbles: true }));
+    return prompt;
+  }
+
+  function useVideoTemplate(text) {
+    const prompt = setVideoPrompt(text);
+    prompt.focus();
+    selectVideoPlaceholder(prompt, 0);
+  }
+
+  // Selects the next [placeholder] at or after a position, so typing replaces it. Returns
+  // false when none is left, and Tab then moves focus as usual.
+  function selectVideoPlaceholder(prompt, from) {
+    const found = /\[[^\]]+\]/.exec(prompt.value.slice(from));
+    if (!found) return false;
+    prompt.setSelectionRange(from + found.index, from + found.index + found[0].length);
+    return true;
+  }
+
+  function shareImageWithVideo(entry) {
+    dataUrlFor(entry).then(function (src) {
+      videoStudio.addImageReference({
+        id: 'image-' + entry.id,
+        name: 'Image ' + entry.seed,
+        src: src,
+        base64: base64FromDataUrl(src),
+      });
+      setMediaMode('video');
+    }).catch(function (error) {
+      showToast('error', 'The image did not load as a video reference: ' + error.message);
+    });
+  }
+
+  document.getElementById('media-image-mode').addEventListener('click', function () { setMediaMode('image'); });
+  document.getElementById('media-video-mode').addEventListener('click', function () { setMediaMode('video'); });
+  document.getElementById('share-references-video').addEventListener('click', shareReferencesWithVideo);
+  document.addEventListener('video-frame-captured', function (event) {
+    const reader = new FileReader();
+    reader.onload = function () {
+      if (!videoStudio.canCommitInput(event.detail.epoch)) return;
+      const base64 = base64FromDataUrl(reader.result);
+      if (event.detail.target === 'video') {
+        videoStudio.addImageReference({
+          id: 'video-frame-' + Date.now(),
+          name: event.detail.name,
+          src: reader.result,
+          base64: base64,
+          frameIndex: event.detail.frameIndex,
+        }, event.detail.epoch);
+      } else {
+        formApi.addReference(base64, event.detail.name);
+        setMediaMode('image');
+      }
+    };
+    reader.onerror = function () {
+      if (!videoStudio.canCommitInput(event.detail.epoch)) return;
+      showToast('error', 'The video frame could not be read as an image reference.');
+    };
+    reader.readAsDataURL(event.detail.blob);
+  });
+  document.addEventListener('video-output-reuse', function (event) {
+    const detail = event.detail || {};
+    const seed = document.getElementById('video-seed');
+    if (typeof detail.prompt === 'string') {
+      setVideoPrompt(detail.prompt).focus();
+    }
+    if (Number.isInteger(detail.seed) && !seed.disabled) {
+      seed.value = String(detail.seed);
+      document.getElementById('video-advanced').open = true;
+      syncVideoSeedSummary();
+      seed.focus();
+    }
+  });
+
+  function videoCapabilities() {
+    return STUDIO.video && STUDIO.video.capabilities;
+  }
+
+  function videoShapeInFront() {
+    const pressed = document.querySelector('.video-ratios button[aria-pressed="true"]');
+    const shape = pressed || document.querySelector('.video-ratios button');
+    return shape ? shape.dataset.ratio : '';
+  }
+
+  // The sizes the model renders for one shape, lowest first.
+  function videoSizesFor(ratio) {
+    const capabilities = videoCapabilities();
+    if (!capabilities) return [];
+    return capabilities.shapes.filter(function (shape) { return shape.ratio === ratio; });
+  }
+
+  // One shape's glyph, drawn the way the image form draws its own: a box a little over a
+  // centimetre across, whose sides are the shape's sides.
+  function videoShapeGlyph(ratio) {
+    const parts = ratio.split(':').map(Number);
+    const wide = parts[0] >= parts[1];
+    const box = document.createElement('i');
+    box.style.width = (wide ? 16 : Math.round(16 * parts[0] / parts[1])) + 'px';
+    box.style.height = (wide ? Math.round(16 * parts[1] / parts[0]) : 16) + 'px';
+    const glyph = document.createElement('span');
+    glyph.className = 'glyph';
+    glyph.append(box);
+    return glyph;
+  }
+
+  // Which rung of the ladder is in front, or null for the shape's own default, which is its
+  // lowest size: a prompt is tried before it is worth four minutes. Every shape opens there,
+  // including one reached by changing the shape.
+  let videoResolutionRung = null;
+
+  function renderVideoResolutions() {
+    const field = document.getElementById('video-resolutions').closest('.field');
+    const row = document.getElementById('video-resolutions');
+    const sizes = videoSizesFor(videoShapeInFront());
+    row.replaceChildren();
+    // One size is not a ladder. A model that offers a single size for a shape carries no row.
+    field.hidden = sizes.length < 2;
+    if (field.hidden) return;
+    if (videoResolutionRung === null || videoResolutionRung >= sizes.length) {
+      videoResolutionRung = 0;
+    }
+    sizes.forEach(function (shape, rung) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.width = String(shape.width);
+      button.dataset.height = String(shape.height);
+      button.setAttribute('aria-pressed', String(rung === videoResolutionRung));
+      button.setAttribute('aria-label', 'Render at ' + shape.width + ' by ' + shape.height);
+      // The tier buttons the image form draws, so the rungs read as one shape's ladder and not
+      // as a second row of shapes. Named by the short side, which is what separates one rung
+      // from the next and what a vertical clip is named by too. 360p and 480p are not
+      // reachable: the pipeline wants both sides on the 64 pixel grid, and neither divides by
+      // 64.
+      button.className = 'num';
+      button.textContent = Math.min(shape.width, shape.height) + 'p';
+      row.append(button);
+    });
+  }
+
+  function selectedVideoShape() {
+    const size = document.querySelector('#video-resolutions button[aria-pressed="true"]');
+    if (size) return [Number(size.dataset.width), Number(size.dataset.height)];
+    const sizes = videoSizesFor(videoShapeInFront());
+    const first = sizes[0];
+    return first ? [first.width, first.height] : [0, 0];
+  }
+
+  function applyVideoCapabilities() {
+    const capabilities = videoCapabilities();
+    if (!capabilities) return;
+    const duration = document.getElementById('video-duration');
+    duration.min = String(capabilities.min_frames);
+    duration.max = String(capabilities.max_frames);
+    duration.step = String(capabilities.frame_step);
+    duration.value = String(capabilities.default_frames);
+    const seed = document.getElementById('video-seed');
+    const seedField = seed.closest('.field');
+    const seedSupported = capabilities.min_seed !== null && capabilities.max_seed !== null;
+    seed.disabled = !seedSupported;
+    seedField.hidden = !seedSupported;
+    if (seedSupported) {
+      seed.min = String(capabilities.min_seed);
+      seed.max = String(capabilities.max_seed);
+    } else {
+      seed.value = '';
+      seed.removeAttribute('min');
+      seed.removeAttribute('max');
+    }
+    const shapes = document.querySelector('.video-ratios');
+    shapes.replaceChildren();
+    const ratios = [];
+    capabilities.shapes.forEach(function (shape) {
+      if (ratios.indexOf(shape.ratio) < 0) ratios.push(shape.ratio);
+    });
+    ratios.forEach(function (ratio) {
+      const option = document.createElement('button');
+      option.type = 'button';
+      option.dataset.ratio = ratio;
+      option.setAttribute('aria-pressed', String(ratio === capabilities.default_shape_ratio));
+      // The shape chips the image form draws, glyph and all, so one form's shapes read like
+      // the other's.
+      option.className = 'chip';
+      option.append(videoShapeGlyph(ratio));
+      option.append(document.createTextNode(ratio));
+      shapes.append(option);
+    });
+    renderVideoResolutions();
+    const presets = document.querySelector('.video-duration-presets');
+    presets.replaceChildren();
+    capabilities.duration_presets.forEach(function (frames) {
+      const offset = capabilities.min_frames % capabilities.frame_step;
+      if (frames < capabilities.min_frames || frames > capabilities.max_frames
+          || (frames - offset) % capabilities.frame_step) return;
+      const seconds = (frames / capabilities.frame_rate).toFixed(1).replace(/\.0$/, '');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.durationFrames = String(frames);
+      button.setAttribute('aria-label', 'Set duration to ' + seconds + ' seconds');
+      button.setAttribute('aria-pressed', String(frames === capabilities.default_frames));
+      button.textContent = seconds + ' s';
+      presets.append(button);
+    });
+    syncVideoSeedSummary();
+    syncVideoFrameCount();
+    videoTemplatesToggle.hidden = !capabilities.templates.length;
+  }
+
+  function syncVideoFrameCount() {
+    const capabilities = videoCapabilities();
+    if (!capabilities) return;
+    const frameCount = Number(document.getElementById('video-duration').value);
+    const duration = frameCount / capabilities.frame_rate;
+    const [width, height] = selectedVideoShape();
+    const durationLabel = duration.toFixed(1);
+    document.getElementById('video-duration-value').textContent = durationLabel + ' sec';
+    document.getElementById('video-duration').setAttribute('aria-valuetext', durationLabel + ' seconds');
+    document.querySelectorAll('[data-duration-frames]').forEach(function (button) {
+      button.setAttribute('aria-pressed', String(Number(button.dataset.durationFrames) === frameCount));
+    });
+    // The frame the run will use, beside the shape it belongs to, the way the image form
+    // prints its own size. The seconds are not repeated here: the Duration row carries them.
+    document.getElementById('video-frame-count').textContent =
+      width + ' × ' + height + ', ' + frameCount + ' frames';
+    if (typeof videoStudio.setFrameLimit === 'function') {
+      const movedReferences = videoStudio.setFrameLimit(frameCount);
+      if (movedReferences) {
+        const noun = movedReferences === 1 ? 'image reference moved' : 'image references moved';
+        showToast('info', movedReferences + ' ' + noun + ' to frame ' + frameCount
+          + ' to fit the selected duration.');
+      }
+    }
+  }
+
+  function selectedVideoSeed() {
+    const value = document.getElementById('video-seed').value.trim();
+    const capabilities = videoCapabilities();
+    if (capabilities.min_seed === null || capabilities.max_seed === null) {
+      if (value) throw new Error('This video model does not support a seed.');
+      return null;
+    }
+    if (!value) return null;
+    const seed = Number(value);
+    if (!Number.isInteger(seed) || seed < capabilities.min_seed || seed > capabilities.max_seed) {
+      throw new Error('Seed must be a whole number from ' + capabilities.min_seed + ' to ' + capabilities.max_seed + '.');
+    }
+    return seed;
+  }
+
+  function syncVideoSeedSummary() {
+    const seed = document.getElementById('video-seed').value.trim();
+    const capabilities = videoCapabilities();
+    if (capabilities.min_seed === null || capabilities.max_seed === null) {
+      document.getElementById('video-seed-summary').textContent = 'Not supported';
+      return;
+    }
+    document.getElementById('video-seed-summary').textContent = seed ? 'Seed ' + seed : 'Random seed';
+  }
+
+  applyVideoCapabilities();
+  document.getElementById('video-duration').addEventListener('input', syncVideoFrameCount);
+  customElements.whenDefined('video-studio').then(function () {
+    const capabilities = videoCapabilities();
+    if (!capabilities) return;
+    videoStudio.setModelCapabilities(capabilities);
+    syncVideoFrameCount();
+  });
+  document.querySelector('.video-duration-presets').addEventListener('click', function (event) {
+    const button = event.target.closest('[data-duration-frames]');
+    if (!button) return;
+    document.getElementById('video-duration').value = button.dataset.durationFrames;
+    syncVideoFrameCount();
+  });
+  document.getElementById('video-seed').addEventListener('input', syncVideoSeedSummary);
+  document.getElementById('video-prompt').addEventListener('input', syncVideoGenerateButton);
+  videoTemplatesToggle.addEventListener('click', function () {
+    if (videoTemplatesMenu.hidden) renderVideoTemplates();
+    else menus.closeMenus();
+  });
+  document.getElementById('video-prompt').addEventListener('keydown', function (event) {
+    if (event.key !== 'Tab' || event.shiftKey) return;
+    if (selectVideoPlaceholder(event.target, event.target.selectionEnd)) event.preventDefault();
+  });
+  syncVideoGenerateButton();
+  document.querySelector('.video-ratios').addEventListener('click', function (event) {
+    const button = event.target.closest('button[data-ratio]');
+    if (!button) return;
+    document.querySelectorAll('.video-ratios button').forEach(function (option) {
+      option.setAttribute('aria-pressed', String(option === button));
+    });
+    // A shape opens on its own lowest rung. Keeping the rung across the change landed a
+    // clip picked at 576p on a taller shape's top rung, 576 x 1024, which is the largest
+    // and slowest size the form can offer.
+    videoResolutionRung = null;
+    renderVideoResolutions();
+    syncVideoFrameCount();
+  });
+
+  document.getElementById('video-resolutions').addEventListener('click', function (event) {
+    const button = event.target.closest('button[data-width]');
+    if (!button) return;
+    videoResolutionRung = Array.prototype.indexOf.call(button.parentElement.children, button);
+    document.querySelectorAll('#video-resolutions button').forEach(function (option) {
+      option.setAttribute('aria-pressed', String(option === button));
+    });
+    syncVideoFrameCount();
+  });
+
+  async function cancelVideoRun() {
+    if (videoRunState === 'idle' || videoRunState === 'starting' || videoRunState === 'stopping') return;
+    setVideoRunState('stopping');
+    videoStudio.setCancelRequested(true);
+    try {
+      const response = await fetch('/video/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: videoRunRequestId }),
+      });
+      if (!response.ok) throw new Error('The cancel request failed.');
+    } catch (error) {
+      videoStudio.setCancelRequested(false);
+      setVideoRunState('running');
+      videoStudio.setError(error.message);
+    }
+  }
+
+  document.getElementById('video-generate').addEventListener('click', async function () {
+    if (videoRunState !== 'idle') {
+      await cancelVideoRun();
+      return;
+    }
+    const status = document.getElementById('video-request-status');
+    const capabilities = videoCapabilities();
+    const numFrames = Number(document.getElementById('video-duration').value);
+    const duration = numFrames / capabilities.frame_rate;
+    const [width, height] = selectedVideoShape();
+    let settings;
+    let seed;
+    // The run is made from the words in the box, which the rewrite button may have
+    // lengthened first, and it always asks the pipeline for the video model's own enhancer:
+    // that pass is what turns a note into a directed shot, and it costs no page step.
+    const prompt = document.getElementById('video-prompt').value;
+    try {
+      seed = selectedVideoSeed();
+      settings = {
+        backend: STUDIO.video.backend.id,
+        modelName: STUDIO.video.backend.name,
+        prompt: prompt,
+        enhance: true,
+        width: width,
+        height: height,
+        numFrames: numFrames,
+        frameRate: capabilities.frame_rate,
+        duration: duration,
+        seed: seed,
+        references: videoStudio.imageReferences.map(function (reference) {
+          return {
+            name: reference.name,
+            frameIndex: reference.frameIndex,
+            strength: reference.strength,
+          };
+        }),
+      };
+      const invalidReference = videoStudio.imageReferences.find(function (reference) {
+        return reference.frameIndex < 0 || reference.frameIndex >= numFrames;
+      });
+      if (invalidReference) {
+        throw new Error('Image reference frames must be between 0 and ' + (numFrames - 1) + '.');
+      }
+    } catch (error) {
+      videoStudio.setError(error.message);
+      status.textContent = 'Video generation failed.';
+      return;
+    }
+    videoStudio.clearError();
+    status.textContent = '';
+    videoRunRequestId = newVideoRequestId();
+    setVideoRunState('starting');
+    let progressTimer = null;
+    let progressRequestPending = false;
+    const requestStarted = performance.now();
+    videoStudio.setGenerationProgress(
+      {running: true, stage: 'preparing', step: 0, total: 0},
+      0,
+      {
+        width: settings.width,
+        height: settings.height,
+        modelName: settings.modelName,
+        prompt: settings.prompt,
+        numFrames: settings.numFrames,
+        frameRate: settings.frameRate,
+        seed: settings.seed,
+        elapsedSeconds: 0,
+        references: settings.references,
+      },
+    );
+    progressTimer = window.setInterval(async function () {
+      if (progressRequestPending) return;
+      progressRequestPending = true;
+      try {
+        const progressResponse = await fetch('/video/progress', {cache: 'no-store'});
+        if (!progressResponse.ok) throw new Error('The progress request failed.');
+        const progressState = await progressResponse.json();
+        if (progressState.kind === 'video' && progressState.request_id === videoRunRequestId) {
+          videoStudio.setGenerationProgress(progressState, (performance.now() - requestStarted) / 1000);
+          if (progressState.running && videoRunState === 'starting') setVideoRunState('running');
+        }
+      } catch (error) {
+        videoStudio.setGenerationProgress(
+          {running: true, stage: 'preparing', step: 0, total: 0, stopping: videoRunState === 'stopping'},
+          (performance.now() - requestStarted) / 1000,
+        );
+      } finally {
+        progressRequestPending = false;
+      }
+    }, 350);
+    try {
+      const response = await fetch('/video/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(videoStudio.requestPayload({
+          prompt: prompt,
+          width: width,
+          height: height,
+          numFrames: numFrames,
+          frameRate: capabilities.frame_rate,
+          seed: seed,
+          backend: STUDIO.video.backend.id,
+          enhance: true,
+          requestId: videoRunRequestId,
+        })),
+      });
+      const contentType = response.headers.get('content-type') || '';
+      if (!response.ok) {
+        const failure = await response.json();
+        throw new Error(failure.error || 'The video request failed.');
+      }
+      if (contentType.indexOf('video/mp4') !== -1) {
+        const video = await response.blob();
+        const actualSeed = response.headers.get('X-Studio-Seed');
+        if (actualSeed !== null && /^\d+$/.test(actualSeed)) settings.seed = Number(actualSeed);
+        settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
+        await videoStudio.addGeneratedClip(video, settings);
+        status.textContent = 'Video added to the gallery.';
+      } else {
+        const output = await response.json();
+        if (output.cancelled) {
+          status.textContent = 'Video generation cancelled.';
+          videoStudio.clearError();
+          return;
+        }
+        if (!output.stub) throw new Error('The video server returned an unknown response.');
+        settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
+        videoStudio.addStubClip(output, settings);
+        status.textContent = 'Stub response added. No video file was generated.';
+      }
+      setVideoPrompt('');
+      videoStudio.clearImageReferences();
+    } catch (error) {
+      videoStudio.setError(error.message);
+      status.textContent = 'Video generation failed.';
+    } finally {
+      if (progressTimer !== null) window.clearInterval(progressTimer);
+      videoStudio.setGenerationProgress(null, 0);
+      videoStudio.setCancelRequested(false);
+      setVideoRunState('idle');
+      videoRunRequestId = null;
+    }
+  });
+
   document.addEventListener('form-ready', function (event) {
     formApi = event.detail.configure({
       studio: STUDIO,
@@ -360,6 +1129,7 @@
       },
       notify: showToast,
       busy: busy,
+      syncVideoGenerate: syncVideoGenerateButton,
       region: function () { return region; },
       menus: function () { return menus; },
       store: function () { return formState; },
@@ -369,6 +1139,7 @@
       setReferences: function (next) { references = next; },
       renderStage: renderStage,
       renderStrip: renderStrip,
+      renderMediaActions: renderMediaActions,
     });
   });
 
@@ -510,7 +1281,7 @@
 
   function renderStrip() {
     const wrap = document.getElementById('strip-wrap');
-    wrap.hidden = !gallery.length && !busy();
+    wrap.hidden = mediaMode !== 'image' || (!gallery.length && !busy());
     const count = gallery.length;
     const images = count + (count === 1 ? ' image' : ' images');
     document.getElementById('strip-note').innerHTML = keeping
@@ -595,6 +1366,7 @@
       setLook: formApi.setLook,
       referFrom: referFrom,
       editThis: editThis,
+      useInVideo: shareImageWithVideo,
       refreshForm: function () { return formApi.refreshForm(); },
       growPrompt: function () { return formApi.growPrompt(); },
       openTemplates: function () { return formApi.openTemplates(); },
@@ -713,8 +1485,11 @@
   // Off empties the store at once; the images stay in the open tabs until a
   // reload. On keeps what this tab shows now, oldest first.
   function setKeep(on) {
-    if (!on && gallery.length
-      && !confirm('Stop keeping images? The kept images leave this browser. Open tabs show them until a reload.')) {
+    const hasVideoResults = videoStudio.clips.some(function (clip) {
+      return clip.kind === 'generated' && !clip.stub;
+    });
+    if (!on && (gallery.length || hasVideoResults)
+      && !confirm('Stop keeping media? Saved images and videos leave this browser. Open tabs show them until a reload.')) {
       return;
     }
     keeping = on;
@@ -724,6 +1499,7 @@
       showToast('error', 'The keep setting applies to this tab only: ' + error.message);
     }
     kept.announce(on);
+    videoStudio.setKeeping(on);
     markKeep();
     renderStrip();
     if (on) gallery.slice().reverse().forEach(kept.keep);
@@ -755,6 +1531,7 @@
         if (message.kind === 'clear') strip.dropAll();
         if (message.kind === 'keep') {
           keeping = message.on;
+          videoStudio.setKeeping(keeping);
           markKeep();
           renderStrip();
         }
@@ -763,6 +1540,9 @@
       notify: showToast,
     });
     kept.load();
+    customElements.whenDefined('video-studio').then(function () {
+      return videoStudio.setGalleryStore(kept, keeping);
+    });
   });
 
   // ---- Toasts -----------------------------------------------------------------
@@ -778,6 +1558,8 @@
   let toastHost = null;
   document.addEventListener('toast-ready', function (event) { toastHost = event.detail; });
   function showToast(kind, text) { toastHost.notify(kind, text); }
+
+  setMediaMode(mediaMode);
 
   // ---- Run, progress, cancel --------------------------------------------------
   // The poll, the run post, the cancel and everything the stage reads while one
@@ -803,6 +1585,7 @@
       busy: busy,
       editing: formApi.editing,
       currentMode: formApi.currentMode,
+      estimateModel: formApi.estimateModel,
       paramSpec: formApi.paramSpec,
       withLook: formApi.withLook,
       imageCount: formApi.imageCount,
@@ -854,6 +1637,9 @@
       // no spaces. The stage's handle carries this one too, for the frame it draws.
       backendId: STUDIO.backend.id,
       rewrittenFrom: function () { return formApi.rewrittenFrom(); },
+      // The tab's text belongs to the page, because the workspace decides the name in it.
+      workspaceTitle: workspaceTitle,
+      setTitle: setTitle,
     });
   });
 
@@ -886,8 +1672,17 @@
       event.preventDefault();
       stage.toggleFullscreen();
     }
-    if (event.key === 'ArrowRight') strip.step(1);
-    if (event.key === 'ArrowLeft') strip.step(-1);
+    if (mediaMode === 'video' && event.target.closest('video')) return;
+    if (event.key === 'ArrowRight') {
+      if (mediaMode === 'video') {
+        if (videoStudio.stepClip(1)) event.preventDefault();
+      } else strip.step(1);
+    }
+    if (event.key === 'ArrowLeft') {
+      if (mediaMode === 'video') {
+        if (videoStudio.stepClip(-1)) event.preventDefault();
+      } else strip.step(-1);
+    }
   });
 
   // Cmd+Enter (Ctrl+Enter off a Mac) runs from anywhere on the page. It obeys
@@ -898,26 +1693,38 @@
     if (!go.disabled && !busy()) form.requestSubmit(go);
   });
 
-  // The title is the switch, and only when there is a choice. A switch frees
-  // the old backend and loads the new one, then the page reloads with its
-  // capabilities. Nothing is lost by it: the strip is the browser's own store and
-  // each frame carries the model that made it, so the rows can sit together. This
-  // used to ask first, because it said it would clear the strip. It did not.
-  function setupBackends() {
+  // Each workspace owns its model choice. Selection changes the server's active
+  // backend, but the model itself waits until the next run to load its weights.
+  function activeModelFamily() {
+    if (mediaMode === 'video') return STUDIO.video;
+    return { backend: STUDIO.backend, backends: STUDIO.backends };
+  }
+
+  function renderBackendSelector() {
     const toggle = document.getElementById('backend-toggle');
     const menu = document.getElementById('backend-menu');
-    if (STUDIO.backends.length < 2) return;
-    toggle.disabled = false;
-    toggle.title = 'Switch the model';
-    toggle.addEventListener('click', function () { menus.toggleMenu(menu); });
+    const family = activeModelFamily();
+    if (!family || !family.backend) {
+      toggle.disabled = true;
+      menu.replaceChildren();
+      return;
+    }
+    const backend = family.backend;
+    const backends = family.backends || [];
+    toggle.querySelector('.name').textContent = backend.name;
+    toggle.disabled = backends.length < 2 || !menus || busy() || videoRunState !== 'idle';
+    toggle.title = backends.length > 1 ? 'Switch the model' : backend.name;
+    menu.replaceChildren();
+    if (backends.length < 2 || !menus) return;
     const head = document.createElement('div');
     head.className = 'menu-head';
     head.textContent = 'Model';
     menu.append(head);
-    STUDIO.backends.forEach(function ([id, name, description]) {
-      const item = menus.menuItem('check', name, function () { switchBackend(id, name); });
+    backends.forEach(function ([id, name, description]) {
+      const workspace = mediaMode;
+      const item = menus.menuItem('check', name, function () { switchBackend(id, name, workspace); });
       item.setAttribute('role', 'menuitemradio');
-      item.setAttribute('aria-checked', String(id === STUDIO.backend.id));
+      item.setAttribute('aria-checked', String(id === backend.id));
       // The accessible name is the model's name alone, pinned here. A row carrying
       // its description in the name would still read correctly to a screen reader,
       // but it would stop matching by name, which is how the checks find these.
@@ -934,16 +1741,31 @@
     });
   }
 
-  function switchBackend(id, name) {
+  function setupBackends() {
     const toggle = document.getElementById('backend-toggle');
-    if (id === STUDIO.backend.id) return;
-    if (busy()) return showToast('info', 'Wait for the run to finish, then switch.');
+    toggle.addEventListener('click', function () {
+      menus.toggleMenu(document.getElementById('backend-menu'));
+    });
+    renderBackendSelector();
+  }
+
+  function switchBackend(id, name, workspace) {
+    const family = workspace === 'video' ? STUDIO.video : { backend: STUDIO.backend };
+    if (id === family.backend.id) return;
+    const endpoint = workspace === 'video' ? '/video/backend' : '/backend';
+    const toggle = document.getElementById('backend-toggle');
+    if (busy() || videoRunState !== 'idle') return showToast('info', 'Wait for the run to finish, then switch.');
     toggle.disabled = true;
-    showToast('info', 'Loading ' + name + '. This can take a minute.');
-    fetch('/backend', { method: 'POST', body: new URLSearchParams({ backend: id }) })
+    showToast('info', 'Selecting ' + name + '. It will load when you generate.');
+    fetch(endpoint, { method: 'POST', body: new URLSearchParams({ backend: id }) })
       .then(function (answer) { return answer.text(); })
       .then(function (text) {
-        if (!text) { location.reload(); return; }
+        if (!text) {
+          const address = new URL(location.href);
+          address.searchParams.set('workspace', workspace);
+          location.assign(address.toString());
+          return;
+        }
         toggle.disabled = false;
         showToast('error', new DOMParser().parseFromString(text, 'text/html').body.textContent);
       })

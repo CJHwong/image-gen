@@ -7,8 +7,8 @@ import pytest
 from studio.l3_interface_adapters.gateways.flux2.capabilities import EDIT_TEMPLATES as flux2_edit_templates
 from studio.l3_interface_adapters.gateways.flux2.capabilities import LOOKS as flux2_looks
 from studio.l3_interface_adapters.gateways.flux2.capabilities import SIZES as flux2_sizes
-from studio.l3_interface_adapters.gateways.qwen21.capabilities import SIZES as qwen21_sizes
 from studio.l3_interface_adapters.gateways.qwen21.capabilities import qwen21_capabilities
+from studio.l3_interface_adapters.gateways.qwen_image_sizes import SIZES as qwen21_sizes
 
 
 def capabilities():
