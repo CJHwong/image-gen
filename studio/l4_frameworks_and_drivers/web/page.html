@@ -288,13 +288,23 @@
             <div class="video-source-panel-head">
               <strong>Media</strong>
               <div class="video-source-actions">
-                <button class="text-btn" type="button" data-action="add-image">Add image</button>
-                <button class="text-btn" type="button" data-action="add-video">Add video</button>
+                <button class="text-btn" type="button" data-action="add-media">Add media</button>
               </div>
             </div>
-            <p class="caption">Image references guide the generated video. Source clips help you pick frames. Paste with ⌘P.</p>
-            <div class="video-media-empty" id="video-media-empty">
-              Add an image reference or a source clip.
+            <!-- What the two kinds are for stays visible once media arrives; the zone below is
+                 the invitation, and it goes away when the first file lands. -->
+            <p class="caption">Image references guide the generated video. Source clips help you pick frames. Paste with &#8984;P.</p>
+            <!-- One door for both kinds. A drop, a paste and the chooser all hand their files to
+                 `addMediaFiles`, which reads each file's own type, so the form never asks which
+                 kind is coming. The zone takes the click and the key the way the image form's
+                 zone does; the panel around it takes the drop. -->
+            <div class="video-media-empty" id="video-media-empty" data-action="add-media"
+              tabindex="0" role="button" aria-label="Add image references or source clips">
+              <svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>
+              <div>
+                <strong>Add an image reference or a source clip</strong>
+                <span>Optional. Drop, paste or choose one.</span>
+              </div>
             </div>
             <section class="video-source-group" id="video-source-group" aria-label="Source clips" hidden>
               <div class="video-source-group-head">
@@ -308,8 +318,7 @@
               </div>
               <div class="video-references" id="video-references"></div>
             </section>
-            <input id="video-upload" type="file" accept="video/*" multiple hidden>
-            <input id="video-image-upload" type="file" accept="image/*" multiple hidden>
+            <input id="video-media-upload" type="file" accept="image/*,video/*" multiple hidden>
           </section>
           <div class="video-output-options">
             <div class="field">

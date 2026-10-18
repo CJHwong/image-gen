@@ -949,13 +949,13 @@ with sync_playwright() as playwright:
         and "361 frames" in page.locator("#video-frame-count").inner_text(),
     )
     page.get_by_role("button", name="Set duration to 5 seconds").click()
-    page.locator("#video-image-upload").set_input_files(
+    page.locator("#video-media-upload").set_input_files(
         {"name": "notes.txt", "mimeType": "text/plain", "buffer": b"not an image"}
     )
     page.locator("#video-studio .video-error").wait_for(state="visible", timeout=10000)
     check(
-        "invalid still-image uploads show a visible error",
-        page.locator("#video-studio .video-error").inner_text() == "Choose an image file.",
+        "a file that is neither an image nor a video shows a visible error",
+        page.locator("#video-studio .video-error").inner_text() == "Choose image or video files.",
         page.locator("#video-studio .video-error").inner_text(),
     )
 
@@ -978,7 +978,7 @@ with sync_playwright() as playwright:
         and page.locator("#video-source-list .video-source").count() == 1,
     )
     page.get_by_role("button", name="Remove source video clipboard.webm").click()
-    page.locator("#video-upload").set_input_files(
+    page.locator("#video-media-upload").set_input_files(
         {"name": "demo.webm", "mimeType": "video/webm", "buffer": video_bytes}
     )
     page.wait_for_function(

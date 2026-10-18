@@ -54,7 +54,7 @@ Both images stay in the strip at the bottom, also after a reload.
 
 - **Work on the page without a model:** `uv run studio --stub`. Image runs return placeholder images. Video requests return metadata only, with no fake video file. The stub uses no GPU.
 - **Share media between workspaces:** use image references as Video keyframes. Capture a timeline frame for Image or set it as a Video keyframe with a target frame and strength.
-- **Add video sources:** use the Video controls in the right sidebar. Paste images with ⌘V, or use **Add video** and drop files. Image keyframes and generated clips stay in separate galleries.
+- **Add video sources:** use the Video controls in the right sidebar. One **Add media** door takes both kinds, and a drop or a paste goes through it too; the file's own type decides whether it becomes an image keyframe or a source clip. Image keyframes and generated clips stay in separate galleries.
 - **Track and cancel a video render:** progress appears in the preview. Each tab follows and cancels only its own render. Cancel keeps the prompt and references. Each clip records its seed, settings, elapsed time, and prompt.
 
 ## Reference

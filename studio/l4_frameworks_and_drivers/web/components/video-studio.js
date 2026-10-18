@@ -186,6 +186,7 @@ class VideoStudio extends LitElement {
   handleSourceClick = (event) => this.onComponentClick(event);
   handleSourceChange = (event) => this.onComponentChange(event);
   handleSourceInput = (event) => this.onComponentInput(event);
+  handleSourceKeydown = (event) => this.onSourceKeydown(event);
   handleSourceDragOver = (event) => this.onSourceDragOver(event);
   handleSourceDragLeave = (event) => this.onSourceDragLeave(event);
   handleSourceDrop = (event) => this.onSourceDrop(event);
@@ -211,6 +212,7 @@ class VideoStudio extends LitElement {
       this.sourcePanel.addEventListener('click', this.handleSourceClick);
       this.sourcePanel.addEventListener('change', this.handleSourceChange);
       this.sourcePanel.addEventListener('input', this.handleSourceInput);
+      this.sourcePanel.addEventListener('keydown', this.handleSourceKeydown);
       this.sourcePanel.addEventListener('dragover', this.handleSourceDragOver);
       this.sourcePanel.addEventListener('dragleave', this.handleSourceDragLeave);
       this.sourcePanel.addEventListener('drop', this.handleSourceDrop);
@@ -231,6 +233,7 @@ class VideoStudio extends LitElement {
       this.sourcePanel.removeEventListener('click', this.handleSourceClick);
       this.sourcePanel.removeEventListener('change', this.handleSourceChange);
       this.sourcePanel.removeEventListener('input', this.handleSourceInput);
+      this.sourcePanel.removeEventListener('keydown', this.handleSourceKeydown);
       this.sourcePanel.removeEventListener('dragover', this.handleSourceDragOver);
       this.sourcePanel.removeEventListener('dragleave', this.handleSourceDragLeave);
       this.sourcePanel.removeEventListener('drop', this.handleSourceDrop);
@@ -693,8 +696,7 @@ class VideoStudio extends LitElement {
       const menu = this.querySelector('#video-output-menu');
       if (menu) toggleMenu(menu);
     }
-    if (action === 'add-video') document.getElementById('video-upload').click();
-    if (action === 'add-image') document.getElementById('video-image-upload').click();
+    if (action === 'add-media') this.openMediaChooser();
     if (action === 'remove-reference') this.removeImageReference(control.dataset.referenceId);
     if (action === 'select-reference') this.selectReference(control.dataset.referenceId);
     if (action === 'remove-clip') this.removeClip(control.dataset.clipId);
@@ -801,8 +803,28 @@ class VideoStudio extends LitElement {
   onComponentChange(event) {
     const control = event.target;
     if (!(control instanceof HTMLInputElement)) return;
-    if (control.id === 'video-upload') this.onVideoFiles(event);
-    if (control.id === 'video-image-upload') this.onImageFiles(event);
+    if (control.id === 'video-media-upload') {
+      // The chooser takes both kinds, so it is emptied here: picking the same file twice
+      // raises no change event while the input still holds it.
+      const files = Array.from(control.files || []);
+      control.value = '';
+      this.addMediaFiles(files);
+    }
+  }
+
+  // The zone's own door, beside the drop the panel already takes and the paste the document
+  // takes. All three hand their files to `addMediaFiles`, which reads the type of each one.
+  openMediaChooser() {
+    const chooser = document.getElementById('video-media-upload');
+    if (chooser) chooser.click();
+  }
+
+  // A role of button answers a key as well as a press, the way the image form's zone does.
+  onSourceKeydown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (!event.target.closest('#video-media-empty')) return;
+    event.preventDefault();
+    this.openMediaChooser();
   }
 
   onComponentInput(event) {
@@ -811,13 +833,6 @@ class VideoStudio extends LitElement {
     if (control.dataset.action === 'reference-strength') {
       this.setReferenceStrength(control.dataset.referenceId, control);
     }
-  }
-
-  onVideoFiles(event) {
-    const input = event.target;
-    const files = Array.from(input.files || []);
-    input.value = '';
-    this.addVideoFiles(files, this.captureInputEpoch());
   }
 
   addVideoFiles(files, epoch = this.captureInputEpoch()) {
@@ -846,13 +861,6 @@ class VideoStudio extends LitElement {
     else this.clearError();
     this.renderSourceVideos();
     this.renderSelectedClip();
-  }
-
-  async onImageFiles(event) {
-    const input = event.target;
-    const files = Array.from(input.files || []);
-    input.value = '';
-    await this.addImageFiles(files, this.captureInputEpoch());
   }
 
   async addImageFiles(files, epoch = this.captureInputEpoch()) {
