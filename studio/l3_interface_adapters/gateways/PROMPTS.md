@@ -1016,7 +1016,6 @@ seconds each.
 | First frame | Frame 0 sits 3.52 of 255 from the still it was given, and the clip evolves from there |
 | Last frame | The last frame sits 5.5 from the still against 12.8 at the first, so the ending converged on it |
 | Product turn | The pot turns, stays centred, and the label "PEARL" is rendered and held across all six frames |
-| Style and stock | Draws the film look, but frames the picture with black columns down both sides. Not proven. The paragraph below, corrected 2026-10-18, records what the number really came from |
 
 The control is the useful half of the sample. With no template the frame is locked off: top
 strip 3.9, whole frame 12.8, and every change in it is the subject walking.
@@ -1043,10 +1042,24 @@ does not lift it: 17-style-no-word-film reads 5.6 and 1.8 against 16's 5.6 and 1
 other word, the seed and the shape held. So the template is not proven, and one clip that
 fills the frame against five that do not is not enough to name the words that decide it.
 
+That paragraph was rewritten again on 2026-10-18, when the clip that fills the frame was run
+again beside its pair. Two clips, the stock clause held and the style phrase moved, everything
+else the same, seed 7, 1024 x 576, 121 frames: `30-style-editorial-fill`, which reads "in the
+warm natural colours and fine grain of Kodak Portra 400, in a clean editorial style", measures
+5.3 and 0.9 on the outer 4% band, and `31-style-documentary-fill`, one style phrase away,
+measures 5.2 and 1.6. Both are pillarboxed, so the style phrase does not decide it, and the
+38.0 that 13-style-nofilm measured does not reproduce: the same clause and the same style
+phrase draw the frame tonight. Seven of the eight fills sampled now sit between 5.2 and 6.1,
+against a bare control's 107.3 and 81.2, and six wordings were tried, among them one that asks
+the picture to fill the frame. So the frame is what asking a video prompt for a film look
+does, and the template was dropped rather than offered with the fault. Its text is in
+`prompt_aids.py`, where it sat, with this evidence.
+
 ### What did not, and why they are not offered
 
 | Template | Evidence |
 | --- | --- |
+| Style and stock | Draws the film look and a frame the text never asked for: black columns down both sides with rounded corners on the picture. 5.2 to 6.1 on the outer 4% band for seven of eight fills, against a bare control's 107.3 and 81.2, and no wording lifted it. Dropped 2026-10-18 |
 | Loop | First frame against last 14.72 while the palette matched to a point, so the content moved rather than the light. A seamless loop wants near zero |
 | One action | One continuous shot, but the empty cup to full arc never read, and the camera drifted closer after being told to stay put |
 | Light changes | Two wordings, and both lose on the camera. The first asked for a pan and brightened where dusk should darken: level 91.6 to 96.6, and the top strip 43 to 49. The second asks for the camera locked off and names no pan, and the top strip still moves 38 to 42 against the bare control's 1.7 to 2.0, while the picture drifts forward down the street. The level turns the right way this time, 79.1 to 76.7, so the words can name the direction; they cannot hold the camera |

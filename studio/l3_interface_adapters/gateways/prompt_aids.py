@@ -21,10 +21,8 @@ judged against what each one's own text promises. Five shipped, and four more cl
 re-sampled the three that were wrong. Five further clips on 2026-10-18 added a sentence that
 names what is heard, which is the sixth element the vendor's guide asks for and the one the
 templates did not invite; that sentence costs no template its own promise, and it stays. The
-style template's stock clause was rewritten on a number that belongs to a clip differing in
-more than that clause, and re-measured it does not lift the frame, so that rewrite is unproven
-and the template still draws black columns down both sides of the picture. PROMPTS.md holds
-the verdicts and the numbers, including the two that did not, and why.
+style template was dropped that day, and the comment where it sat says why.
+PROMPTS.md holds the verdicts and the numbers, including the ones that did not, and why.
 """
 
 from collections.abc import Mapping
@@ -159,19 +157,17 @@ VIDEO_TEMPLATES = (
         'stays centred, shallow depth of field, the label text "[one or two words]" readable '
         "and spelled exactly.",
     ),
-    Template(
-        "Style and stock",
-        "One look for the whole clip",
-        # The film look lands, and so does a frame the text never asked for: black bands down
-        # both sides with rounded corners on the picture, like a phone upload. Naming the stock
-        # as the source of the colours was meant to lift it, on a clip that changed more than
-        # that clause. Sampled again on 2026-10-18, it does not: this fill, written the way the
-        # text invites, reads 5.6 and 1.7 on the outer 4% band, and the same fill without the
-        # word film reads 5.6 and 1.8. PROMPTS.md holds the clips and the numbers.
-        "[Who or what] [does what] in [place], in the [colours and grain] of [film stock or "
-        "camera], in [style]. Visible grain, [lens]. [Sound: what is heard]. One continuous "
-        "shot, no cuts.",
-    ),
+    # Style and stock was dropped on 2026-10-18. Its own text draws a frame the clip never
+    # asked for: black bands down both sides with rounded corners on the picture, like a phone
+    # upload. The outer 4% band reads 5.2 to 6.1 on seven of the eight fills sampled, where a
+    # bare control reads 107.3 and 81.2. The one reading that filled the frame, 38.0 and 36.5,
+    # does not reproduce: the same stock clause and the same style phrase measured 5.3 again in
+    # one session, and its pair one style phrase away measured 5.2. Six wordings were tried,
+    # among them one that asks the picture to fill the frame, and no wording lifted it, so the
+    # frame follows from asking a video prompt for a film look. PROMPTS.md holds the clips, the
+    # wordings and the numbers. The text was "[Who or what] [does what] in [place], in the
+    # [colours and grain] of [film stock or camera], in [style]. Visible grain, [lens].
+    # [Sound: what is heard]. One continuous shot, no cuts."
 )
 
 GENERATE_LOOKS = (

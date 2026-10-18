@@ -3,9 +3,10 @@ from studio.l3_interface_adapters.gateways.prompt_aids import VIDEO_TEMPLATES
 
 
 def test_ltx25_offers_the_video_templates_it_was_sampled_on():
-    """Five of the eight that were rendered once each at 121 frames, one seed, and judged
-    against what each text promises. PROMPTS.md holds the sample and the two that failed:
-    the loop, which did not close, and the one action, whose arc never read."""
+    """Four of the eight that were rendered once each at 121 frames, one seed, and judged
+    against what each text promises. PROMPTS.md holds the sample and the ones that failed:
+    the loop, which did not close, the one action, whose arc never read, and the style
+    template, dropped on 2026-10-18 for drawing a frame the clip never asked for."""
     capabilities = ltx25_capabilities()
 
     assert capabilities.templates == VIDEO_TEMPLATES
@@ -14,7 +15,6 @@ def test_ltx25_offers_the_video_templates_it_was_sampled_on():
         "First frame",
         "Last frame",
         "Product turn",
-        "Style and stock",
     ]
 
 
@@ -26,16 +26,14 @@ def test_the_two_keyframe_templates_name_the_reference_image():
     assert [template.name for template in keyframe] == ["First frame", "Last frame"]
 
 
-def test_the_style_template_names_the_stock_as_the_source_of_the_look():
-    """Two clips separate the wordings. "shot on Kodak Portra 400 film with warm natural
-    colours and fine grain" draws black bands down both sides of the frame with rounded
-    corners on the picture, like a phone upload, and "in the warm natural colours and fine
-    grain of Kodak Portra 400" does not. A clause asking for the picture to fill the frame
-    changed nothing. PROMPTS.md holds the three clips and the numbers."""
-    style = next(template for template in ltx25_capabilities().templates if template.name == "Style and stock")
+def test_no_video_template_asks_for_a_film_look():
+    """The style template was dropped on 2026-10-18. Asking a video prompt for a film look
+    draws black bands down both sides of the frame, 5.2 to 6.1 on the outer 4% band against a
+    bare control's 107.3 and 81.2, and six wordings did not lift it, one of them asking the
+    picture to fill the frame. A template that asks for one has to answer that first."""
+    look = [template for template in ltx25_capabilities().templates if "film stock" in template.text]
 
-    assert "shot on" not in style.text
-    assert "of [film stock or camera]" in style.text
+    assert look == []
 
 
 def test_ltx25_offers_a_low_resolution_ladder_for_every_shape():
