@@ -741,13 +741,11 @@
   /* One row, whatever the model offers. An auto-fit track of 72px fits four of the five
      shapes into a sidebar of this width, which leaves the fifth on a row of its own. The
      columns are the shapes, so the row divides the width between them instead. */
-  .video-ratios { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px;
-    padding: 2px; background: var(--chrome-2); border: 1px solid var(--line); border-radius: 8px; }
-  .video-ratios button { min-height: 34px; border: 0; border-radius: 5px;
-    background: none; color: var(--text-3); cursor: pointer; }
-  .video-ratios button[aria-pressed=true] {
-    background: var(--chrome-3); color: var(--text); }
-  .video-ratios button:focus-visible { outline: 1.5px solid var(--accent); }
+  /* The image form's shape chips, one row of them: a model's shapes divide the field between
+     them rather than wrapping the last onto a row of its own. The glyph takes 16px of a
+     narrow sidebar's sixth of the width, so these chips carry a little less padding. */
+  .video-ratios { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; }
+  .video-ratios .chip { gap: 5px; padding: 0 6px; }
   .video-output-options { display: flex; flex-direction: column; gap: 18px; }
   #video-frame-count { margin: -10px 0 0; line-height: 1.5; }
   .video-controls { gap: 18px; }

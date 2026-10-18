@@ -521,7 +521,7 @@ with sync_playwright() as playwright:
             # One size for a shape is not a ladder, so that record carries no resolution row.
             "resolutions": [],
             "resolutionRowHidden": True,
-            "defaultShape": "4.0 seconds, 512 × 640, 97 frames.",  # noqa: RUF001
+            "defaultShape": "512 × 640, 97 frames",  # noqa: RUF001
             "referenceLimit": 2,
             "referenceLimitError": "This video model accepts at most 2 image references.",
             "defaultReferenceStrength": "0.4",
@@ -580,7 +580,7 @@ with sync_playwright() as playwright:
     )
     check(
         "a low rung is the frame the caption names",
-        ladder["low"]["caption"] == "5.0 seconds, 384 × 384, 121 frames."  # noqa: RUF001
+        ladder["low"]["caption"] == "384 × 384, 121 frames"  # noqa: RUF001
         and ladder["low"]["rows"][0]["selected"] == "true",
         json.dumps(ladder["low"]),
     )
@@ -596,7 +596,7 @@ with sync_playwright() as playwright:
         "a rung picked on one shape does not follow the shape",
         [row["selected"] for row in ladder["full"]["rows"]] == ["false", "false", "true", "false"]
         and [row["selected"] for row in ladder["movedHigh"]["rows"]] == ["true", "false", "false"]
-        and ladder["movedHigh"]["caption"] == "5.0 seconds, 384 × 640, 121 frames."  # noqa: RUF001
+        and ladder["movedHigh"]["caption"] == "384 × 640, 121 frames"  # noqa: RUF001
         and [row["selected"] for row in ladder["returned"]["rows"]] == ["true", "false", "false", "false"],
         json.dumps(ladder["movedHigh"]),
     )
@@ -938,7 +938,8 @@ with sync_playwright() as playwright:
     check(
         "video duration starts at the documented 121-frame example",
         page.locator("#video-duration").input_value() == "121"
-        and "5.0 seconds" in page.locator("#video-frame-count").inner_text(),
+        and page.locator("#video-duration-value").inner_text() == "5.0 sec"
+        and "121 frames" in page.locator("#video-frame-count").inner_text(),
         page.locator("#video-frame-count").inner_text(),
     )
     page.get_by_role("button", name="Set duration to 15 seconds").click()
@@ -1173,7 +1174,7 @@ with sync_playwright() as playwright:
     check(
         "duration follows the frame grid and shows derived output settings",
         page.locator("#video-duration").input_value() == "241"
-        and "10.0 seconds" in summary
+        and page.locator("#video-duration-value").inner_text() == "10.0 sec"
         and "384 × 640" in summary  # noqa: RUF001
         and "241 frames" in summary,
         summary,

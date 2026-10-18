@@ -322,7 +322,10 @@
               </div>
             </div>
             <div class="field">
-              <span class="label">Frame shape</span>
+              <div class="field-head">
+                <span class="label">Frame shape</span>
+                <span class="caption num" id="video-frame-count"></span>
+              </div>
               <div class="video-ratios" role="group" aria-label="Video frame shape">
               </div>
             </div>
@@ -331,11 +334,10 @@
                  A model that offers one size for a shape carries no row at all. -->
             <div class="field">
               <span class="label">Resolution</span>
-              <div class="chips" id="video-resolutions" role="group" aria-label="Video resolution">
+              <div class="seg" id="video-resolutions" role="group" aria-label="Video resolution">
               </div>
             </div>
           </div>
-          <p class="caption" id="video-frame-count"></p>
           <details id="video-advanced">
             <summary>Advanced <span class="values num" id="video-seed-summary">Random seed</span></summary>
             <div class="advanced">
@@ -716,6 +718,20 @@
     return capabilities.shapes.filter(function (shape) { return shape.ratio === ratio; });
   }
 
+  // One shape's glyph, drawn the way the image form draws its own: a box a little over a
+  // centimetre across, whose sides are the shape's sides.
+  function videoShapeGlyph(ratio) {
+    const parts = ratio.split(':').map(Number);
+    const wide = parts[0] >= parts[1];
+    const box = document.createElement('i');
+    box.style.width = (wide ? 16 : Math.round(16 * parts[0] / parts[1])) + 'px';
+    box.style.height = (wide ? Math.round(16 * parts[1] / parts[0]) : 16) + 'px';
+    const glyph = document.createElement('span');
+    glyph.className = 'glyph';
+    glyph.append(box);
+    return glyph;
+  }
+
   // Which rung of the ladder is in front, or null for the shape's own default, which is its
   // lowest size: a prompt is tried before it is worth four minutes. Every shape opens there,
   // including one reached by changing the shape.
@@ -739,11 +755,12 @@
       button.dataset.height = String(shape.height);
       button.setAttribute('aria-pressed', String(rung === videoResolutionRung));
       button.setAttribute('aria-label', 'Render at ' + shape.width + ' by ' + shape.height);
-      // The size chips the image form draws, so the rungs read as a size and not as a second
-      // row of shapes. Named by the short side, which is what separates one rung from the
-      // next and what a vertical clip is named by too. 360p and 480p are not reachable: a
-      // side is a multiple of the 64 pixel grid, and neither divides by 64.
-      button.className = 'chip';
+      // The tier buttons the image form draws, so the rungs read as one shape's ladder and not
+      // as a second row of shapes. Named by the short side, which is what separates one rung
+      // from the next and what a vertical clip is named by too. 360p and 480p are not
+      // reachable: the pipeline wants both sides on the 64 pixel grid, and neither divides by
+      // 64.
+      button.className = 'num';
       button.textContent = Math.min(shape.width, shape.height) + 'p';
       row.append(button);
     });
@@ -789,7 +806,11 @@
       option.type = 'button';
       option.dataset.ratio = ratio;
       option.setAttribute('aria-pressed', String(ratio === capabilities.default_shape_ratio));
-      option.textContent = ratio;
+      // The shape chips the image form draws, glyph and all, so one form's shapes read like
+      // the other's.
+      option.className = 'chip';
+      option.append(videoShapeGlyph(ratio));
+      option.append(document.createTextNode(ratio));
       shapes.append(option);
     });
     renderVideoResolutions();
@@ -825,8 +846,10 @@
     document.querySelectorAll('[data-duration-frames]').forEach(function (button) {
       button.setAttribute('aria-pressed', String(Number(button.dataset.durationFrames) === frameCount));
     });
+    // The frame the run will use, beside the shape it belongs to, the way the image form
+    // prints its own size. The seconds are not repeated here: the Duration row carries them.
     document.getElementById('video-frame-count').textContent =
-      durationLabel + ' seconds, ' + width + ' × ' + height + ', ' + frameCount + ' frames.';
+      width + ' × ' + height + ', ' + frameCount + ' frames';
     if (typeof videoStudio.setFrameLimit === 'function') {
       const movedReferences = videoStudio.setFrameLimit(frameCount);
       if (movedReferences) {
