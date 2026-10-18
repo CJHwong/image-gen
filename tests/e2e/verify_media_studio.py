@@ -542,8 +542,8 @@ with sync_playwright() as playwright:
     # The resolution ladder on the model's own record: the sizes for each shape, lowest
     # first, so a prompt can be tried on a small frame before it is worth four minutes.
     # Every shape opens on its lowest rung, including one reached by a shape change: a rung
-    # picked on one shape does not follow the shape. The model's own default frame is put
-    # back at the end, because the checks below read it.
+    # picked on one shape does not follow the shape. The wide frame's third rung is put back
+    # at the end, because the checks below read the shape the suite has been working in.
     ladder = page.evaluate(
         """() => {
           const rows = () => [...document.querySelectorAll('#video-resolutions button')].map(button => ({
@@ -572,15 +572,15 @@ with sync_playwright() as playwright:
     )
     check(
         "the resolution row offers each shape's sizes, lowest first, on the model's own record",
-        [row["size"] for row in ladder["open"]["rows"]] == ["640x384", "768x448", "1024x576", "1280x704"]
-        and [row["label"] for row in ladder["open"]["rows"]] == ["384p", "448p", "576p", "704p"]
-        and [row["selected"] for row in ladder["open"]["rows"]] == ["true", "false", "false", "false"]
+        [row["size"] for row in ladder["open"]["rows"]] == ["384x384", "512x512", "768x768"]
+        and [row["label"] for row in ladder["open"]["rows"]] == ["384p", "512p", "768p"]
+        and [row["selected"] for row in ladder["open"]["rows"]] == ["true", "false", "false"]
         and not ladder["open"]["hidden"],
         json.dumps(ladder["open"]),
     )
     check(
         "a low rung is the frame the caption names",
-        ladder["low"]["caption"] == "5.0 seconds, 640 × 384, 121 frames."  # noqa: RUF001
+        ladder["low"]["caption"] == "5.0 seconds, 384 × 384, 121 frames."  # noqa: RUF001
         and ladder["low"]["rows"][0]["selected"] == "true",
         json.dumps(ladder["low"]),
     )

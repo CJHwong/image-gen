@@ -47,6 +47,9 @@ def test_ltx25_offers_a_low_resolution_ladder_for_every_shape():
     ladder = [(shape.ratio, shape.width, shape.height) for shape in capabilities.shapes]
 
     assert ladder == [
+        ("1:1", 384, 384),
+        ("1:1", 512, 512),
+        ("1:1", 768, 768),
         ("16:9", 640, 384),
         ("16:9", 768, 448),
         ("16:9", 1024, 576),
@@ -54,9 +57,6 @@ def test_ltx25_offers_a_low_resolution_ladder_for_every_shape():
         ("9:16", 384, 640),
         ("9:16", 448, 768),
         ("9:16", 576, 1024),
-        ("1:1", 384, 384),
-        ("1:1", 512, 512),
-        ("1:1", 768, 768),
         ("3:2", 768, 512),
         ("3:2", 960, 640),
         ("3:2", 1152, 768),
@@ -64,15 +64,16 @@ def test_ltx25_offers_a_low_resolution_ladder_for_every_shape():
         ("2:3", 640, 960),
         ("2:3", 768, 1152),
     ]
-    for ratio in ("16:9", "9:16", "1:1", "3:2", "2:3"):
+    for ratio in ("1:1", "16:9", "9:16", "3:2", "2:3"):
         sizes = [shape for shape in capabilities.shapes if shape.ratio == ratio]
         assert sizes == sorted(sizes, key=lambda shape: shape.width * shape.height), ratio
 
     # The form opens on the lowest rung of the default shape, because the first render is
-    # usually a prompt test rather than the finished clip.
-    assert capabilities.default_shape_ratio == "16:9"
+    # usually a prompt test rather than the finished clip. The shape is the square, which is
+    # the one the image form opens on, so a still and the clip made from it agree.
+    assert capabilities.default_shape_ratio == "1:1"
     default = [shape for shape in capabilities.shapes if shape.ratio == capabilities.default_shape_ratio]
-    assert (default[0].width, default[0].height) == (640, 384)
+    assert (default[0].width, default[0].height) == (384, 384)
 
     assert capabilities.dimension_step == 64
     assert all(dimension % 64 == 0 for shape in capabilities.shapes for dimension in (shape.width, shape.height))

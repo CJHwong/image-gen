@@ -82,7 +82,11 @@ class SizeChips extends Drawn {
 
   render() {
     const ratio = ratioInForce();
-    return html`${page.ratios.concat(['match']).map((one) => html`<button type="button" class="chip" data-ratio=${one} aria-pressed=${String(one === ratio)} @click=${() => pickRatio(one)}>${glyph(one)}<span>${one === 'match' ? 'Match' : one}</span></button>`)}`;
+    // Match sits beside the square, which is the shape the form opens on and the other thing
+    // that decides a size, the shape of a reference.
+    const rows = page.ratios.slice();
+    rows.splice(1, 0, 'match');
+    return html`${rows.map((one) => html`<button type="button" class="chip" data-ratio=${one} aria-pressed=${String(one === ratio)} @click=${() => pickRatio(one)}>${glyph(one)}<span>${one === 'match' ? 'Match' : one}</span></button>`)}`;
   }
 }
 
