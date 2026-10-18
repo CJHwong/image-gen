@@ -785,7 +785,9 @@
     border: 1px dashed var(--line-strong); border-radius: 2px; color: var(--text-3); }
   .refs-note { margin-top: 10px; color: var(--text-3); font-size: 12px; }
 
-  .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  /* Four to a row: the image form's eight shapes then read as two even rows, and the video
+     form's four rungs of a wide frame as one. Three to a row left both uneven. */
+  .chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .chip { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px;
     border: 1px solid var(--line); border-radius: 7px; background: none;
     color: var(--text-2); cursor: pointer; font-size: 12px; transition: border-color .12s, color .12s, background-color .12s; }
