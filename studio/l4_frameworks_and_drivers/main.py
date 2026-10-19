@@ -16,6 +16,7 @@ from studio.l2_use_cases.run_image_use_case import RunImageUseCase
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l2_use_cases.switch_backend_use_case import SwitchBackendUseCase
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
+from studio.l3_interface_adapters.api.json_api import JsonApi
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.gateways import qwen21_turbo_schedule
@@ -299,8 +300,10 @@ def assemble_studio(
         release_model=ReleaseModelUseCase(engine_lock, residency),
     )
     presenter = HtmlPresenter(PAGE.read_text(encoding="utf-8"))
+    # The JSON API rides on the same controllers: one route map, two transports.
+    api = JsonApi(controller, video_controller)
     return Studio(
-        handler=make_handler(controller, presenter, video_controller),
+        handler=make_handler(controller, presenter, video_controller, api),
         catalog=catalog,
         video_catalog=video_catalog,
         residency=residency,

@@ -469,13 +469,23 @@ export function openGuide() {
     text.textContent = pair[1];
     list.append(term, text);
   });
+  // The manual ends with the door a program uses: the page and the API run the same
+  // use cases, so the spec belongs where a reader of the page can find it.
+  const api = document.createElement('p');
+  api.className = 'guide-api';
+  const spec = document.createElement('a');
+  spec.href = '/api/v1/openapi.json';
+  spec.target = '_blank';
+  spec.rel = 'noreferrer';
+  spec.textContent = 'OpenAPI spec';
+  api.append(spec, document.createTextNode(' lists every JSON route. Start at /api/v1/studio.'));
   const close = iconButton('x', 'Close', closeGuide, 'close');
   sheet.addEventListener('keydown', function (event) {
     if (event.key !== 'Escape') return;
     event.stopPropagation();
     closeGuide();
   });
-  sheet.append(list, close);
+  sheet.append(list, api, close);
   page.canvas.append(sheet);
   document.getElementById('guide-toggle').setAttribute('aria-expanded', 'true');
   close.focus();

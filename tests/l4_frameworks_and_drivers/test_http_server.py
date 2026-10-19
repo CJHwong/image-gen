@@ -5,17 +5,20 @@ import json
 import threading
 import urllib.error
 import urllib.request
+from dataclasses import replace
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
 from studio.l1_entities.errors import BackendBusy, Cancelled, StudioError
+from studio.l1_entities.video_capabilities import VideoAdapter, VideoMode
 from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l3_interface_adapters.gateways.prompt_rewriters import StubPromptRewriter
 from studio.l4_frameworks_and_drivers import http_server
 from studio.l4_frameworks_and_drivers.main import assemble_studio
-from tests.support.fakes import FakeBackendGateway, FakeVideoBackendGateway
+from tests.support.fakes import FakeBackendGateway, FakeVideoBackendGateway, fake_video_capabilities
 
 
 def fast(rewriter):
@@ -526,3 +529,202 @@ def test_only_the_bound_names_accept_the_post(served):
     assert from_this_page(served[0], ("127.0.0.1", port), f"127.0.0.1:{port}") is True
     assert from_this_page(served[0], ("127.0.0.1", port), f"localhost:{port}") is True
     assert from_this_page(served[0], ("127.0.0.1", port), f"evil.example:{port}") is False
+
+
+# ---- The JSON API -----------------------------------------------------------
+# The routes the page does not use. They ride the same controller, so these
+# tests check the transport and the document, not a second set of rules.
+def post_json(server, path, payload=None):
+    body = json.dumps(payload if payload is not None else {}).encode()
+    return call(server, path, body, **{"Content-Type": "application/json"})
+
+
+def test_the_studio_route_names_the_models_and_their_modes(served):
+    status, content_type, body = call(served[1], "/api/v1/studio")
+    document = json.loads(body)
+
+    assert status == 200 and content_type == "application/json; charset=utf-8"
+    assert document["image"]["active"] == "fake"
+    assert [mode["id"] for mode in document["image"]["capabilities"]["modes"]] == ["generate", "edit"]
+    assert document["video"]["active"] == "video-fake"
+
+
+def test_the_image_route_answers_every_image_of_the_batch_as_json(served):
+    status, content_type, body = post_json(
+        served[1],
+        "/api/v1/images/generate",
+        {"prompt": "a pear", "count": 2, "seed": 4},
+    )
+    document = json.loads(body)
+
+    assert status == 200 and content_type == "application/json; charset=utf-8"
+    assert [image["seed"] for image in document["images"]] == [4, 5]
+    assert base64.b64decode(document["images"][0]["png_base64"]) == b"png"
+    assert document["images"][0]["prompt"] == "a pear"
+
+
+def test_the_edit_route_needs_a_reference(served):
+    status, _, body = post_json(served[1], "/api/v1/images/edit", {"prompt": "make it blue"})
+
+    assert status == 400
+    assert "reference" in json.loads(body)["error"]
+
+
+def test_the_image_rewrite_route_answers_the_longer_words(served):
+    status, _, body = post_json(served[1], "/api/v1/images/rewrite", {"prompt": "a pear"})
+
+    assert status == 200
+    assert json.loads(body)["prompt"]
+
+
+def test_the_video_rewrite_route_is_the_video_workspace_of_the_same_rewriter(served):
+    status, _, body = post_json(served[1], "/api/v1/videos/rewrite", {"prompt": "a clip"})
+
+    assert status == 200
+    assert json.loads(body)["prompt"]
+
+
+def test_the_progress_route_reads_the_run_in_flight(served):
+    status, _, body = call(served[1], "/api/v1/progress")
+
+    assert status == 200
+    assert json.loads(body)["running"] is False
+
+
+def test_the_cancel_routes_answer_no_content(served):
+    assert post_json(served[1], "/api/v1/images/cancel")[0] == 204
+    assert post_json(served[1], "/api/v1/rewrite/cancel")[0] == 204
+
+
+def test_the_video_generate_route_returns_the_mp4(served):
+    url = f"http://127.0.0.1:{served[1].server_address[1]}/api/v1/videos/generate"
+    request = urllib.request.Request(
+        url,
+        data=video_request(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as answer:
+        assert answer.status == 200
+        assert answer.headers["Content-Type"] == "video/mp4"
+        assert answer.headers["X-Studio-Seed"] == "42"
+        assert answer.read() == b"fake mp4 bytes"
+
+
+def test_the_video_routes_fix_the_mode_they_name(served):
+    """Both routes carry the same body. The generate route runs it, and the edit route
+    reads the same body as an edit and asks for the clip the mode needs."""
+    served[2]._capabilities = replace(
+        fake_video_capabilities(),
+        modes=(VideoMode("generate", "Generate"), VideoMode("edit", "Edit", needs_clip=True)),
+        adapters=(VideoAdapter(id="day", label="Day", hint="", mode="edit", file="a.safetensors"),),
+    )
+
+    status, _, _ = post_json(served[1], "/api/v1/videos/generate", json.loads(video_request()))
+    assert status == 200
+    edit_status, _, edit_body = post_json(served[1], "/api/v1/videos/edit", json.loads(video_request()))
+
+    # Only an edit asks for an adapter, so the message is the proof the mode was read.
+    assert edit_status == 400
+    assert json.loads(edit_body)["error"] == "adapter must be one of day"
+
+
+def test_a_video_stop_without_a_request_id_is_a_bad_request(served):
+    status, _, body = post_json(served[1], "/api/v1/videos/cancel", {})
+
+    assert status == 400
+    assert "request" in json.loads(body)["error"].lower()
+
+
+def test_an_unknown_api_route_is_a_json_not_found(served):
+    status, content_type, body = call(served[1], "/api/v1/nothing")
+
+    assert status == 404 and content_type == "application/json; charset=utf-8"
+    assert json.loads(body) == {"error": "not found"}
+
+
+def test_every_documented_path_is_a_route_this_server_serves(served):
+    """The spec is written by hand, so this walks it: a path the document names and
+    the server does not serve would be a promise the API does not keep."""
+    _, _, body = call(served[1], "/api/v1/openapi.json")
+    document = json.loads(body)
+
+    assert document["openapi"].startswith("3.")
+    for path, operations in document["paths"].items():
+        for method in operations:
+            if method == "get":
+                status, _, _ = call(served[1], path)
+            else:
+                status, _, _ = post_json(served[1], path)
+            assert status != 404, f"{method.upper()} {path} is documented but not served"
+
+
+def test_the_api_reports_a_busy_gpu_as_conflict(served):
+    served[0].catalog.get("fake")._backend.fail_with = BackendBusy("The model is busy")
+
+    status, _, body = post_json(served[1], "/api/v1/images/generate", {"prompt": "a pear"})
+
+    assert status == 409
+    assert "error" in json.loads(body)
+
+
+def test_the_api_reports_a_pipeline_error_as_unavailable(served):
+    served[0].video_catalog.get("video-fake").failure = StudioError("the engine is missing")
+
+    status, _, body = post_json(served[1], "/api/v1/videos/generate", json.loads(video_request()))
+
+    assert status == 503
+    assert json.loads(body)["error"] == "the engine is missing"
+
+
+def test_the_api_reports_an_unexpected_error_as_a_server_error(served):
+    served[0].video_catalog.get("video-fake").failure = ValueError("boom")
+
+    status, _, body = post_json(served[1], "/api/v1/videos/generate", json.loads(video_request()))
+
+    assert status == 500
+    assert json.loads(body)["error"] == "ValueError: boom"
+
+
+def test_an_unknown_api_post_is_a_json_not_found(served):
+    status, _, body = post_json(served[1], "/api/v1/nothing", {})
+
+    assert status == 404
+    assert json.loads(body) == {"error": "not found"}
+
+
+def test_the_api_reports_a_stopped_run_as_conflict(served):
+    served[0].catalog.get("fake")._backend.fail_with = Cancelled("stopped at step 2")
+
+    status, _, body = post_json(served[1], "/api/v1/images/generate", {"prompt": "a pear"})
+
+    assert status == 409
+    assert json.loads(body) == {"error": "Cancelled"}
+
+
+def test_the_api_reports_an_unexpected_image_error_as_a_server_error(served):
+    served[0].catalog.get("fake")._backend.fail_with = ValueError("boom")
+
+    status, _, body = post_json(served[1], "/api/v1/images/generate", {"prompt": "a pear"})
+
+    assert status == 500
+    assert json.loads(body)["error"] == "ValueError: boom"
+
+
+def test_a_server_built_without_the_api_says_so_on_both_methods():
+    """`make_handler` can be built without the JSON adapter, and then the API routes
+    answer with the reason instead of failing somewhere deeper."""
+    handler = http_server.make_handler(cast(Any, None), cast(Any, None))
+    answers = []
+
+    class Stub(handler):  # ty: ignore[unsupported-base]
+        def __init__(self):
+            pass
+
+        def _send_json(self, payload, status=200):
+            answers.append((payload, status))
+
+    Stub()._api_get("/api/v1/studio")
+    Stub()._api_post("/api/v1/images/generate")
+
+    assert answers == [({"error": "The JSON API is not configured."}, 503)] * 2

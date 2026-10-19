@@ -379,6 +379,10 @@
   .sheet dt { padding-top: 4px; color: var(--text-3); font-size: 12px; }
   .sheet dd { margin: 0; font: 16px/1.55 var(--serif); }
   .sheet .close { position: absolute; top: 12px; right: 12px; }
+  /* The manual ends with the door a program uses, because the page and the API run
+     the same use cases and a reader of one should be able to find the other. */
+  .sheet .guide-api { margin: 16px 0 0; color: var(--text-3); font-size: 12px; }
+  .sheet .guide-api a { color: var(--text-2); }
   /* The mark sits on the print, so the strokes land on the picture itself. It is
      drawn in the palette colour the next stroke will use, and at the reference's
      own pixels, so the region cannot drift on the way. */

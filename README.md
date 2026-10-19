@@ -56,6 +56,14 @@ Both images stay in the strip at the bottom, also after a reload.
 - **Share media between workspaces:** use image references as Video keyframes. Capture a timeline frame for Image or set it as a Video keyframe with a target frame and strength.
 - **Add video sources:** use the Video controls in the right sidebar. One **Add media** door takes both kinds, and a drop or a paste goes through it too; the file's own type decides whether it becomes an image keyframe or a source clip. Image keyframes and generated clips stay in separate galleries.
 - **Track and cancel a video render:** progress appears in the preview. Each tab follows and cancels only its own render. Cancel keeps the prompt and references. Each clip records its seed, settings, elapsed time, and prompt.
+- **Drive the models from a script:** the page and the JSON API run the same use cases. `GET /api/v1/studio` names the models, modes, sizes, Looks and templates. Then `POST /api/v1/images/generate`, `/api/v1/images/edit`, `/api/v1/images/rewrite`, `/api/v1/videos/generate`, `/api/v1/videos/edit` and `/api/v1/videos/rewrite` take a JSON body, and `/api/v1/progress` reads the run. Images answer as base64 PNG, a clip answers as the MP4 with its seed in `X-Studio-Seed`. The OpenAPI document is at `/api/v1/openapi.json`, and the page's manual links to it. A request made while another run holds the GPU answers `409`.
+
+  ```sh
+  curl -s localhost:8765/api/v1/images/generate \
+    -H 'Content-Type: application/json' \
+    -d '{"prompt": "a red pear on a table", "seed": 7}' \
+    | jq -r '.images[0].png_base64' | base64 -d > pear.png
+  ```
 
 ## Reference
 

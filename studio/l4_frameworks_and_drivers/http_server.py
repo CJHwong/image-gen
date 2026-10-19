@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, StudioError, UnreadableImage
+from studio.l3_interface_adapters.api.json_api import JsonApi
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
@@ -24,6 +25,7 @@ def make_handler(
     controller: FormController,
     presenter: HtmlPresenter,
     video_controller: VideoController | None = None,
+    api: JsonApi | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     class StudioHandler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args) -> None:
@@ -31,7 +33,11 @@ def make_handler(
             this is wanted on disk or on the terminal."""
 
         def do_GET(self):
-            if urlsplit(self.path).path == "/":
+            path = urlsplit(self.path).path
+            if path.startswith("/api/v1/"):
+                self._api_get(path)
+                return
+            if path == "/":
                 self._send(presenter.page(controller.page()))
             elif self.path == "/progress":
                 self._send(presenter.progress(controller.progress()))
@@ -49,6 +55,10 @@ def make_handler(
         def do_POST(self):
             if not self._from_this_page():
                 self._send("forbidden", status=403, content_type="text/plain")
+                return
+            path = urlsplit(self.path).path
+            if path.startswith("/api/v1/"):
+                self._api_post(path)
                 return
             if self.path == "/video/generate":
                 self._run_video()
@@ -86,12 +96,81 @@ def make_handler(
             else:
                 self._send("not found", status=404, content_type="text/plain")
 
-        def _run_video(self) -> None:
+        def _api_get(self, path: str) -> None:
+            if api is None:
+                self._send_json({"error": "The JSON API is not configured."}, status=503)
+                return
+            readers = {
+                "/api/v1/openapi.json": api.openapi,
+                "/api/v1/studio": api.studio,
+                "/api/v1/progress": api.progress,
+            }
+            reader = readers.get(path)
+            if reader is None:
+                self._send_json({"error": "not found"}, status=404)
+                return
+            body, status = self._api_result(reader)
+            self._send_json(body if body is not None else {}, status=status)
+
+        def _api_post(self, path: str) -> None:
+            """The API's own routes. A JSON body goes to the same controller the page
+            uses, and every failure comes back as JSON with the status that names it."""
+            if api is None:
+                self._send_json({"error": "The JSON API is not configured."}, status=503)
+                return
+            if path in ("/api/v1/images/generate", "/api/v1/images/edit"):
+                mode = "edit" if path.endswith("edit") else "generate"
+                body, status = self._api_result(lambda: api.image_run(self._read_json(), mode))
+            elif path == "/api/v1/images/rewrite":
+                body, status = self._api_result(lambda: api.image_rewrite(self._read_json()))
+            elif path == "/api/v1/videos/rewrite":
+                body, status = self._api_result(lambda: api.video_rewrite(self._read_json()))
+            elif path == "/api/v1/images/cancel":
+                body, status = self._api_result(api.cancel_image)
+            elif path == "/api/v1/rewrite/cancel":
+                body, status = self._api_result(api.cancel_rewrite)
+            elif path == "/api/v1/videos/generate":
+                self._run_video(mode="generate")
+                return
+            elif path == "/api/v1/videos/edit":
+                self._run_video(mode="edit")
+                return
+            elif path == "/api/v1/videos/cancel":
+                self._cancel_video()
+                return
+            else:
+                self._send_json({"error": "not found"}, status=404)
+                return
+            if body is None:
+                self._send("", status=204, content_type="text/plain")
+            else:
+                self._send_json(body, status=status)
+
+        def _api_result(self, action) -> tuple[dict | None, int]:
+            """One answer shape for every API route: the document and its status, or an
+            error object and the status that names the failure."""
+            try:
+                return action(), 200
+            except Cancelled:
+                return {"error": "Cancelled"}, 409
+            except (InvalidJob, UnreadableImage) as error:
+                return {"error": str(error)}, 400
+            except BackendBusy as error:
+                return {"error": str(error)}, 409
+            except StudioError as error:
+                return {"error": str(error)}, 503
+            except Exception as error:
+                return {"error": f"{type(error).__name__}: {error}"}, 500
+
+        def _run_video(self, mode: str | None = None) -> None:
             if video_controller is None:
                 self._send_json({"error": "Video generation is not configured."}, status=503)
                 return
             try:
-                result = video_controller.run(self._read_json())
+                payload = self._read_json()
+                if mode is not None:
+                    payload = {**payload, "mode": mode}
+                result = video_controller.run(payload)
             except Cancelled:
                 self._send_json({"cancelled": True})
                 return

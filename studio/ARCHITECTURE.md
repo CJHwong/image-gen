@@ -10,7 +10,7 @@ Each layer imports only the layers inside it. `.importlinter` enforces this, and
 |---|---|---|
 | 1. Entities | `l1_entities/` | The job, the result, the progress, the errors, and the capabilities record: modes, params, Looks, templates, estimate |
 | 2. Use cases | `l2_use_cases/` | Run an image or video, describe the studio, switch either backend, release model memory, rewrite a prompt, and read progress. `boundaries/` holds their ports. |
-| 3. Interface adapters | `l3_interface_adapters/` | The form and video controllers, the HTML presenter, model gateways, in-memory stores, and the GPU thread for MLX calls |
+| 3. Interface adapters | `l3_interface_adapters/` | The form and video controllers, the HTML presenter, the JSON API, model gateways, in-memory stores, and the GPU thread for MLX calls |
 | 4. Frameworks and drivers | `l4_frameworks_and_drivers/` | The HTTP server, local LTX process runner, config file, page, and `main.py`, which wires everything |
 
 The entities and use cases import no engine: no mlx, mflux, PIL, http or subprocess. The backend adapters do not import each other; what two of them share sits next to them in `gateways/`.
