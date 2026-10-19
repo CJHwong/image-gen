@@ -168,9 +168,13 @@ def make_handler(
                 return
             try:
                 payload = self._read_json()
-                if mode is not None:
-                    payload = {**payload, "mode": mode}
-                result = video_controller.run(payload)
+                if mode is None:
+                    result = video_controller.run(payload)
+                else:
+                    # The API's route names the mode, and the adapter fills in the parts a
+                    # caller should not have to write: the request id, most of all.
+                    assert api is not None
+                    result = api.video_run(payload, mode)
             except Cancelled:
                 self._send_json({"cancelled": True})
                 return

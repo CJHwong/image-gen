@@ -728,3 +728,14 @@ def test_a_server_built_without_the_api_says_so_on_both_methods():
     Stub()._api_post("/api/v1/images/generate")
 
     assert answers == [({"error": "The JSON API is not configured."}, 503)] * 2
+
+
+def test_the_api_video_route_needs_no_request_id(served):
+    """A caller that does not want to stop the render should not have to name it."""
+    body = json.loads(video_request())
+    body.pop("request_id", None)
+
+    status, _, _ = post_json(served[1], "/api/v1/videos/generate", body)
+
+    assert status == 200
+    assert served[2].jobs[-1].prompt == "A kite rises"
