@@ -12,6 +12,7 @@ this reads that chain to its end and answers with every image in one document.
 
 import base64
 import json
+import uuid
 from collections.abc import Mapping
 from dataclasses import asdict
 from typing import Any
@@ -70,7 +71,12 @@ class JsonApi:
 
     def video_run(self, payload: Mapping[str, object], mode: str) -> VideoResult:
         # The route names the mode, so a body cannot ask the generate route to edit a clip.
-        return self._video_backend().run({**payload, "mode": mode})
+        body = {**payload, "mode": mode}
+        # A caller that does not want to stop the render should not have to name it. The
+        # controller needs an id to tell two renders apart, so one is made here.
+        if not body.get("request_id"):
+            body["request_id"] = uuid.uuid4().hex
+        return self._video_backend().run(body)
 
     def cancel_video(self, payload: Mapping[str, object]) -> bool:
         return self._video_backend().cancel(payload)

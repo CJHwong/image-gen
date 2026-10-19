@@ -312,3 +312,16 @@ def fake_video_capabilities() -> VideoCapabilities:
         max_dimension=1280,
         dimension_step=64,
     )
+
+
+def test_a_video_run_that_names_no_request_gets_one():
+    """A caller that does not want to stop the render should not have to invent an id,
+    but the controller needs one to tell two renders apart."""
+    video = FakeVideo()
+
+    JsonApi(FakeController(), video).video_run({"prompt": "a clip"}, "generate")
+    named = video.payloads[-1]["request_id"]
+
+    assert isinstance(named, str) and len(named) == 32
+    JsonApi(FakeController(), video).video_run({"prompt": "a clip", "request_id": "mine"}, "generate")
+    assert video.payloads[-1]["request_id"] == "mine"
