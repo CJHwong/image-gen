@@ -147,6 +147,7 @@ def openapi_document() -> dict[str, Any]:
                     "type": "object",
                     "required": ["error"],
                     "properties": {"error": {"type": "string"}},
+                    "examples": [{"error": "size must be one of 1024x1024, 768x768, match"}],
                 },
                 "ImageRequest": {
                     "type": "object",
@@ -177,6 +178,10 @@ def openapi_document() -> dict[str, Any]:
                         "mask": {"type": "boolean", "description": "The last reference is the region mask"},
                     },
                     "additionalProperties": True,
+                    "examples": [
+                        {"prompt": "a red pear on a table", "size": "1024x1024", "seed": 7},
+                        {"prompt": "a cat asleep in a sunbeam", "size": "768x768", "count": 2},
+                    ],
                 },
                 "ImageEditRequest": {
                     "type": "object",
@@ -297,6 +302,15 @@ def openapi_document() -> dict[str, Any]:
                         "request_id": {"type": "string", "description": "Name this render, so it can be stopped"},
                     },
                     "additionalProperties": True,
+                    "examples": [
+                        {
+                            "prompt": "A slow push-in on a woman speaking to camera, soft window light, one continuous shot.",
+                            "width": 768,
+                            "height": 448,
+                            "num_frames": 121,
+                            "seed": 7,
+                        }
+                    ],
                 },
                 "VideoEditRequest": {
                     "type": "object",
@@ -317,6 +331,13 @@ def openapi_document() -> dict[str, Any]:
                         "request_id": {"type": "string"},
                     },
                     "additionalProperties": True,
+                    "examples": [
+                        {
+                            "prompt": "The same shot at night: deep blue moonlight and warm street lamps. One continuous shot.",
+                            "adapter": "day-to-night",
+                            "clip": {"name": "street.mp4", "data": "<base64 mp4>"},
+                        }
+                    ],
                 },
                 "VideoStub": {
                     "type": "object",
