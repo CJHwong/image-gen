@@ -23,6 +23,21 @@ def test_ltx25_offers_the_video_templates_it_was_sampled_on():
     ]
 
 
+def test_ltx25_offers_the_video_look_rows_it_was_sampled_on():
+    """Each option ran once beside one bare control clip on 2026-10-19, at 384 x 384 and
+    121 frames on seed 7. PROMPTS.md holds the numbers. The text of a Look is appended
+    after the prompt, so it can only name what composes with any prompt."""
+    generate = ltx25_capabilities().mode("generate")
+
+    assert [(row.name, [label for label, _ in row.options]) for row in generate.looks] == [
+        ("Light", ["Golden hour", "Soft daylight", "Neon night"]),
+        ("Atmosphere", ["Wet street", "Fog"]),
+        ("Grade", ["Warm", "Cool"]),
+        ("Mix", ["No music"]),
+    ]
+    assert ltx25_capabilities().mode("edit").looks == ()
+
+
 def test_the_two_keyframe_templates_name_the_reference_image():
     """The page offers a template only while it can be kept, and it reads this phrase to
     decide: a template naming the reference image is left out while the video has none."""

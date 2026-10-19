@@ -164,6 +164,24 @@ Three more were added on 2026-10-19, from the vendor's 2.5 prompt guide, its nat
 
 Each ran once at 384 x 384, 121 frames, seed 7, with a filled-in prompt and no reference image, through the studio's own endpoint and the distilled pipeline. A filled-in prompt is not the template; it is one reading of it.
 
+## Video Look
+
+The video Look appends one sentence after the prompt, so its options can only name what composes with any prompt: light, weather, palette and the mix. Camera moves and shot scales stay in the templates, where a prompt that already names one cannot fight the appended text.
+
+Each option ran once against one bare control clip on 2026-10-19, at 384 x 384, 121 frames, seed 7, through the studio's endpoint and the distilled pipeline. The control prompt was a woman walking along an empty stone street. The Mix options needed a second scene, because that control carried no score to remove: they ran against a city-at-dusk control that did.
+
+| Row | Option | Result |
+|---|---|---|
+| Light | Golden hour | Works. Warm low sun and long shadows. Luminance 120.4 to 82.3, red minus blue -0.2 to +30.4. |
+| Light | Soft daylight | Works. Natural, soft light with no hard shadows. Luminance 105.9, red minus blue +17.3. |
+| Light | Neon night | Works. A dark street with lit shop signs and coloured reflections. Luminance 52.9. |
+| Atmosphere | Wet street | Works as wetness. The stone turns wet, darker and reflective, luminance 120.4 to 89.1. Falling drops did not read at 384 x 384, so the row is named for what the clip shows. |
+| Atmosphere | Fog | Works. Thick fog, the far end of the street softened. |
+| Grade | Warm | Works. Amber cast, red minus blue +151.7 against -0.2. |
+| Grade | Cool | Works. Teal cast, red minus blue -66.8. |
+| Mix | No music | Works on a scene that invites a score. The control carried tones at 350, 263 and 522 Hz with 7.4 envelope crossings a second; with "no music" the clip was 33 times quieter, with no tonal peak above 0.8 percent. |
+| Mix | Ambient only | Cut. On a scene the model had already left unscored it produced a 524 Hz hum, so it changes nothing for the better. |
+
 ## How these were tested
 
 All runs used 20 steps and seeds 1234 and 5678. Generate ran at 1024 x 1024 with guidance 1.0. Edit ran at 768 with true CFG 1.0.

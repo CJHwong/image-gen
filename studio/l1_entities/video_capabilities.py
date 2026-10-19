@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from studio.l1_entities.capabilities import Template
+from studio.l1_entities.capabilities import LookRow, Template
 from studio.l1_entities.errors import UnsupportedMode
 
 
@@ -29,6 +29,9 @@ class VideoMode:
     # A run that draws a clip can be driven by an audio track; a run that changes a clip
     # takes the clip as its whole input, so it takes no audio.
     accepts_audio: bool = False
+    # The prompt aids this mode adds after the words. A mode whose text is a trigger word
+    # carries none: the Look would be appended to the trigger and fight it.
+    looks: tuple[LookRow, ...] = ()
     min_references: int = 0
     max_references: int = 0
     prompt_label: str = "Prompt"

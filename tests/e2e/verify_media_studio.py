@@ -982,6 +982,15 @@ with sync_playwright() as playwright:
         and "361 frames" in page.locator("#video-frame-count").inner_text(),
     )
     page.get_by_role("button", name="Set duration to 5 seconds").click()
+    page.fill("#video-prompt", ("A long written shot for the box. " * 30).strip())
+    grown = page.evaluate("() => document.getElementById('video-prompt').getBoundingClientRect().height")
+    page.fill("#video-prompt", "short")
+    small = page.evaluate("() => document.getElementById('video-prompt').getBoundingClientRect().height")
+    check(
+        "the video prompt grows with its words, up to the image form's cap",
+        grown > small and grown <= 320,
+        f"grown {grown:.0f}px, short {small:.0f}px",
+    )
     page.locator("#video-media-upload").set_input_files(
         {"name": "notes.txt", "mimeType": "text/plain", "buffer": b"not an image"}
     )
@@ -1031,6 +1040,58 @@ with sync_playwright() as playwright:
         and page.locator("#video-audio-tray").is_visible()
         and page.locator("#video-audios .video-audio").count() == 1,
         f"hidden in edit: {hidden_in_edit}",
+    )
+
+    # The Look rows are the mode's. Generate carries them and an edit's prompt is the
+    # effect's own words, so the section stays away there.
+    check(
+        "generate carries the video Look rows and edit puts them away",
+        hidden_in_edit
+        and page.locator("#video-look").is_visible()
+        and page.evaluate(
+            """() => [...document.querySelectorAll('#video-look-rows .look-row-toggle .label')]
+                 .map(label => label.textContent)"""
+        )
+        == ["Light", "Atmosphere", "Grade", "Mix"],
+        page.locator("#video-look-rows").inner_text()[:120].replace("\n", " "),
+    )
+    page.locator("#video-look summary").click()
+    page.locator("#video-look-rows .look-row-toggle").first.click()
+    page.get_by_role("button", name="Golden hour").click()
+    look_added = page.evaluate(
+        """() => ({
+          values: document.getElementById('video-look-values').textContent,
+          tail: document.getElementById('video-look-adds').textContent,
+          hidden: document.getElementById('video-look-adds').hidden,
+        })"""
+    )
+    check(
+        "a video Look pick appends its sentence under the prompt",
+        look_added["values"] == "Golden hour"
+        and "Warm low sun from the side, long shadows." in look_added["tail"]
+        and not look_added["hidden"],
+        json.dumps(look_added),
+    )
+    page.locator("#video-look-adds .chip").first.click()
+    check(
+        "a second click takes the video Look pick back off",
+        page.evaluate(
+            """() => ({
+              values: document.getElementById('video-look-values').textContent,
+              hidden: document.getElementById('video-look-adds').hidden,
+            })"""
+        )
+        == {"values": "none", "hidden": True},
+        page.locator("#video-look-values").inner_text(),
+    )
+    page.locator("#video-look summary").click()
+    page.evaluate("() => document.querySelector('#video-modes input[value=edit]').click()")
+    look_hidden_in_edit = page.locator("#video-look").is_hidden()
+    page.evaluate("() => document.querySelector('#video-modes input[value=generate]').click()")
+    check(
+        "the video Look section is hidden in edit",
+        look_hidden_in_edit,
+        f"hidden in edit: {look_hidden_in_edit}",
     )
 
     # A clip is an edit input now, so the paste, the source row, the player and the capture all
@@ -2527,34 +2588,35 @@ with sync_playwright() as playwright:
     )
     before = page.locator(".video-gallery-item:not(.pending)").count()
     page.fill("#video-prompt", "a cat walking on a wall")
+    page.evaluate("() => { document.getElementById('video-look').open = true; }")
+    page.locator("#video-look-rows .look-row-toggle").first.click()
+    page.get_by_role("button", name="Golden hour").click()
     page.click("#video-generate")
     page.wait_for_function(
         "count => document.querySelectorAll('.video-gallery-item:not(.pending)').length > count",
         arg=before,
         timeout=60000,
     )
+    sent_run = json.loads(sent[-1]) if sent else {}
     check(
-        "the run is made from the words in the box and asks for the model's own enhancer",
+        "the run is made from the words in the box, the Look after them, and the model's own enhancer",
         sent
-        and json.loads(sent[-1])["prompt"] == "a cat walking on a wall"
-        and json.loads(sent[-1])["enhance"] is True,
-        f"{json.loads(sent[-1])['prompt']!r}, enhance {json.loads(sent[-1])['enhance']!r}" if sent else "no run",
+        and sent_run["prompt"].startswith("a cat walking on a wall")
+        and sent_run["prompt"].endswith("Warm low sun from the side, long shadows.")
+        and sent_run["enhance"] is True,
+        f"{sent_run.get('prompt')!r}, enhance {sent_run.get('enhance')!r}" if sent else "no run",
+    )
+    record = page.evaluate(
+        """() => {
+          const clips = document.getElementById('video-studio').clips || [];
+          if (!clips.length) return {};
+          return clips[clips.length - 1].metadata;
+        }"""
     )
     check(
-        "and the clip's own record names those words",
-        page.evaluate(
-            """() => {
-              const clips = document.getElementById('video-studio').clips || [];
-              return clips.length ? clips[clips.length - 1].metadata.prompt : 'no clip';
-            }"""
-        )
-        == "a cat walking on a wall",
-        page.evaluate(
-            """() => {
-              const clips = document.getElementById('video-studio').clips || [];
-              return clips.length ? clips[clips.length - 1].metadata.prompt : 'no clip';
-            }"""
-        ),
+        "and the clip's own record names those words and the Look",
+        record.get("prompt", "").startswith("a cat walking on a wall") and record.get("look") == "Golden hour",
+        json.dumps({"prompt": record.get("prompt"), "look": record.get("look")}),
     )
     sent_payload = json.loads(sent[-1]) if sent else {}
     track_sent = sent_payload.get("audio") or {}
