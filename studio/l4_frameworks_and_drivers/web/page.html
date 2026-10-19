@@ -348,7 +348,8 @@
               </div>
               <div class="video-references" id="video-references"></div>
             </section>
-            <input id="video-media-upload" type="file" accept="image/*,video/*" multiple hidden>
+            <input id="video-media-upload" type="file" multiple hidden
+              accept=".png,.jpg,.jpeg,.webp,.gif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff">
           </section>
           <div class="video-output-options">
             <!-- The shape and the length are Generate's: an edit runs at the clip's own size
@@ -719,6 +720,13 @@
     return videoAdapters().find(function (adapter) { return adapter.id === videoAdapter; }) || null;
   }
 
+  // What the media chooser may offer, one list per kind of mode. The list names extensions
+  // rather than `image/*,audio/*`: a video container carries an audio track, so an audio
+  // wildcard also matches a clip, and the panel then lists the mp4s in a picker that
+  // Generate opened. Extensions are matched one by one, so a clip cannot be offered here.
+  const GENERATE_MEDIA = '.png,.jpg,.jpeg,.webp,.gif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff';
+  const EDIT_MEDIA = '.mp4,.m4v,.mov,.webm,.ogv';
+
   function syncVideoMode() {
     const mode = videoModeInForce();
     // The controls carry the mode as a class, which shows one set of words and hides the
@@ -776,9 +784,11 @@
     if (typeof videoStudio.renderAudio === 'function') videoStudio.renderAudio();
     // The output bar carries the mode's own action, so it is drawn again for a mode change.
     if (typeof videoStudio.renderOutputDetails === 'function') videoStudio.renderOutputDetails();
-    const mediaUpload = document.getElementById('video-media-upload');    // Generate reads images and a track, Edit reads a clip. The chooser offers only what
-    // the mode reads.
-    mediaUpload.accept = mode.needs_clip ? 'video/*' : 'image/*,audio/*';
+    const mediaUpload = document.getElementById('video-media-upload');
+    // Generate reads images and a track, Edit reads a clip. The chooser offers only what the
+    // mode reads. A drop and a paste never pass through this filter, so the component still
+    // reads each file's own type and refuses the wrong one.
+    mediaUpload.accept = mode.needs_clip ? EDIT_MEDIA : GENERATE_MEDIA;
     mediaUpload.multiple = !mode.needs_clip;
     // Edit's block is the image form's block, word for word: one labelled slot, a zone that
     // takes the click, and no "Optional" on the one input the mode cannot run without. The

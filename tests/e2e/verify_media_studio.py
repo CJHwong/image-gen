@@ -1016,7 +1016,7 @@ with sync_playwright() as playwright:
     )
     check(
         "generate takes an audio track and shows it as a row",
-        track["accept"] == "image/*,audio/*"
+        track["accept"] == ".png,.jpg,.jpeg,.webp,.gif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff"
         and track["name"] == "theme.wav"
         and track["trayShown"]
         and track["emptyHidden"]
@@ -2464,7 +2464,7 @@ with sync_playwright() as playwright:
     )
     check(
         "an edit refuses an image and offers video files only",
-        refused["accept"] == "video/*"
+        refused["accept"] == ".mp4,.m4v,.mov,.webm,.ogv"
         and refused["references"] == 0
         and "Add the clip to edit" in refused["zone"]
         and "Choose a video file" in refused["error"],
