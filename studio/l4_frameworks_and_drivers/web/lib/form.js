@@ -827,6 +827,44 @@ function lookLabels() {
   return lookRows().flatMap(function (row) { return look[row.name] || []; });
 }
 
+// ---- The video Look -------------------------------------------------------
+// The same rows and the same component on a second board. The video mode is the page's, so
+// the rows are read from the mode its switch has in force; Generate is the one that carries
+// them. The picks are a second object: a video Look must not redraw the image board or
+// travel in an image request.
+let videoLook = {};
+
+function videoModeId() {
+  const checked = document.querySelector('#video-modes input:checked');
+  return checked ? checked.value : 'generate';
+}
+
+function videoLookRows() {
+  const capabilities = page.studio.video && page.studio.video.capabilities;
+  const mode = ((capabilities && capabilities.modes) || [])
+    .find(function (one) { return one.id === videoModeId(); });
+  return (mode && mode.looks) || [];
+}
+
+function videoLookText() {
+  return videoLookRows().map(function (row) {
+    const picked = row.options.find(function (option) {
+      return (videoLook[row.name] || []).includes(option[0]);
+    });
+    return picked ? picked[1] : '';
+  }).filter(Boolean).join(' ');
+}
+
+function videoLookLabels() {
+  return videoLookRows().flatMap(function (row) { return videoLook[row.name] || []; });
+}
+
+function pickVideoLook(row, label) {
+  const had = (videoLook[row.name] || []).includes(label);
+  videoLook[row.name] = had ? [] : [label];
+  page.store().set('video-looks', Object.assign({}, videoLook));
+}
+
 // A pick replaces the row's pick, so a second click on the chip in force
 // takes it back off. The trees read it back through the store.
 function pickLook(row, label) {
@@ -1324,6 +1362,8 @@ const handle = {
   lookRows: lookRows,
   lookText: lookText,
   lookAvoids: lookAvoids,
+  videoLookText: videoLookText,
+  videoLookLabels: videoLookLabels,
   lookLabels: lookLabels,
   pickLook: pickLook,
   picksHere: picksHere,
@@ -1381,12 +1421,28 @@ const handle = {
   useAdvanced: function (detail) { detail.configure({ scaleParam: scaleParam }); },
   useLookRows: function (detail) {
     detail.configure({
+      form: 'image',
+      scope: function () { return document.getElementById('look'); },
+      fields: ['looks'],
+      mode: function () { return page.store().get('mode'); },
       rows: lookRows,
       picks: function () { return look; },
       text: lookText,
       avoids: lookAvoids,
       labels: lookLabels,
       pick: pickLook,
+    });
+    detail.configure({
+      form: 'video',
+      scope: function () { return document.getElementById('video-look'); },
+      fields: ['video-looks'],
+      mode: function () { return 'generate'; },
+      rows: videoLookRows,
+      picks: function () { return videoLook; },
+      text: videoLookText,
+      avoids: function () { return ''; },
+      labels: videoLookLabels,
+      pick: pickVideoLook,
     });
   },
   useReferences: function (detail) {

@@ -150,7 +150,7 @@
           </div>
           <div class="menu" id="templates" role="menu" hidden></div>
           <textarea id="prompt" name="prompt" autofocus rows="4"></textarea>
-          <look-adds class="look-tail" id="look-adds" hidden></look-adds>
+          <look-adds class="look-tail" data-form="image" id="look-adds" hidden></look-adds>
         </div>
 
         <!-- One row per colour marked, in the prompt's own place, because while a
@@ -219,8 +219,8 @@
         </div>
 
         <details id="look">
-          <summary>Look <look-values class="values" id="look-values"></look-values></summary>
-          <look-rows class="look" id="look-rows"></look-rows>
+          <summary>Look <look-values class="values" data-form="image" id="look-values"></look-values></summary>
+          <look-rows class="look" data-form="image" id="look-rows"></look-rows>
           <p class="look-note"><span class="generate-only">Each pick adds a sentence after your prompt.</span><span class="edit-only">Each pick adds a sentence after your instruction, and a Retouch pick applies to the area you mark.</span> The Rewrite button writes out the words you typed, and the words in the marked areas. The Look is added after them.</p>
         </details>
 
@@ -298,6 +298,9 @@
             <div class="menu" id="video-adapters" role="menu" hidden></div>
             <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."></textarea>
           </div>
+          <!-- The sentence a Look pick adds to this prompt, under the box the way the image
+               form draws its own. -->
+          <look-adds class="look-tail" data-form="video" id="video-look-adds" hidden></look-adds>
           <!-- What the chosen adapter does, and the strength it was measured at. Each adapter
                carries the prompt it answers to, because these answer to a trigger word or to
                an empty box and nobody can guess which, so the choice also writes the box. -->
@@ -345,7 +348,8 @@
               </div>
               <div class="video-references" id="video-references"></div>
             </section>
-            <input id="video-media-upload" type="file" accept="image/*,video/*" multiple hidden>
+            <input id="video-media-upload" type="file" multiple hidden
+              accept=".png,.jpg,.jpeg,.webp,.gif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff">
           </section>
           <div class="video-output-options">
             <!-- The shape and the length are Generate's: an edit runs at the clip's own size
@@ -376,6 +380,14 @@
               </div>
             </div>
           </div>
+          <!-- The prompt aids this model was sampled on, in the image form's own control.
+               Generate carries them; an edit's words are the effect's trigger, so the
+               section has no rows there and the page hides it. -->
+          <details id="video-look">
+            <summary>Look <look-values class="values" data-form="video" id="video-look-values"></look-values></summary>
+            <look-rows class="look" data-form="video" id="video-look-rows"></look-rows>
+            <p class="look-note">Each pick adds a sentence after your prompt.</p>
+          </details>
           <details id="video-advanced">
             <summary>Advanced <span class="values num" id="video-seed-summary">Random seed</span></summary>
             <div class="advanced">
@@ -708,6 +720,13 @@
     return videoAdapters().find(function (adapter) { return adapter.id === videoAdapter; }) || null;
   }
 
+  // What the media chooser may offer, one list per kind of mode. The list names extensions
+  // rather than `image/*,audio/*`: a video container carries an audio track, so an audio
+  // wildcard also matches a clip, and the panel then lists the mp4s in a picker that
+  // Generate opened. Extensions are matched one by one, so a clip cannot be offered here.
+  const GENERATE_MEDIA = '.png,.jpg,.jpeg,.webp,.gif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff';
+  const EDIT_MEDIA = '.mp4,.m4v,.mov,.webm,.ogv';
+
   function syncVideoMode() {
     const mode = videoModeInForce();
     // The controls carry the mode as a class, which shows one set of words and hides the
@@ -752,6 +771,9 @@
     // Edit offers video files only, one per pick, and the component refuses an image that
     // arrives anyway. Generate keeps both kinds.
     document.getElementById('video-reference-tray').hidden = mode.max_references === 0;
+    // The Look rows are the mode's: Generate carries them, and an edit's prompt is the
+    // effect's own words, so the section has no rows there and stays away.
+    document.getElementById('video-look').hidden = !(mode.looks && mode.looks.length);
     videoStudio.needsClip = mode.needs_clip;
     // The slot draws the edit's target, so a mode change redraws it: a generated clip that the
     // run left selected belongs in the slot, not only in the gallery. This runs at startup
@@ -763,9 +785,10 @@
     // The output bar carries the mode's own action, so it is drawn again for a mode change.
     if (typeof videoStudio.renderOutputDetails === 'function') videoStudio.renderOutputDetails();
     const mediaUpload = document.getElementById('video-media-upload');
-    // Generate reads images and a track, Edit reads a clip. The chooser offers only what
-    // the mode reads.
-    mediaUpload.accept = mode.needs_clip ? 'video/*' : 'image/*,audio/*';
+    // Generate reads images and a track, Edit reads a clip. The chooser offers only what the
+    // mode reads. A drop and a paste never pass through this filter, so the component still
+    // reads each file's own type and refuses the wrong one.
+    mediaUpload.accept = mode.needs_clip ? EDIT_MEDIA : GENERATE_MEDIA;
     mediaUpload.multiple = !mode.needs_clip;
     // Edit's block is the image form's block, word for word: one labelled slot, a zone that
     // takes the click, and no "Optional" on the one input the mode cannot run without. The
@@ -862,6 +885,15 @@
     foot.textContent = 'Press Tab to jump to the next [bracket].';
     videoTemplatesMenu.append(foot);
     menus.toggleMenu(videoTemplatesMenu);
+  }
+
+  // The video prompt takes the height its words need, the way the image prompt does, and
+  // stops at the same 320 px so the sidebar keeps its shape. A template writes the box
+  // through the same input event a keystroke raises, so one hook covers both.
+  function growVideoPrompt() {
+    const prompt = document.getElementById('video-prompt');
+    prompt.style.height = 'auto';
+    prompt.style.height = Math.min(prompt.scrollHeight + 2, 320) + 'px';
   }
 
   // Writes the video prompt the way a person does: the box carries the words, and the event
@@ -1152,7 +1184,10 @@
     syncVideoFrameCount();
   });
   document.getElementById('video-seed').addEventListener('input', syncVideoSeedSummary);
-  document.getElementById('video-prompt').addEventListener('input', syncVideoGenerateButton);
+  document.getElementById('video-prompt').addEventListener('input', function () {
+    syncVideoGenerateButton();
+    growVideoPrompt();
+  });
   videoTemplatesToggle.addEventListener('click', function () {
     if (videoTemplatesMenu.hidden) renderVideoTemplates();
     else menus.closeMenus();
@@ -1162,6 +1197,7 @@
     if (selectVideoPlaceholder(event.target, event.target.selectionEnd)) event.preventDefault();
   });
   syncVideoGenerateButton();
+  growVideoPrompt();
   document.querySelector('.video-ratios').addEventListener('click', function (event) {
     const button = event.target.closest('button[data-ratio]');
     if (!button) return;
@@ -1299,13 +1335,19 @@
     // The run is made from the words in the box, which the rewrite button may have
     // lengthened first, and it always asks the pipeline for the video model's own enhancer:
     // that pass is what turns a note into a directed shot, and it costs no page step.
-    const prompt = document.getElementById('video-prompt').value;
+    // A Look pick is appended after those words, the way the image form adds its own. The
+    // rewrite sees the box alone, because the Look is added here and not written into it.
+    const typedPrompt = document.getElementById('video-prompt').value;
+    const lookText = formApi && formApi.videoLookText ? formApi.videoLookText() : '';
+    const prompt = lookText ? typedPrompt.replace(/\s+$/, '') + ' ' + lookText : typedPrompt;
     try {
       seed = selectedVideoSeed();
       settings = {
         backend: STUDIO.video.backend.id,
         modelName: STUDIO.video.backend.name,
         prompt: prompt,
+        // The picks themselves, so a saved clip says which Look made it.
+        look: formApi && formApi.videoLookLabels ? formApi.videoLookLabels().join(', ') : '',
         enhance: true,
         width: width,
         height: height,

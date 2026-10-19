@@ -12,7 +12,7 @@
 
 export const GROUPS = {
   form: ['mode', 'prompt', 'typed', 'size', 'resolution', 'steps', 'guidance', 'cfg', 'seed',
-    'negative', 'count', 'looks'],
+    'negative', 'count', 'looks', 'video-looks'],
   references: ['references', 'marks', 'marking'],
   results: ['gallery', 'view', 'busy', 'progress'],
   kept: ['keeping', 'theme', 'fullscreen'],
