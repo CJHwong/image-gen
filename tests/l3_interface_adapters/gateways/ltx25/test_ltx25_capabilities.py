@@ -157,6 +157,7 @@ def test_every_declared_adapter_ran_on_a_clip_that_holds_its_precondition():
         "clean-plate",
         "deblur",
         "decompression",
+        "restore",
     ]
     for one in adapters:
         assert one.mode == "edit"

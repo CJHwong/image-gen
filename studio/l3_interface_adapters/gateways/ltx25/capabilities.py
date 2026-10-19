@@ -41,6 +41,19 @@ from studio.l3_interface_adapters.gateways.prompt_aids import VIDEO_TEMPLATES
 #   pixel spatial upscaler: no clip at all, exit 1. It is not declared, and the reason is in
 #       the note under that name below.
 #
+# Four more official adapters ran on 2026-10-20, each on one degraded clip at 384 x 384 and
+# 121 frames, seed 7, through the same in-context pipeline, judged against its own input:
+#   restore 1.0: a clip scaled to half and back, sepia, blurred and noisy came back in colour
+#       (saturation 17.8 to 36.3), with the crowd, the street and the torches in place and the
+#       damage gone. It is declared.
+#   colorization 0.9: a grey clip stayed grey, saturation 0.00 to 0.5, as the earlier run on
+#       the other file did. Not declared.
+#   refine-details 1.0: sharper edges on faces at 384, and the card's own gain is in its tiled
+#       workflow, which this pipeline does not tile. Not declared yet.
+#   pixel spatial upscaler 2x 1.0: 384 to 768 works and the detail is real at 1:1, so the grid
+#       failure above was the 224 height, not the adapter. The form cannot ask for a doubled
+#       shape, so it stays out until it can.
+#
 # A difference number does not judge an adapter. water simulation scores 17.03 mean absolute
 # frame difference against its input and clean plate 19.06, but so does decompression at 14.53,
 # and decompression changed nothing. The model re-renders every frame, so the floor is
@@ -71,6 +84,13 @@ DEBLUR_PROMPT = (
 )
 DECOMPRESSION_PROMPT = (
     "ENHANCE QUALITY. The same shot with clean edges, no blocking or banding, honest colour. One continuous shot."
+)
+# The restore card wants the clean capture described, because the damage comes from the
+# reference and the words name what should replace it.
+RESTORE_PROMPT = (
+    "The same shot as a clean, colour, high-resolution capture: natural colour and skin "
+    "tones, sharp detail, stable frames, no scratches, no dust, no flicker, no sepia cast. "
+    "One continuous shot."
 )
 
 # Every adapter here ran with the second stage conditioned, and stage 2 conditions the same
@@ -132,6 +152,20 @@ VIDEO_ADAPTERS = (
         mode="edit",
         file="ltx-2.5-22b-ic-lora-decompression-0.9.safetensors",
         prompt=DECOMPRESSION_PROMPT,
+        strength=_ADAPTER_STRENGTH,
+        stage_2_conditioning=True,
+    ),
+    # Sampled on 2026-10-20 against a clip degraded on purpose: scaled down to half and back,
+    # sepia, blurred and noisy. The output returned colour (saturation 17.8 to 36.3) and
+    # rebuilt the detail, with the crowd, the street and the torches in place. The card's
+    # tiled ladder is not what we drive; the plain in-context pipeline is enough here.
+    VideoAdapter(
+        id="restore",
+        label="Restore",
+        hint="Clean up old or damaged footage: colour, sharpness, no noise",
+        mode="edit",
+        file="ltx-2.5-22b-ic-lora-restore-1.0.safetensors",
+        prompt=RESTORE_PROMPT,
         strength=_ADAPTER_STRENGTH,
         stage_2_conditioning=True,
     ),

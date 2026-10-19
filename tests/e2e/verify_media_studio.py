@@ -2422,6 +2422,7 @@ with sync_playwright() as playwright:
             "clean-plate",
             "deblur",
             "decompression",
+            "restore",
         ]
         and edit_form["templatesPill"] is True
         and edit_form["promptLabel"] == "What to change"
