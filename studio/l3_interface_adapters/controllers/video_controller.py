@@ -9,8 +9,8 @@ from collections.abc import Mapping
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from studio.l1_entities.errors import InvalidJob, UnreadableImage
-from studio.l1_entities.video_capabilities import VideoCapabilities
-from studio.l1_entities.video_job import VideoJob, VideoReference, VideoResult
+from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities, VideoMode
+from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoReference, VideoResult
 from studio.l2_use_cases.boundaries.video_backend_catalog_gateway import VideoBackendCatalogGateway
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
@@ -43,6 +43,7 @@ class VideoController:
 
 
 def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
+    mode = capabilities.mode(_mode_id(payload.get("mode")))
     prompt = _prompt(payload.get("prompt"))
     width = _dimension(payload.get("width"), "width", capabilities)
     height = _dimension(payload.get("height"), "height", capabilities)
@@ -60,7 +61,123 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
         seed,
         references,
         enhance=bool(payload.get("enhance")),
+        edit=_edit(payload, mode, capabilities) if mode.needs_clip else None,
+        audio=_audio(payload.get("audio"), mode, capabilities),
     )
+
+
+def _mode_id(value) -> str:
+    """The mode the page asked for. A page that sends none is a page before the mode switch,
+    and it wants the run that draws a clip."""
+    if value is None or value == "":
+        return "generate"
+    if not isinstance(value, str):
+        raise InvalidJob("mode must be a string")
+    return value
+
+
+def _edit(payload: Mapping, mode: VideoMode, capabilities: VideoCapabilities) -> VideoEdit:
+    """The clip and the adapter an edit carries. Both are required, and the adapter has to be
+    one this mode offers: an adapter from the other mode is a request the form never makes."""
+    adapters = capabilities.adapters_for(mode.id)
+    if not adapters:
+        raise InvalidJob(f"This video model offers no {mode.label.lower()} adapter.")
+    wanted = payload.get("adapter")
+    adapter = next((one for one in adapters if one.id == wanted), None)
+    if adapter is None:
+        raise InvalidJob("adapter must be one of " + ", ".join(one.id for one in adapters))
+    clip, clip_name = _clip(payload.get("clip"), capabilities)
+    return VideoEdit(
+        adapter=adapter.id,
+        strength=_adapter_strength(payload.get("adapter_strength"), adapter),
+        lora_file=adapter.file,
+        clip=clip,
+        clip_name=clip_name,
+        stage_2_conditioning=adapter.stage_2_conditioning,
+    )
+
+
+def _clip(value, capabilities: VideoCapabilities) -> tuple[bytes, str]:
+    if not isinstance(value, Mapping):
+        raise InvalidJob("An edit needs a clip to change.")
+    name = value.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise InvalidJob("The clip needs a name")
+    encoded = value.get("data")
+    if not isinstance(encoded, str) or not encoded:
+        raise InvalidJob("Could not read that clip.")
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise InvalidJob("Could not read that clip.") from None
+    limit = int(capabilities.max_clip_megabytes * 1024 * 1024)
+    if len(data) > limit:
+        raise InvalidJob(f"The clip is larger than {capabilities.max_clip_megabytes:g} MB.")
+    return data, name.strip()
+
+
+def _audio(value, mode: VideoMode, capabilities: VideoCapabilities) -> VideoAudio | None:
+    """The track a generate run follows, or None for a run that draws without one.
+
+    The mode decides whether there is one at all: an edit takes the clip as its whole
+    input, so a track that arrives with one is a request the form never makes. The suffix
+    comes from the bytes, because the pipeline's decoder opens the file by its content and
+    the name a browser sends is not a fact about the format.
+    """
+    if value is None:
+        return None
+    if not mode.accepts_audio:
+        raise InvalidJob("An edit changes a clip. Audio is a Generate input.")
+    if not isinstance(value, Mapping):
+        raise InvalidJob("audio must be an object with a name and data")
+    name = value.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise InvalidJob("The audio track needs a name")
+    encoded = value.get("data")
+    if not isinstance(encoded, str) or not encoded:
+        raise InvalidJob("Could not read that audio track.")
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise InvalidJob("Could not read that audio track.") from None
+    limit = int(capabilities.max_audio_megabytes * 1024 * 1024)
+    if len(data) > limit:
+        raise InvalidJob(f"The audio track is larger than {capabilities.max_audio_megabytes:g} MB.")
+    if not _is_audio(data):
+        raise InvalidJob("That file is not audio this model reads. Use WAV, MP3, FLAC, OGG, M4A or AIFF.")
+    return VideoAudio(data=data, name=name.strip())
+
+
+def _is_audio(data: bytes) -> bool:
+    """Whether the bytes start with a container signature this engine decodes.
+
+    The engine sniffs the container again when it decodes, so this is a refusal before a
+    long render can die on a text file, not a parser.
+    """
+    if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        return True
+    if data[:4] == b"fLaC":
+        return True
+    if data[:4] == b"OggS":
+        return True
+    if data[:4] == b"FORM" and data[8:12] == b"AIFF":
+        return True
+    if data[4:8] == b"ftyp":
+        return True
+    if data[:3] == b"ID3":
+        return True
+    # An MPEG frame starts with eleven set bits, which covers the files that carry no tag.
+    return len(data) >= 2 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0
+
+
+def _adapter_strength(value, adapter: VideoAdapter) -> float:
+    if value is None or value == "":
+        return adapter.strength
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise InvalidJob("adapter_strength must be a number")
+    if not adapter.min_strength <= value <= adapter.max_strength:
+        raise InvalidJob(f"adapter_strength must be between {adapter.min_strength:g} and {adapter.max_strength:g}")
+    return float(value)
 
 
 def _request_id(value) -> str:

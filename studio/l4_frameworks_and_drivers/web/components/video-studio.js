@@ -29,13 +29,34 @@ function isVideoFile(file) {
   return file.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|ogv)$/i.test(file.name);
 }
 
+function isAudioFile(file) {
+  return file.type.startsWith('audio/') || /\.(wav|mp3|flac|ogg|oga|m4a|aac|aiff?)$/i.test(file.name);
+}
+
+function base64OfBytes(bytes) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunk));
+  }
+  return btoa(binary);
+}
+
 function videoMetadata(settings, result = {}) {
   const references = Array.isArray(settings.references) ? settings.references : [];
   const seed = result.seed ?? settings.seed ?? null;
   return {
     backend: settings.backend || '',
     modelName: settings.modelName || 'Video',
+    precision: settings.precision || '',
+    mode: settings.mode || 'generate',
+    effect: settings.adapter || '',
+    effectFile: settings.effectFile || '',
+    effectStrength: settings.effectStrength ?? null,
+    stage2: settings.stage2 ?? null,
     prompt: settings.prompt || '',
+    pipeline: settings.pipeline || '',
+    audio: settings.audioName || '',
     width: Number(result.width ?? settings.width ?? 0),
     height: Number(result.height ?? settings.height ?? 0),
     numFrames: Number(result.num_frames ?? settings.numFrames ?? 0),
@@ -142,6 +163,16 @@ function videoExportMetadata(clip, file) {
     file: file,
     prompt: metadata.prompt || '',
     model: metadata.modelName || '',
+    modelId: metadata.backend || '',
+    precision: metadata.precision || '',
+    mode: metadata.mode || '',
+    effect: metadata.effect || '',
+    effectFile: metadata.effectFile || '',
+    effectStrength: metadata.effectStrength ?? null,
+    stage2: metadata.stage2 ?? null,
+    pipeline: metadata.pipeline || '',
+    audio: metadata.audio || '',
+    references: metadata.references || [],
     durationSeconds: clip.duration,
     width: metadata.width || clip.width || null,
     height: metadata.height || clip.height || null,
@@ -155,8 +186,17 @@ function videoExportMetadata(clip, file) {
 class VideoStudio extends LitElement {
   clips = [];
   imageReferences = [];
+  // The track a generate run follows, as the file the person chose. The form keeps the file
+  // rather than its bytes: a three minute track is read once, when the run is sent.
+  audio = null;
+  // Set by the page from the mode. An edit changes a clip and takes no image references, so
+  // the media door refuses an image while it is on.
+  needsClip = false;
   galleryStore = null;
   keepEnabled = true;
+  // Whether the browser promised to keep the store. `null` is "not asked yet"; the gallery's
+  // note says so only when the answer is a refusal and there is something saved.
+  storagePersisted = null;
   generationProgress = null;
   generationEpoch = 0;
   pendingRender = null;
@@ -166,7 +206,10 @@ class VideoStudio extends LitElement {
   previewResume = null;
   sourcePanel = null;
   selectedReferenceId = null;
+  // What the monitor shows, and, separately, the clip an edit would change. A finished run
+  // moves the first and never the second: showing is not picking.
   selectedClipId = null;
+  editTargetId = null;
   maxReferences = null;
   minReferenceStrength = null;
   maxReferenceStrength = null;
@@ -252,7 +295,6 @@ class VideoStudio extends LitElement {
     this.renderImageReferences();
     this.renderSourceVideos();
     this.renderSelectedClip();
-    this.renderError();
     const preview = this.querySelector('#video-preview-root');
     if (preview) {
       this.previewResizeObserver = new ResizeObserver(() => this.fitVideoMonitor());
@@ -285,6 +327,11 @@ class VideoStudio extends LitElement {
       this.addClip(clip);
       if (!clip.thumbnailBlob) this.createThumbnail(clip);
     });
+  }
+
+  setStoragePersisted(value) {
+    this.storagePersisted = value;
+    this.renderVideoGallery();
   }
 
   setKeeping(keeping) {
@@ -389,6 +436,12 @@ class VideoStudio extends LitElement {
   addImageReference(reference, epoch = this.captureInputEpoch()) {
     if (!this.canCommitInput(epoch)) return;
     if (this.imageReferences.some(function (saved) { return saved.id === reference.id; })) return;
+    // The same frame twice adds nothing, and a capture names its frame by clip and time, so a
+    // repeated name is the same frame.
+    if (this.imageReferences.some(function (saved) { return saved.name === reference.name; })) {
+      this.setError('That frame is already a reference.');
+      return;
+    }
     if (this.maxReferences !== null && this.imageReferences.length >= this.maxReferences) {
       this.setError('This video model accepts at most ' + this.maxReferences + ' image references.');
       return;
@@ -418,6 +471,73 @@ class VideoStudio extends LitElement {
     this.imageReferences = [];
     this.selectedReferenceId = null;
     this.renderImageReferences();
+  }
+
+  addAudioFile(file, epoch = this.captureInputEpoch()) {
+    if (!this.canCommitInput(epoch)) return false;
+    // The track is a generate input: an edit's whole input is the clip it was handed.
+    if (this.needsClip) {
+      this.setError('An edit changes a clip. Audio is a Generate input.');
+      return false;
+    }
+    // The same track twice is the same refusal, named by the file's own identity: a name
+    // alone would refuse two different tracks that happen to share one.
+    if (this.audio && this.audio.name === file.name && this.audio.size === file.size) {
+      this.setError('That track is already here.');
+      return false;
+    }
+    // One track is one timing, and a second would have to fight the first for it.
+    if (this.audio) {
+      this.setError('One audio track at a time. Remove the current track first.');
+      return false;
+    }
+    this.audio = { name: file.name, size: file.size, file: file };
+    this.clearError();
+    this.renderAudio();
+    this.renderMediaEmptyState();
+    return true;
+  }
+
+  clearAudio() {
+    if (!this.audio) return;
+    this.audio = null;
+    this.renderAudio();
+    this.renderMediaEmptyState();
+  }
+
+  async audioPayload() {
+    if (!this.audio) return undefined;
+    const bytes = new Uint8Array(await this.audio.file.arrayBuffer());
+    return { name: this.audio.name, data: base64OfBytes(bytes) };
+  }
+
+  renderAudio() {
+    const tray = document.getElementById('video-audio-tray');
+    const list = document.getElementById('video-audios');
+    if (!tray || !list) return;
+    tray.hidden = this.needsClip || !this.audio;
+    list.replaceChildren();
+    if (!this.audio) return;
+    const row = document.createElement('div');
+    row.className = 'video-audio';
+    row.title = this.audio.name;
+    const picture = document.createElement('div');
+    picture.className = 'video-audio-picture';
+    const badge = document.createElement('span');
+    badge.className = 'video-audio-badge';
+    badge.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>';
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'video-audio-remove';
+    remove.dataset.action = 'remove-audio';
+    remove.setAttribute('aria-label', 'Remove audio ' + this.audio.name);
+    remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
+    picture.append(badge, remove);
+    const name = document.createElement('span');
+    name.className = 'video-audio-name';
+    name.textContent = this.audio.name;
+    row.append(picture, name);
+    list.append(row);
   }
 
   selectReference(id) {
@@ -503,35 +623,18 @@ class VideoStudio extends LitElement {
       remove.dataset.action = 'remove-reference';
       remove.dataset.referenceId = reference.id;
       remove.setAttribute('aria-label', 'Remove video reference ' + reference.name);
-      remove.textContent = '×';
+      remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
+      // The print and its remove travel together, so the circle sits on the picture's own
+      // corner however the row is padded.
+      const picture = document.createElement('div');
+      picture.className = 'video-reference-picture';
+      picture.append(select, remove);
       const name = document.createElement('span');
       name.className = 'video-reference-name';
       name.textContent = reference.name;
-      const settings = document.createElement('details');
-      settings.className = 'video-reference-options';
-      const summary = document.createElement('summary');
-      summary.textContent = 'Reference options';
-      const strengthLabel = document.createElement('label');
-      strengthLabel.className = 'video-reference-strength';
-      const strengthName = document.createElement('span');
-      strengthName.textContent = 'Reference influence';
-      const strength = document.createElement('input');
-      strength.type = 'range';
-      strength.min = String(this.minReferenceStrength);
-      strength.max = String(this.maxReferenceStrength);
-      strength.step = String(this.referenceStrengthStep);
-      strength.value = String(reference.strength);
-      strength.dataset.action = 'reference-strength';
-      strength.dataset.referenceId = reference.id;
-      strength.setAttribute('aria-label', 'Reference influence for ' + reference.name);
-      const strengthValue = document.createElement('output');
-      strengthValue.textContent = Number(reference.strength).toFixed(2);
-      const explanation = document.createElement('span');
-      explanation.className = 'caption';
-      explanation.textContent = 'Adjust only when an image needs more or less influence.';
-      strengthLabel.append(strengthName, strength, strengthValue);
-      settings.append(summary, strengthLabel, explanation);
-      card.append(select, name, remove, settings);
+      // No influence dial: every measured run used the model's own reference strength, and a
+      // second knob on each reference read as a form inside a form.
+      card.append(picture, name);
       list.append(card);
     });
     this.renderMediaEmptyState();
@@ -541,7 +644,10 @@ class VideoStudio extends LitElement {
     const list = document.getElementById('video-source-list');
     const count = document.getElementById('video-source-count');
     if (!list || !count) return;
-    const sources = this.clips.filter((clip) => clip.kind === 'source');
+    // Edit shows its target, whatever kind it is: a generated clip is a legitimate input, and
+    // it is selected when a run finishes. Listing only source clips left the slot empty while
+    // the form already held a clip, so an effect pick lit a button the panel called impossible.
+    const sources = this.shownClips();
     count.textContent = sources.length + (sources.length === 1 ? ' clip' : ' clips');
     list.replaceChildren();
     if (!sources.length) {
@@ -577,14 +683,17 @@ class VideoStudio extends LitElement {
       const duration = document.createElement('span');
       duration.className = 'video-source-duration';
       duration.textContent = clip.duration ? formatTime(clip.duration) : 'Loading';
-      select.append(thumbnail, name, duration);
+      const picture = document.createElement('span');
+      picture.className = 'video-source-picture';
+      picture.append(thumbnail);
+      select.append(picture, name, duration);
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'video-source-remove';
       remove.dataset.action = 'remove-clip';
       remove.dataset.clipId = clip.id;
       remove.setAttribute('aria-label', 'Remove source video ' + clip.name);
-      remove.textContent = '×';
+      remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
       item.append(select, remove);
       list.append(item);
       // The first frame of an added video, once its metadata lets the element seek.
@@ -593,20 +702,40 @@ class VideoStudio extends LitElement {
     this.renderMediaEmptyState();
   }
 
+  // What the slot lists: every source clip in Generate, and the edit's one target in Edit.
+  // The empty state is drawn from this same list, because the two must agree: it used to ask
+  // for a source clip, so an edit whose target was a generated clip drew its row into a group
+  // this function then hid, and the panel said Add the clip to edit over a clip in hand.
+  shownClips() {
+    // Generate takes images; a clip is an edit input and nothing else. The clip panel exists
+    // only where the mode reads it.
+    if (!this.needsClip) return [];
+    return this.clips.filter((clip) => clip.id === this.editTargetId);
+  }
+
   renderMediaEmptyState() {
     const sourceGroup = document.getElementById('video-source-group');
     const referenceTray = document.getElementById('video-reference-tray');
     const emptyState = document.getElementById('video-media-empty');
     if (!sourceGroup || !referenceTray || !emptyState) return;
-    const hasSources = this.clips.some((clip) => clip.kind === 'source');
-    const hasReferences = this.imageReferences.length > 0;
-    sourceGroup.hidden = !hasSources;
+    const hasClips = this.shownClips().length > 0;
+    // An edit takes no image references, so one left from Generate stays out of its panel.
+    const hasReferences = !this.needsClip && this.imageReferences.length > 0;
+    const hasAudio = !this.needsClip && Boolean(this.audio);
+    sourceGroup.hidden = !hasClips;
     referenceTray.hidden = !hasReferences;
-    emptyState.hidden = hasSources || hasReferences;
+    emptyState.hidden = hasClips || hasReferences || hasAudio;
   }
 
   requestPayload(settings) {
     return {
+      // Which mode the form is in, and what an edit carries: the adapter, how hard it is
+      // applied, and the clip it changes. A generate run sends the mode alone.
+      mode: settings.mode || 'generate',
+      adapter: settings.adapter || '',
+      adapter_strength: settings.adapterStrength,
+      clip: settings.clip,
+      audio: settings.audio,
       prompt: settings.prompt,
       backend: settings.backend,
       request_id: settings.requestId,
@@ -618,25 +747,28 @@ class VideoStudio extends LitElement {
       // The form's own switch: on asks the pipeline to lengthen the prompt again with the
       // video model's enhancer, after the studio's rewriter has had its pass.
       enhance: settings.enhance === true,
-      references: this.imageReferences.map(function (reference) {
+      // A mode that takes no image references sends none, whatever the generate form left
+      // behind: references are a generate input, and the clip is the edit's.
+      references: settings.maxReferences > 0 ? this.imageReferences.map(function (reference) {
         return {
           name: reference.name,
           image: reference.base64,
           frame_index: reference.frameIndex,
           strength: reference.strength,
         };
-      }),
+      }) : [],
     };
   }
 
   clearError() {
     this.error = '';
-    this.renderError();
   }
 
+  // A failure goes to the toast host, the page's one surface for it: the inline paragraph in
+  // the strip was below the preview and behind the gallery, and nobody reads it there.
   setError(message) {
     this.error = message;
-    this.renderError();
+    this.dispatchEvent(new CustomEvent('video-error', { detail: { message }, bubbles: true, composed: true }));
   }
 
   async addGeneratedClip(blob, settings) {
@@ -683,9 +815,10 @@ class VideoStudio extends LitElement {
     this.duration = clip.duration || 0;
     this.pendingRender = null;
     this.error = '';
-    this.renderError();
     this.renderSourceVideos();
     this.renderSelectedClip();
+    // No announcement: a finished run shows its clip, and showing is not picking. The edit
+    // target comes from an explicit choice, an upload, a gallery click or Edit this clip.
   }
 
   onComponentClick(event) {
@@ -704,11 +837,13 @@ class VideoStudio extends LitElement {
     if (action === 'remove-reference') this.removeImageReference(control.dataset.referenceId);
     if (action === 'select-reference') this.selectReference(control.dataset.referenceId);
     if (action === 'remove-clip') this.removeClip(control.dataset.clipId);
+    if (action === 'remove-audio') this.clearAudio();
     if (action === 'download-all-videos') this.downloadAllVideos();
     if (action === 'clear-video-gallery') this.clearVideoGallery();
     if (action === 'select-clip') this.selectClip(control.dataset.clipId);
     if (action === 'show-render') this.showRenderMonitor();
     if (action === 'capture-video-frame') this.captureFrameForVideo();
+    if (action === 'edit-this-clip') this.editThisClip(control.dataset.clipId);
     if (action === 'capture-image-frame') this.captureFrameForImage();
   }
 
@@ -842,7 +977,34 @@ class VideoStudio extends LitElement {
 
   addVideoFiles(files, epoch = this.captureInputEpoch()) {
     if (!this.canCommitInput(epoch)) return;
-    const videos = Array.from(files).filter(isVideoFile);
+    // An edit changes one clip. A second one would sit in a list the mode does not use as a
+    // list, so it is refused with the way out named: the row's own remove button.
+    if (!this.needsClip) {
+      this.setError('Generate takes images and audio. Add a clip in Edit to change one.');
+      return false;
+    }
+    const chosen = Array.from(files).filter(isVideoFile);
+    // The same file twice is a mistake in both modes, and its own identity says so: a name
+    // alone would refuse two different clips that happen to share one.
+    const duplicate = chosen.find((file) => this.clips.some((clip) =>
+      clip.kind === 'source' && clip.name === file.name && clip.size === file.size));
+    if (duplicate) {
+      this.setError('That clip is already here.');
+      return false;
+    }
+    // An edit changes one clip. Generate may hold several, because a source clip is also how a
+    // frame is picked there.
+    if (this.needsClip) {
+      if (this.clips.some((clip) => clip.kind === 'source')) {
+        this.setError('An edit uses one clip. Remove the current clip first.');
+        return false;
+      }
+      if (chosen.length > 1) {
+        this.setError('An edit uses one clip. Choose one video.');
+        return false;
+      }
+    }
+    const videos = chosen;
     const hasUnsupported = videos.length !== files.length;
     if (!videos.length) {
       this.setError('Choose a video file.');
@@ -853,6 +1015,7 @@ class VideoStudio extends LitElement {
         id: 'clip-' + nextClipId++,
         kind: 'source',
         name: file.name,
+        size: file.size,
         url: URL.createObjectURL(file),
         objectUrl: true,
         duration: 0,
@@ -866,6 +1029,11 @@ class VideoStudio extends LitElement {
     else this.clearError();
     this.renderSourceVideos();
     this.renderSelectedClip();
+    // An upload is a choice, so it becomes the edit's target too. Without this the form
+    // stayed dead until the row was clicked, which read as a clip that had not landed.
+    this.editTargetId = this.selectedClipId;
+    this.announceSelection();
+    return true;
   }
 
   async addImageFiles(files, epoch = this.captureInputEpoch()) {
@@ -894,14 +1062,29 @@ class VideoStudio extends LitElement {
 
   async addMediaFiles(files, epoch = this.captureInputEpoch()) {
     if (!this.canCommitInput(epoch)) return;
+    // An edit changes one clip. The page sets this from the mode, and it covers the chooser,
+    // a drop and a paste: an image is not an edit input, and taking none of the batch is the
+    // honest answer when one arrives beside a clip.
+    if (this.needsClip && Array.from(files).some((file) => isImageFile(file) || isAudioFile(file))) {
+      this.setError('An edit changes a clip. Choose a video file.');
+      return;
+    }
     const images = Array.from(files).filter(isImageFile);
     const videos = Array.from(files).filter(isVideoFile);
-    const unsupported = Array.from(files).filter((file) => !isImageFile(file) && !isVideoFile(file));
+    const audios = Array.from(files).filter(isAudioFile);
+    const unsupported = Array.from(files).filter((file) =>
+      !isImageFile(file) && !isVideoFile(file) && !isAudioFile(file));
     if (images.length) await this.addImageFiles(images, epoch);
     if (!this.canCommitInput(epoch)) return;
-    if (videos.length) this.addVideoFiles(videos, epoch);
-    if (unsupported.length) this.setError('Choose image or video files.');
-    else if (images.length || videos.length) this.clearError();
+    // A refused intake keeps its own message: clearing it here made the refusal silent.
+    if (videos.length && !this.addVideoFiles(videos, epoch)) return;
+    if (audios.length > 1) {
+      this.setError('One audio track at a time.');
+      return;
+    }
+    if (audios.length && !this.addAudioFile(audios[0], epoch)) return;
+    if (unsupported.length) this.setError('Choose an image, a video or an audio file.');
+    else if (images.length || videos.length || audios.length) this.clearError();
   }
 
   clipboardFiles(event) {
@@ -1012,18 +1195,39 @@ class VideoStudio extends LitElement {
       </div>`;
   }
 
+  // The form needs to know which clip is in hand: an edit changes the selected one, and the
+  // run button is dead until there is one.
+  announceSelection() {
+    const clip = this.clips.find((one) => one.id === this.editTargetId) || null;
+    this.dispatchEvent(
+      new CustomEvent('video-clip-selected', {
+        detail: {
+          id: clip ? clip.id : '',
+          name: clip ? clip.name : '',
+          stub: clip ? Boolean(clip.stub) : false,
+          kind: clip ? clip.kind : '',
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
   selectClip(id) {
     this.closeOutputPromptSheet(false);
+    // A click in the gallery or the menu is the person choosing this clip, so it is both what
+    // the monitor shows and the clip an edit would change.
     this.selectedClipId = id;
+    this.editTargetId = id;
     this.showRender = false;
     this.previewResume = null;
     this.currentTime = 0;
     const clip = this.selectedClip();
     this.duration = clip ? clip.duration || 0 : 0;
     this.error = '';
-    this.renderError();
     this.renderSourceVideos();
     this.renderSelectedClip();
+    this.announceSelection();
   }
 
   showRenderMonitor() {
@@ -1055,6 +1259,8 @@ class VideoStudio extends LitElement {
     return true;
   }
 
+  // Edit changes one clip. A person may have added several in Generate to pick frames from,
+  // so entering Edit keeps the selected one and releases the rest, with a line that says so.
   async removeClip(id) {
     const removed = this.clips.find(function (clip) { return clip.id === id; });
     if (!removed) return;
@@ -1065,6 +1271,11 @@ class VideoStudio extends LitElement {
     }
     if (removed) releaseClipUrls(removed);
     this.clips = this.clips.filter(function (clip) { return clip.id !== id; });
+    if (this.editTargetId === id) {
+      // Removing the target leaves no target. The monitor may show another clip, and showing
+      // is not picking.
+      this.editTargetId = null;
+    }
     if (this.selectedClipId === id) {
       this.selectedClipId = this.clips.length ? this.clips[0].id : null;
       this.previewResume = null;
@@ -1075,6 +1286,7 @@ class VideoStudio extends LitElement {
     }
     this.renderSourceVideos();
     this.renderVideoGallery();
+    this.announceSelection();
   }
 
   async downloadAllVideos() {
@@ -1261,10 +1473,14 @@ class VideoStudio extends LitElement {
           </div>
         </div>
         <div class="actions video-output-actions">
-          ${canCapture ? html`
+          ${canCapture && !this.needsClip ? html`
             <button class="btn quiet" type="button" data-action="capture-video-frame"
               aria-label="Add reference" title="Add this frame as an image reference">
               <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>Add reference</button>` : nothing}
+          ${canCapture && this.needsClip ? html`
+            <button class="btn quiet" type="button" data-action="edit-this-clip" data-clip-id=${clip.id}
+              aria-label="Edit this clip" title="Change this clip in Edit">
+              <svg class="icon" aria-hidden="true"><use href="#i-brush"></use></svg>Edit this clip</button>` : nothing}
           ${canShowMore ? html`
             <div class="menu-anchor">
               <button class="icon-btn" type="button" data-action="toggle-output-menu"
@@ -1296,8 +1512,18 @@ class VideoStudio extends LitElement {
     const menu = root.querySelector('#video-output-menu');
     if (!menu || !clip) return;
     menu.replaceChildren();
+    // Generate keeps its frame actions: Add reference sits on the bar, and the menu offers the
+    // image workspace and the door into Edit. Edit's menu carries neither, because an edit
+    // takes no references and its bar is already the edit door.
     if (canCapture) {
+      // The clip lives in Edit now, so the actions that read its frame live there too. Edit's
+      // bar carries Edit this clip, so the frame capture sits in this menu.
       menu.append(menuItem('image-in', 'Use current frame in Image', () => this.captureFrameForImage()));
+      if (this.needsClip) {
+        menu.append(menuItem('image-in', 'Add this frame as a reference', () => this.captureFrameForVideo()));
+      } else {
+        menu.append(menuItem('brush', 'Edit this clip', () => this.editThisClip(clip.id)));
+      }
     }
     if (this.supportsSeed && seed !== null) {
       menu.append(menuItem('hash', 'Reuse seed ' + seed, () => this.reuseOutput({seed})));
@@ -1305,6 +1531,12 @@ class VideoStudio extends LitElement {
     if (metadata?.prompt) {
       menu.append(menuItem('text', 'Reuse prompt', () => this.reuseOutput({prompt: metadata.prompt})));
     }
+  }
+
+  // The menu's door into Edit: the clip is in hand, and the page owns the mode switch.
+  editThisClip(clipId) {
+    this.selectClip(clipId);
+    this.dispatchEvent(new CustomEvent('video-edit-clip', { bubbles: true, composed: true }));
   }
 
   reuseOutput(detail) {
@@ -1406,11 +1638,6 @@ class VideoStudio extends LitElement {
     renderTemplate(this.renderGallery(), gallery);
   }
 
-  renderError() {
-    const errorRoot = this.querySelector('#video-error-root');
-    if (errorRoot) renderTemplate(this.error ? html`<p class="video-error" role="alert">${this.error}</p>` : '', errorRoot);
-  }
-
   renderGallery() {
     const outputs = this.clips.filter((clip) => clip.kind === 'generated');
     // One thing is current: the render while it owns the screen, and a clip otherwise.
@@ -1426,7 +1653,9 @@ class VideoStudio extends LitElement {
     const videoCount = outputs.length + (outputs.length === 1 ? ' video' : ' videos');
     const note = !outputs.length
       ? this.keepEnabled ? 'Videos are kept in this browser.' : 'Videos stay in this tab only.'
-      : kept === outputs.length ? videoCount + ', kept in this browser.'
+      : kept === outputs.length
+        ? videoCount + ', kept in this browser.'
+          + (this.storagePersisted === false ? ' The browser may clear them when space is low.' : '')
         : downloadable.length ? videoCount + ' in this tab. Download the ones you want to keep.'
           : (outputs.length === 1 ? 'A stub result' : outputs.length + ' stub results') + ' in this tab.';
     return html`
@@ -1503,7 +1732,6 @@ class VideoStudio extends LitElement {
           <div id="video-output-details-root"></div>
         </div>
         <div class="video-editing-area">
-          <div id="video-error-root"></div>
           <div id="video-gallery-root"></div>
         </div>
       </div>

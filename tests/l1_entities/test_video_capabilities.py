@@ -1,6 +1,10 @@
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
-from studio.l1_entities.video_capabilities import VideoCapabilities, VideoShape
+import pytest
+
+from studio.l1_entities.errors import UnsupportedMode
+from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities, VideoMode, VideoShape
+from tests.support.fakes import fake_video_capabilities
 
 
 def capabilities():
@@ -48,3 +52,50 @@ def test_video_capabilities_are_plain_data_for_the_page_and_controller():
         record["reference_strength_step"],
         record["default_reference_strength"],
     ) == (0.05, 1.0, 0.05, 1.0)
+
+
+def test_a_backend_with_no_modes_has_one_and_it_draws():
+    """Every video backend before this one had a single way of working, and the form still
+    draws that: no mode switch, no adapter picker, the run it always made."""
+    capabilities = fake_video_capabilities()
+
+    assert capabilities.modes == ()
+    assert capabilities.mode("generate").label == "Generate"
+    assert capabilities.mode("anything").needs_clip is False
+    assert capabilities.adapters_for("edit") == ()
+
+
+def test_a_mode_is_looked_up_by_id_and_an_unknown_one_is_refused():
+    capabilities = replace(
+        fake_video_capabilities(),
+        modes=(VideoMode("edit", "Edit", needs_clip=True),),
+    )
+
+    with pytest.raises(UnsupportedMode, match="no generate mode"):
+        capabilities.mode("generate")
+
+
+def test_the_adapters_a_mode_offers_are_the_ones_declared_for_it():
+    capabilities = replace(
+        fake_video_capabilities(),
+        adapters=(
+            VideoAdapter("relight", "Relight", "hint", "edit", "relight.safetensors"),
+            VideoAdapter("loop", "Loop", "hint", "generate", "loop.safetensors"),
+        ),
+    )
+
+    assert [adapter.id for adapter in capabilities.adapters_for("edit")] == ["relight"]
+    assert [adapter.id for adapter in capabilities.adapters_for("generate")] == ["loop"]
+
+
+def test_an_adapter_declared_impossibly_is_refused_at_declaration():
+    """A mode is generate or edit, a prompt is read, optional or refused, and an adapter that
+    refuses a prompt cannot carry one: the page would otherwise offer a box the run rejects."""
+    settled = VideoAdapter("x", "X", "hint", "edit", "x.safetensors")
+
+    with pytest.raises(ValueError):
+        replace(settled, mode="restore")
+    with pytest.raises(ValueError):
+        replace(settled, prompt_mode="sometimes")
+    with pytest.raises(ValueError):
+        replace(settled, prompt_mode="empty", prompt="say something")

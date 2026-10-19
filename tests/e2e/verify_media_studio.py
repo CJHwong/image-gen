@@ -4,12 +4,14 @@ uv run studio --stub --port <port>
 uv run --with playwright python tests/e2e/verify_media_studio.py <port>
 """
 
+import base64
 import json
 import re
 import shutil
 import sys
 import tempfile
 import urllib.parse
+import wave
 from pathlib import Path
 
 from PIL import Image
@@ -21,6 +23,12 @@ URL = f"http://127.0.0.1:{PORT}/"
 SCRATCH = Path(tempfile.mkdtemp(prefix="verify-media-studio-"))
 REFERENCE = SCRATCH / "reference.png"
 Image.new("RGB", (1024, 1024), (194, 89, 42)).save(REFERENCE)
+AUDIO = SCRATCH / "theme.wav"
+with wave.open(str(AUDIO), "wb") as track:
+    track.setnchannels(1)
+    track.setsampwidth(2)
+    track.setframerate(16000)
+    track.writeframes(b"\x00\x00" * 16000)
 results = []
 
 
@@ -170,7 +178,7 @@ with sync_playwright() as playwright:
             selectorBeforePrompt: Boolean(modes.compareDocumentPosition(prompt)
               & Node.DOCUMENT_POSITION_FOLLOWING),
             selectorHeight: label.height,
-            videoHasImageSelector: Boolean(document.querySelector('#video-controls .modes')),
+            videoSelectorIsItsOwn: document.querySelector('#video-controls .modes')?.id === 'video-modes',
           };
         }"""
     )
@@ -180,7 +188,7 @@ with sync_playwright() as playwright:
         "Image Generate and Edit keep their original selector above Prompt",
         image_mode_layout["selectorBeforePrompt"]
         and image_mode_layout["selectorHeight"] == 32
-        and not image_mode_layout["videoHasImageSelector"],
+        and image_mode_layout["videoSelectorIsItsOwn"],
         str(image_mode_layout),
     )
     page.set_viewport_size({"width": 1024, "height": 844})
@@ -231,7 +239,10 @@ with sync_playwright() as playwright:
           return {clientWidth: head.clientWidth, scrollWidth: head.scrollWidth,
             left, headerLeft: bounds.left, right, headerRight: bounds.right,
             labelActionsOverlap: overlaps(label, actions),
-            headPills: document.querySelectorAll('#video-controls .head-actions .pill').length};
+            // Only the pills that are shown: the adapter's own pill lives here too and is
+            // hidden unless the mode offers adapters, and a hidden pill takes no room.
+            headPills: [...document.querySelectorAll('#video-controls .head-actions .pill')]
+              .filter(pill => !pill.hidden).length};
         }"""
     )
     switch_workspace(page, "image")
@@ -243,6 +254,30 @@ with sync_playwright() as playwright:
         and not narrow_video_head["labelActionsOverlap"]
         and narrow_video_head["headPills"] == 2,
         str(narrow_video_head),
+    )
+    # The adapter's pill is the third one in that same head, and it shows only in a mode that
+    # offers adapters. It has to fit there too, beside the two that are always shown.
+    switch_workspace(page, "video")
+    page.evaluate("() => document.querySelector('#video-modes input[value=edit]').click()")
+    narrow_edit_head = page.evaluate(
+        """() => {
+          const head = document.querySelector('#video-controls .prompt-field .field-head');
+          const shown = [...head.querySelectorAll('.head-actions .pill')].filter(pill => !pill.hidden);
+          const bounds = shown.map(pill => pill.getBoundingClientRect());
+          return {pills: shown.map(pill => pill.id), clientWidth: head.clientWidth,
+            scrollWidth: head.scrollWidth,
+            insideHeader: bounds.every(box => box.left >= head.getBoundingClientRect().left - 1
+              && box.right <= head.getBoundingClientRect().right + 1)};
+        }"""
+    )
+    switch_workspace(page, "image")
+    page.evaluate("() => document.querySelector('#video-modes input[value=generate]').click()")
+    check(
+        "edit mode puts the adapter and Rewrite in the prompt's head, and the templates away",
+        narrow_edit_head["pills"] == ["video-adapters-toggle", "video-rewrite-toggle"]
+        and narrow_edit_head["scrollWidth"] <= narrow_edit_head["clientWidth"]
+        and narrow_edit_head["insideHeader"],
+        str(narrow_edit_head),
     )
     page.locator("label[for=mode-generate]").click()
     page.set_viewport_size({"width": 1440, "height": 1000})
@@ -280,13 +315,13 @@ with sync_playwright() as playwright:
     )
     page.unroute("**/workspace")
     switch_workspace(page, "image")
-    page.click("#backend-toggle")
-    image_models = page.get_by_role("menuitemradio").all_text_contents()
-    page.keyboard.press("Escape")
+    # studio.toml offers one image model, so the page draws no picker to open: the
+    # toggle names that model and stays shut. The video check below reads the same way.
     check(
-        "Image mode lists image models in its selector",
-        len(image_models) == 3 and "Qwen-Image-2.1-Turbo" in image_models[0],
-        ", ".join(image_models),
+        "Image mode shows its own selected model, with no picker",
+        page.locator("#backend-toggle .name").inner_text() == "Qwen-Image-2.1-Turbo"
+        and page.locator("#backend-toggle").is_disabled(),
+        page.locator("#backend-toggle").inner_text().replace("\n", " "),
     )
 
     page.fill("#prompt", "A copper cup on a wooden table")
@@ -326,26 +361,13 @@ with sync_playwright() as playwright:
         page.locator("#video-source-panel .video-reference").get_attribute("title") == "reference.png",
         page.locator("#video-source-panel .video-reference").get_attribute("title") or "no reference",
     )
-    reference_options = page.locator("#video-source-panel .video-reference-options").first
     check(
-        "reference influence stays out of the default controls",
-        reference_options.count() == 1
-        and reference_options.evaluate("element => !element.open")
+        "a reference is its print and its name, with no influence dial",
+        page.locator("#video-source-panel .video-reference-options").count() == 0
+        and page.locator("#video-source-panel .video-reference-name").inner_text() == "reference.png"
         and page.locator("#video-source-panel [data-action='reference-frame']").count() == 0,
-        "captured source frames keep their source time",
+        page.locator("#video-source-panel .video-reference").inner_text(),
     )
-    if reference_options.count():
-        reference_options.locator("summary").click()
-    reference_options_open = reference_options.count() and reference_options.evaluate("element => element.open")
-    check(
-        "reference options explain the influence control",
-        reference_options_open
-        and "Reference influence" in reference_options.inner_text()
-        and "Adjust only when an image needs more or less influence." in reference_options.inner_text(),
-        reference_options.inner_text() if reference_options.count() else "missing options",
-    )
-    if reference_options.count() and reference_options.evaluate("element => element.open"):
-        reference_options.locator("summary").click()
     check(
         "Video mode shows its own selected model",
         page.locator("#backend-toggle .name").inner_text() == "LTX-2.5"
@@ -416,13 +438,10 @@ with sync_playwright() as playwright:
             strength: 0.4,
           };
           videoStudio.addImageReference(reference);
-          videoStudio.addImageReference({...reference, id: 'model-limit-two'});
+          videoStudio.addImageReference({...reference, id: 'model-limit-two', name: reference.name + ' b'});
           const referenceLimitError = videoStudio.error;
-          const referenceStrengths = document.querySelectorAll(
-            '#video-source-panel .video-reference-options input[type=range]'
-          );
-          const referenceOptions = document.querySelector('.video-reference-options');
-          const defaultReferenceStrength = referenceStrengths[1]?.value ?? null;
+          const defaultReferenceStrength = videoStudio.defaultReferenceStrength;
+          const referenceOptions = document.querySelectorAll('.video-reference-options').length;
           videoStudio.removeImageReference(reference.id);
           videoStudio.clearError();
           const state = {
@@ -452,14 +471,10 @@ with sync_playwright() as playwright:
             referenceLimit: videoStudio.maxReferences,
             referenceLimitError: referenceLimitError,
             defaultReferenceStrength: defaultReferenceStrength,
-            referenceOptionsClosed: referenceOptions ? !referenceOptions.open : null,
+            referenceOptions: referenceOptions,
             outputFrameControls: document.querySelectorAll(
               '#video-source-panel [data-action="reference-frame"]'
             ).length,
-            referenceStrength: (() => {
-              const control = document.querySelector('#video-source-panel .video-reference-options input[type=range]');
-              return control ? [control.min, control.max, control.step, control.value] : null;
-            })(),
             seedRange: [
               document.querySelector('#video-seed').min,
               document.querySelector('#video-seed').max,
@@ -524,10 +539,9 @@ with sync_playwright() as playwright:
             "defaultShape": "512 × 640, 97 frames",  # noqa: RUF001
             "referenceLimit": 2,
             "referenceLimitError": "This video model accepts at most 2 image references.",
-            "defaultReferenceStrength": "0.4",
-            "referenceOptionsClosed": True,
+            "defaultReferenceStrength": 0.4,
+            "referenceOptions": 0,
             "outputFrameControls": 0,
-            "referenceStrength": ["0.2", "0.8", "0.2", "0.8"],
             "seedRange": ["17", "99", False, False],
             "unsupportedSeed": [True, True, "Not supported", "This video model does not support a seed."],
         },
@@ -647,9 +661,13 @@ with sync_playwright() as playwright:
             rewriteAwake: !button.disabled,
             rewriteTitle: button.title,
             // Read here, because this block empties the box on its way out and the run
-            // button is dead the moment it is empty.
+            // button is dead the moment it is empty. A template leaves its brackets for the
+            // user to fill, so the run waits, the way the image form's does.
             runAwake: !document.getElementById('video-generate').disabled,
           };
+          prompt.value = prompt.value.replace(/\\[[^\\]\\n]+\\]/g, 'a cyclist');
+          prompt.dispatchEvent(new Event('input', { bubbles: true }));
+          result.runAwakeWhenFilled = !document.getElementById('video-generate').disabled;
           // The checks below read an empty prompt, so this puts it back the way it found it,
           // through the same door a template writes it: a plain value change raises nothing.
           prompt.value = '';
@@ -666,9 +684,12 @@ with sync_playwright() as playwright:
         json.dumps(filled),
     )
     check(
-        "a template written into the box wakes the rewrite button and the run",
-        filled["rewriteAwake"] and "longer instruction" in filled["rewriteTitle"] and filled["runAwake"],
-        filled["rewriteTitle"],
+        "a template wakes the rewrite button, and the run waits until its brackets are filled",
+        filled["rewriteAwake"]
+        and "longer instruction" in filled["rewriteTitle"]
+        and not filled["runAwake"]
+        and filled["runAwakeWhenFilled"],
+        json.dumps(filled),
     )
 
     # Each template menu hangs 6px under its own button row, and one rule draws both. The
@@ -761,12 +782,31 @@ with sync_playwright() as playwright:
         "an emptied prompt puts the rewrite button back to dead",
         page.locator("#video-rewrite-toggle").is_disabled() and page.locator("#video-generate").is_disabled(),
     )
+    video_modes = page.evaluate(
+        """() => {
+          const modes = document.querySelector('#video-controls .modes');
+          const label = modes.querySelector('label').getBoundingClientRect();
+          return {count: document.querySelectorAll('#video-controls .modes').length,
+            visible: !modes.hidden, height: label.height,
+            radios: modes.querySelectorAll('input[type=radio]').length,
+            // The columns themselves resolve to pixels, so what is compared is their number
+            // and the gap between them: the same grid the image form draws.
+            sameStylesAsImage: getComputedStyle(modes).gridTemplateColumns.split(' ').length
+              === getComputedStyle(document.querySelector('#image-controls .modes')).gridTemplateColumns.split(' ').length
+              && getComputedStyle(modes).gap === getComputedStyle(document.querySelector('#image-controls .modes')).gap};
+        }"""
+    )
     check(
-        "Video keeps one mode selector and places references in the sidebar",
+        "Video has the Image selector's own switch, and puts references in the sidebar",
         page.locator("#image-controls .modes").is_hidden()
-        and page.locator("#video-controls .modes").count() == 0
+        and video_modes["count"] == 1
+        and video_modes["visible"]
+        and video_modes["radios"] == 2
+        and video_modes["height"] == 32
+        and video_modes["sameStylesAsImage"]
         and page.locator("#video-reference-tray[aria-label='Image references']").count() == 1
         and page.locator("#video-reference-track").count() == 0,
+        json.dumps(video_modes),
     )
     output_controls = page.evaluate(
         """() => {
@@ -791,7 +831,7 @@ with sync_playwright() as playwright:
           const emptyState = document.querySelector('#video-media-empty');
           const sourceGroup = document.querySelector('.video-source-group');
           const referenceTray = document.querySelector('#video-reference-tray');
-          const explainsEmptyState = emptyState?.textContent.includes('Add an image reference or a source clip');
+          const explainsEmptyState = emptyState?.textContent.includes('Add an image reference');
           const emptyMedia = {
             hidden: Boolean(emptyState?.hidden),
             sourceGroupHidden: Boolean(sourceGroup?.hidden),
@@ -816,12 +856,6 @@ with sync_playwright() as playwright:
         page.locator("aside #video-source-panel").count() == 1
         and page.locator(".work #video-source-panel").count() == 0
         and page.locator("#video-timeline").count() == 0,
-    )
-    check(
-        "media panel explains that source clips only provide frames",
-        "Image references guide the generated video" in page.locator("#video-source-panel").inner_text()
-        and "Source clips help you pick frames" in page.locator("#video-source-panel").inner_text(),
-        page.locator("#video-source-panel").inner_text(),
     )
     desktop_footer = page.evaluate(
         """() => {
@@ -877,8 +911,7 @@ with sync_playwright() as playwright:
     check(
         "Command+P pastes an image reference in Video mode",
         shortcut_prevented
-        and page.locator("#video-source-panel .video-reference").nth(2).get_attribute("title") == "shortcut.png"
-        and "⌘P" in page.locator("#video-source-panel").inner_text(),
+        and page.locator("#video-source-panel .video-reference").nth(2).get_attribute("title") == "shortcut.png",
         page.locator("#video-source-panel").inner_text(),
     )
     page.get_by_role("button", name="Remove video reference shortcut.png").click()
@@ -952,13 +985,57 @@ with sync_playwright() as playwright:
     page.locator("#video-media-upload").set_input_files(
         {"name": "notes.txt", "mimeType": "text/plain", "buffer": b"not an image"}
     )
-    page.locator("#video-studio .video-error").wait_for(state="visible", timeout=10000)
+    page.locator("#toasts .toast.error").last.wait_for(state="visible", timeout=10000)
     check(
         "a file that is neither an image nor a video shows a visible error",
-        page.locator("#video-studio .video-error").inner_text() == "Choose image or video files.",
-        page.locator("#video-studio .video-error").inner_text(),
+        page.locator("#toasts .toast.error").last.inner_text() == "Choose an image, a video or an audio file.",
+        page.locator("#toasts .toast.error").last.inner_text(),
     )
 
+    # Generate takes one audio track, and the run follows it. The door offers the kind, the
+    # row shows the track, and a second one is refused rather than replacing it silently.
+    page.locator("#video-media-upload").set_input_files(str(AUDIO))
+    page.wait_for_function("() => document.querySelectorAll('#video-audios .video-audio').length === 1")
+    track = page.evaluate(
+        """() => ({
+          accept: document.getElementById('video-media-upload').accept,
+          name: document.querySelector('#video-audios .video-audio-name').textContent,
+          trayShown: !document.getElementById('video-audio-tray').hidden,
+          emptyHidden: document.getElementById('video-media-empty').hidden,
+          removable: Boolean(document.querySelector('#video-audios [data-action=remove-audio]')),
+        })"""
+    )
+    check(
+        "generate takes an audio track and shows it as a row",
+        track["accept"] == "image/*,audio/*"
+        and track["name"] == "theme.wav"
+        and track["trayShown"]
+        and track["emptyHidden"]
+        and track["removable"],
+        json.dumps(track),
+    )
+    page.locator("#video-media-upload").set_input_files(str(AUDIO))
+    page.locator("#toasts .toast.error").last.wait_for(state="visible", timeout=10000)
+    check(
+        "the same track twice is refused",
+        page.locator("#toasts .toast.error").last.inner_text() == "That track is already here."
+        and page.locator("#video-audios .video-audio").count() == 1,
+        page.locator("#toasts .toast.error").last.inner_text(),
+    )
+    page.evaluate("() => document.querySelector('#video-modes input[value=edit]').click()")
+    hidden_in_edit = page.locator("#video-audio-tray").is_hidden()
+    page.evaluate("() => document.querySelector('#video-modes input[value=generate]').click()")
+    check(
+        "the track belongs to generate, and edit hides its tray",
+        hidden_in_edit
+        and page.locator("#video-audio-tray").is_visible()
+        and page.locator("#video-audios .video-audio").count() == 1,
+        f"hidden in edit: {hidden_in_edit}",
+    )
+
+    # A clip is an edit input now, so the paste, the source row, the player and the capture all
+    # run in Edit. Generate keeps images.
+    page.evaluate("() => document.querySelector('#video-modes input[value=edit]').click()")
     video_bytes = make_video(page)
     shortcut_prevented = paste_shortcut_file(page, video_bytes, "shortcut.webm", "video/webm")
     page.wait_for_function("() => document.querySelectorAll('#video-source-list .video-source').length === 1")
@@ -1068,7 +1145,6 @@ with sync_playwright() as playwright:
         ),
         f"restored {resume_time:.2f}s",
     )
-    capture_button = page.get_by_role("button", name="Add reference")
     expected_capture = page.evaluate(
         """async () => {
           const studio = document.getElementById('video-studio');
@@ -1095,7 +1171,8 @@ with sync_playwright() as playwright:
           };
         }"""
     )
-    capture_button.click()
+    page.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Add this frame as a reference").click()
     page.wait_for_function("() => document.querySelectorAll('#video-source-panel .video-reference').length === 2")
     captured_frame_index = page.evaluate("() => document.getElementById('video-studio').imageReferences[1].frameIndex")
     check(
@@ -1147,8 +1224,9 @@ with sync_playwright() as playwright:
         page.locator("#strip-wrap").is_hidden()
         and page.locator("#media-video-mode").get_attribute("aria-pressed") == "true"
         and page.locator("#video-gallery .video-clip").count() == 0
-        and page.locator("#video-source-list .video-source").count() == 1
+        and page.locator("#video-source-list .video-source").count() == 0
         and page.locator("#video-source-panel .video-reference").count() == 3
+        and page.evaluate("() => (document.querySelector('#video-modes input:checked') || {}).value") == "generate"
         and "did not load as a video reference" not in page.locator("#toasts").inner_text(),
         f"video mode: {page.locator('#media-video-mode').get_attribute('aria-pressed')}, "
         f"strip hidden: {page.locator('#strip-wrap').is_hidden()}, "
@@ -1157,9 +1235,6 @@ with sync_playwright() as playwright:
         f"names: {page.locator('#video-source-panel .video-reference').evaluate_all('nodes => nodes.map(node => node.title)')}, "
         f"state: {page.locator('#video-studio').evaluate('element => element.imageReferences.map(item => item.name)')}, "
         f"toast: {page.locator('#toasts').inner_text()}",
-    )
-    page.locator("#video-source-panel .video-reference-options input[type=range]").nth(1).evaluate(
-        "element => { element.value = '0.55'; element.dispatchEvent(new Event('input', {bubbles: true})); }"
     )
     page.fill("#video-prompt", "A kite rises as the camera pans across the shore")
     page.get_by_role("button", name="Set duration to 15 seconds").click()
@@ -1187,7 +1262,7 @@ with sync_playwright() as playwright:
     )
     page.locator("#video-advanced summary").click()
     page.fill("#video-seed", "4294967296")
-    page.get_by_role("button", name="Generate video").click()
+    page.locator("#video-generate").click()
     page.wait_for_function(
         "() => document.querySelector('#video-request-status').textContent === 'Video generation failed.'",
         timeout=10000,
@@ -1195,9 +1270,9 @@ with sync_playwright() as playwright:
     check(
         "out-of-range video seeds are stopped before the request",
         len(video_posts) == 0
-        and page.locator("#video-studio .video-error").inner_text()
+        and page.locator("#toasts .toast.error").last.inner_text()
         == "Seed must be a whole number from 0 to 4294967295.",
-        page.locator("#video-studio .video-error").inner_text(),
+        page.locator("#toasts .toast.error").last.inner_text(),
     )
 
     cancel_state = page.evaluate(
@@ -1259,12 +1334,12 @@ with sync_playwright() as playwright:
         pending_clipboard["prevented"] and pending_clipboard["pending"] and pending_reader_paste,
     )
     page.fill("#video-seed", "42")
-    page.get_by_role("button", name="Generate video").click()
+    page.locator("#video-generate").click()
     page.locator("body.video-busy").wait_for(state="attached", timeout=10000)
     starting_locked = page.evaluate(
         """() => ({
           disabled: document.querySelector('#video-generate').disabled,
-          label: document.querySelector('#video-generate').textContent,
+          label: document.querySelector('#video-generate').innerText,
           panelHeld: document.querySelector('#form').dataset.panelHeld === 'true',
           durationPointerLocked: document.querySelector('#video-duration').style.pointerEvents === 'none',
           controlsOpacity: getComputedStyle(document.querySelector('.controls')).opacity,
@@ -1287,7 +1362,7 @@ with sync_playwright() as playwright:
     foreign_run_state = page.evaluate(
         """() => ({
           disabled: document.querySelector('#video-generate').disabled,
-          label: document.querySelector('#video-generate').textContent,
+          label: document.querySelector('#video-generate').innerText,
         })"""
     )
     check(
@@ -1407,10 +1482,8 @@ with sync_playwright() as playwright:
         "moved to frame 241" in page.locator("#toasts").inner_text(),
         page.locator("#toasts").inner_text(),
     )
-    sent_strength = float(
-        page.locator("#video-source-panel .video-reference-options input[type=range]").nth(1).input_value()
-    )
-    page.get_by_role("button", name="Generate video").click()
+    sent_strength = page.locator("#video-studio").evaluate("element => element.imageReferences[1].strength")
+    page.locator("#video-generate").click()
     page.wait_for_function(
         "() => ['Stub response added. No video file was generated.', 'Video generation failed.']"
         ".includes(document.querySelector('#video-request-status').textContent)",
@@ -1420,9 +1493,7 @@ with sync_playwright() as playwright:
     check(
         "stub video generation completes without a media file",
         request_status == "Stub response added. No video file was generated.",
-        request_status + ": " + page.locator("#video-studio .video-error").inner_text()
-        if page.locator("#video-studio .video-error").count()
-        else request_status,
+        request_status + ": " + page.locator("#toasts").inner_text(),
     )
     request = video_posts[-1] if video_posts else {}
     check(
@@ -1435,7 +1506,7 @@ with sync_playwright() as playwright:
         and isinstance(request.get("request_id"), str)
         and len(request.get("request_id", "")) >= 16
         and request["references"][1].get("frame_index") == sent_frame == captured_frame_index
-        and request["references"][1].get("strength") == sent_strength == 0.55
+        and request["references"][1].get("strength") == sent_strength == 1
         and all(
             0 <= reference.get("frame_index", -1) < request.get("num_frames", 0)
             for reference in request.get("references", [])
@@ -1444,10 +1515,28 @@ with sync_playwright() as playwright:
         json.dumps({key: value for key, value in request.items() if key != "references"})
         + f", references: {len(request.get('references', []))}",
     )
+    run_meta = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          const clip = studio.clips.find((one) => one.kind === 'generated');
+          return clip ? {mode: clip.metadata.mode, precision: clip.metadata.precision,
+                         model: clip.metadata.modelName, effect: clip.metadata.effect} : null;
+        }"""
+    )
+    check(
+        "a clip records its model, precision, mode and effect",
+        run_meta is not None
+        and run_meta["mode"] == "generate"
+        and run_meta["precision"] == "bf16"
+        and run_meta["model"] == "LTX-2.5"
+        and run_meta["effect"] == "",
+        json.dumps(run_meta),
+    )
     check(
         "stub video output enters the video gallery without fake media bytes",
         page.locator("#video-gallery .video-clip").count() == 1
-        and page.locator("#video-source-list .video-source").count() == 1
+        # Generate offers no clip, by design: the clip is Edit's input.
+        and page.locator("#video-source-list .video-source").count() == 0
         and page.get_by_text("The stub returns metadata only.").is_visible(),
         f"video clips: {page.locator('#video-gallery .video-clip').count()}",
     )
@@ -1457,7 +1546,7 @@ with sync_playwright() as playwright:
         and page.locator("#video-generate").is_disabled()
         and page.locator("#video-source-panel .video-reference").count() == 0
         and page.locator("#video-reference-count").text_content() == "0 images"
-        and page.locator("#video-source-list .video-source").count() == 1
+        and page.locator("#video-source-list .video-source").count() == 0
         and page.locator("#video-duration").input_value() == "241"
         and page.locator("#video-seed").input_value() == "",
         f"prompt: {page.locator('#video-prompt').input_value()!r}, "
@@ -1530,12 +1619,16 @@ with sync_playwright() as playwright:
             }
         ),
     )
+    # The source row lives in Edit now: the switch goes there for this pair, then back to
+    # Generate, which the checks below read.
+    page.evaluate("() => document.querySelector('#video-modes input[value=edit]').click()")
     page.locator("#video-source-list .video-source").first.click()
     check(
         "selecting another clip closes the old prompt sheet",
         page.locator("#video-prompt-sheet").count() == 0
         and "demo.webm" in page.locator("#video-output-details").inner_text(),
     )
+    page.evaluate("() => document.querySelector('#video-modes input[value=generate]').click()")
     page.locator("#video-gallery .video-clip").first.click()
     page.locator("#video-output-details .video-output-prompt[role=button]").focus()
     page.keyboard.press("Enter")
@@ -1638,6 +1731,7 @@ with sync_playwright() as playwright:
           const screen = monitor?.querySelector('.video-tv-screen');
           const details = document.querySelector('#video-output-details');
           const directVideoFrameAction = Boolean(actions?.querySelector('[data-action="capture-video-frame"]'));
+          const directEditAction = Boolean(actions?.querySelector('[data-action="edit-this-clip"]'));
           return {
             isMonitorFrame: Boolean(monitor && screen && monitor.querySelector('#video-preview')),
             detailsInStage: Boolean(details?.closest('#video-preview-root')
@@ -1650,6 +1744,7 @@ with sync_playwright() as playwright:
             referenceDetailCount: document.querySelectorAll('.video-output-references').length,
             directFrameAction: Boolean(actions?.querySelector('[data-action="capture-image-frame"]')),
             directVideoFrameAction,
+            directEditAction,
           };
         }"""
     )
@@ -1902,10 +1997,47 @@ with sync_playwright() as playwright:
         page.get_by_role("menuitem", name="Reuse prompt").is_visible()
         and page.get_by_role("menuitem", name="Reuse seed 7").is_visible()
         and page.get_by_role("menuitem", name="Use current frame in Image").is_visible()
+        and page.get_by_role("menuitem", name="Edit this clip").is_visible()
+        and page.get_by_role("button", name="Add reference").is_visible()
         and page.get_by_role("menuitem", name="Add reference").count() == 0
         and page.get_by_role("menuitem", name="Remove video LTX-2.5 1s").count() == 0,
         page.locator("#video-output-menu").inner_text(),
     )
+    # The menu sends the clip itself to Edit: it is in hand, and the mode switches, so the next
+    # press is an effect pick rather than a hunt through the strip.
+    page.get_by_role("menuitem", name="Edit this clip").click()
+    sent_to_edit = page.evaluate(
+        """() => ({
+          mode: (document.querySelector('#video-modes input:checked') || {}).value,
+          reason: document.getElementById('video-go-sub').textContent,
+          selected: document.querySelectorAll('#video-gallery .video-clip.selected').length,
+          slot: [...document.querySelectorAll('#video-source-list .video-source-name')].map(name => name.textContent),
+          target: document.getElementById('video-studio').editTargetId,
+          newest: (() => {
+            const clips = document.getElementById('video-studio').clips;
+            const newest = clips.filter((clip) => clip.kind === 'generated').slice(-1)[0];
+            return newest ? newest.id : '';
+          })(),
+          // Visible, not merely present: the row was drawn into a group the empty state then
+          // hid, and a DOM count called that a pass.
+          slotVisible: !document.getElementById('video-source-group').hidden,
+          emptyHidden: document.getElementById('video-media-empty').hidden,
+        })"""
+    )
+    check(
+        "the output menu sends this clip to Edit, and the slot shows it",
+        sent_to_edit["mode"] == "edit"
+        and sent_to_edit["reason"] == "Pick an effect"
+        and sent_to_edit["selected"] == 1
+        and len(sent_to_edit["slot"]) == 1
+        and sent_to_edit["slot"][0]
+        and sent_to_edit["target"] == sent_to_edit["newest"]
+        and sent_to_edit["slotVisible"]
+        and sent_to_edit["emptyHidden"],
+        json.dumps(sent_to_edit),
+    )
+    page.evaluate("() => document.querySelector('#video-modes input[value=generate]').click()")
+    page.get_by_role("button", name="More actions").click()
     fullscreen_entered = False
     page.get_by_role("button", name="Full screen").click()
     fullscreen_exit = page.get_by_role("button", name="Exit full screen")
@@ -2139,7 +2271,7 @@ with sync_playwright() as playwright:
     )
     check(
         "saved video gallery matches the image gallery count and actions",
-        page.locator("#video-gallery-note").inner_text() == "1 video, kept in this browser."
+        page.locator("#video-gallery-note").inner_text().startswith("1 video, kept in this browser.")
         and page.get_by_role("button", name="Download all").is_visible()
         and page.get_by_role("button", name="Clear all").is_visible(),
         page.locator("#video-gallery-note").inner_text(),
@@ -2172,6 +2304,217 @@ with sync_playwright() as playwright:
         f"image frames: {page.locator('#strip .frame').count()}",
     )
     switch_workspace(page, "video")
+    # ---- Edit mode: a clip in, the same clip changed ----------------------------
+    # The switch and the adapter come from the record, the adapter carries the prompt it
+    # answers to and the strength it was measured at, and the run posts the clip it changes.
+    # Driven through the stub, so none of this needs a GPU.
+    # A clip with real bytes to change: an edit needs one, and the strip may have been
+    # cleared earlier in the suite.
+    # A clip is Edit's input: the mode comes first, then the upload.
+    page.evaluate("() => document.querySelector('#video-modes input[value=edit]').click()")
+    page.locator("#video-media-upload").set_input_files(
+        {"name": "edit-me.webm", "mimeType": "video/webm", "buffer": make_video(page)}
+    )
+    page.wait_for_function("() => document.querySelectorAll('#video-source-list .video-source').length >= 1")
+    page.evaluate("() => document.querySelector('#video-modes input[value=generate]').click()")
+    page.fill("#video-prompt", "")
+    check(
+        "an empty video generate prompt says what it waits for",
+        page.locator("#video-generate").is_disabled()
+        and page.locator("#video-go-sub").inner_text() == "Write a prompt",
+        page.locator("#video-go-sub").inner_text(),
+    )
+    page.evaluate("() => document.querySelector('#video-modes input[value=edit]').click()")
+    edit_form = page.evaluate(
+        """() => {
+          const capabilities = videoCapabilities();
+          return {
+            modes: [...document.querySelectorAll('#video-modes input')]
+              .map(input => ({mode: input.value, pressed: String(input.checked)})),
+            adapters: (capabilities.adapters || []).map(adapter => adapter.id),
+            templatesPill: document.getElementById('video-templates-toggle').hidden,
+            // The mode's own words: the box is relabelled, and it says what it wants.
+            // innerText, not textContent: both halves of a mode's words are in the markup and
+            // the stylesheet shows one, so only the shown half counts.
+            promptLabel: document.querySelector('#video-controls .prompt-field label').innerText,
+            placeholder: document.getElementById('video-prompt').placeholder,
+            // The verb alone: the button's second line is the reason it is off.
+            runLabel: document.querySelector('#video-run-labels .main').innerText,
+            shapeOffered: !document.getElementById('video-duration').closest('.field').classList.contains('generate-only')
+              || getComputedStyle(document.getElementById('video-duration').closest('.field')).display !== 'none',
+            adapterRow: document.getElementById('video-adapters-toggle').hidden,
+            adapterName: document.getElementById('video-adapter-name').textContent,
+            runDisabled: document.getElementById('video-generate').disabled,
+            panelHead: document.querySelector('#video-source-panel .video-source-panel-head strong').textContent,
+            zone: document.getElementById('video-media-empty').innerText,
+          };
+        }"""
+    )
+    check(
+        "Edit asks for a clip, offers its effects, and puts the shot templates away",
+        [entry["mode"] for entry in edit_form["modes"]] == ["generate", "edit"]
+        and edit_form["modes"][1]["pressed"] == "true"
+        and edit_form["adapters"]
+        == [
+            "day-to-night",
+            "water-simulation",
+            "clean-plate",
+            "deblur",
+            "decompression",
+        ]
+        and edit_form["templatesPill"] is True
+        and edit_form["promptLabel"] == "What to change"
+        and "pick an effect" in edit_form["placeholder"].lower()
+        and edit_form["runLabel"] == "Edit"
+        and edit_form["shapeOffered"] is False
+        and edit_form["adapterRow"] is False
+        and edit_form["adapterName"] == "Effect"
+        and edit_form["panelHead"] == "Clip to edit"
+        and "Optional" not in edit_form["zone"]
+        and edit_form["runDisabled"] is True,
+        json.dumps(edit_form),
+    )
+    # The two workspaces share one <form>. The video mode used to write its class there, so
+    # Edit in Video rewrote the image form's words while its own switch said Generate.
+    switch_workspace(page, "image")
+    image_words = page.evaluate(
+        """() => ({
+          mode: (document.querySelector('input[name=mode]:checked') || {}).value,
+          label: document.querySelector('#image-controls .prompt-field label').innerText,
+        })"""
+    )
+    check(
+        "the video mode does not rewrite the image form's words",
+        image_words["label"] == ("What to change" if image_words["mode"] == "edit" else "Prompt"),
+        json.dumps(image_words),
+    )
+    switch_workspace(page, "video")
+    # An edit takes a clip, not an image reference. The chooser offers video files only, and an
+    # image that arrives by drop or paste is refused by the component's one door.
+    page.locator("#video-media-upload").set_input_files(str(REFERENCE))
+    page.wait_for_timeout(300)
+    refused = page.evaluate(
+        """() => ({
+          accept: document.getElementById('video-media-upload').accept,
+          references: document.querySelectorAll('#video-references .video-reference').length,
+          zone: document.getElementById('video-media-empty').innerText,
+          error: document.getElementById('toasts').innerText,
+        })"""
+    )
+    check(
+        "an edit refuses an image and offers video files only",
+        refused["accept"] == "video/*"
+        and refused["references"] == 0
+        and "Add the clip to edit" in refused["zone"]
+        and "Choose a video file" in refused["error"],
+        json.dumps(refused),
+    )
+    # The clip landed earlier, so the form has it in hand already. A click on the row is a
+    # choice of which clip, not the thing that tells the form a clip exists.
+    in_hand = page.evaluate("() => document.getElementById('video-go-sub').textContent")
+    check(
+        "a clip that landed is in hand without a second click",
+        in_hand == "Pick an effect",
+        in_hand,
+    )
+    page.locator("#video-source-list .video-source").first.click()
+    page.locator("#video-media-upload").set_input_files(
+        {"name": "second.webm", "mimeType": "video/webm", "buffer": make_video(page)}
+    )
+    page.wait_for_timeout(300)
+    second = page.evaluate(
+        """() => ({
+          sources: document.querySelectorAll('#video-source-list .video-source').length,
+          error: document.getElementById('toasts').innerText,
+        })"""
+    )
+    check(
+        "an edit refuses a second clip and names the way out",
+        second["sources"] == 1 and "one clip" in second["error"],
+        json.dumps(second),
+    )
+    # A clip and words are two of the three things an edit needs. The adapter is the third:
+    # the pipeline is the IC-LoRA one and the controller refuses the request without it, so
+    # the button waits here rather than letting the server answer with an error.
+    page.fill("#video-prompt", "make it night")
+    check(
+        "an edit with a clip and words still waits for an effect",
+        page.locator("#video-generate").is_disabled()
+        and page.locator("#video-go-sub").inner_text() == "Pick an effect",
+        page.locator("#video-go-sub").inner_text(),
+    )
+    page.fill("#video-prompt", "")
+    page.locator("#video-adapters-toggle").click()
+    page.get_by_role("menuitem", name="Day to night").click()
+    adapter_chosen = page.evaluate(
+        """() => ({
+          prompt: document.getElementById('video-prompt').value,
+          label: document.getElementById('video-adapter-name').textContent,
+          hint: document.getElementById('video-adapter-hint').textContent,
+          runDisabled: document.getElementById('video-generate').disabled,
+        })"""
+    )
+    check(
+        "picking an effect seeds the prompt it answers to and wakes the run",
+        adapter_chosen["label"] == "Day to night"
+        and "Only the lighting changes" in adapter_chosen["prompt"]
+        and adapter_chosen["runDisabled"] is False,
+        json.dumps(adapter_chosen),
+    )
+    # A switch to Generate and back keeps the adapter and the words it seeded: the pick is
+    # part of what the person set up, and generate simply offers no adapter control.
+    page.evaluate("() => document.querySelector('#video-modes input[value=generate]').click()")
+    page.evaluate("() => document.querySelector('#video-modes input[value=edit]').click()")
+    kept = page.evaluate(
+        """() => ({
+          label: document.getElementById('video-adapter-name').textContent,
+          prompt: document.getElementById('video-prompt').value,
+        })"""
+    )
+    check(
+        "a mode switch keeps the chosen effect and the words it seeded",
+        kept["label"] == "Day to night" and "Only the lighting changes" in kept["prompt"],
+        json.dumps(kept),
+    )
+    edited = []
+    page.on(
+        "request",
+        lambda request: edited.append(request.post_data or "") if request.url.endswith("/video/generate") else None,
+    )
+    clips_before = page.locator("#video-gallery .video-clip").count()
+    page.click("#video-generate")
+    page.wait_for_function(
+        "count => document.querySelectorAll('#video-gallery .video-clip').length > count",
+        arg=clips_before,
+        timeout=60000,
+    )
+    sent = json.loads(edited[-1]) if edited else {}
+    clip_sent = sent.get("clip") or {}
+    check(
+        "an edit posts the mode, the effect, its strength and the clip itself",
+        sent.get("mode") == "edit"
+        and sent.get("adapter") == "day-to-night"
+        and sent.get("adapter_strength") == 1
+        and clip_sent.get("name", "").startswith("edit-me.webm")
+        and len(clip_sent.get("data", "")) > 1000,
+        json.dumps({key: value for key, value in sent.items() if key != "clip"})
+        + f", clip bytes: {len(clip_sent.get('data', ''))}",
+    )
+    # A stub clip has no media to change, so the run stays asleep and the form says why, the
+    # way it waits for words rather than refusing after a press.
+    page.locator("#video-gallery .video-clip").first.click()
+    stub_clip = page.evaluate("""() => ({runDisabled: document.getElementById('video-generate').disabled})""")
+    check(
+        "an edit of a clip with no media leaves the run asleep",
+        stub_clip["runDisabled"] is True,
+        json.dumps(stub_clip),
+    )
+    page.evaluate("() => document.querySelector('#video-modes input[value=generate]').click()")
+
+    # The edit run above spent the track the generate checks added: a finished run clears
+    # what it used. Attach it again for the run whose payload and record these checks read.
+    page.locator("#video-media-upload").set_input_files(str(AUDIO))
+    page.wait_for_function("() => document.getElementById('video-studio').audio !== null")
     # Every video run asks the pipeline for the video model's own enhancer, so a clip is drawn
     # from a directed shot even when nobody pressed the rewrite button. The request carries
     # that, and the clip's own record carries the words the run was made from. This is the one
@@ -2212,6 +2555,30 @@ with sync_playwright() as playwright:
               return clips.length ? clips[clips.length - 1].metadata.prompt : 'no clip';
             }"""
         ),
+    )
+    sent_payload = json.loads(sent[-1]) if sent else {}
+    track_sent = sent_payload.get("audio") or {}
+    record = page.evaluate(
+        """() => {
+          const clips = document.getElementById('video-studio').clips || [];
+          if (!clips.length) return {};
+          const clip = clips[clips.length - 1];
+          return {pipeline: clip.metadata.pipeline, audio: clip.metadata.audio};
+        }"""
+    )
+    check(
+        "the run follows the track it was given, and its record names the pipeline and the track",
+        track_sent.get("name") == "theme.wav"
+        and base64.b64decode(track_sent.get("data", "")).startswith(b"RIFF")
+        and record.get("pipeline") == "a2vid_two_stage"
+        and record.get("audio") == "theme.wav",
+        json.dumps({"audioSent": track_sent.get("name"), "bytes": len(track_sent.get("data", "")), **record}),
+    )
+    check(
+        "the run clears the track it used",
+        page.evaluate("() => document.getElementById('video-studio').audio") is None
+        and page.locator("#video-audios .video-audio").count() == 0
+        and page.locator("#video-audio-tray").is_hidden(),
     )
     check("the browser reports no page errors", not errors, str(errors))
     browser.close()

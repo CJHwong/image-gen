@@ -1000,7 +1000,7 @@ function showRewriteVerb(button, stage) {
 }
 
 function renderRewriteButton() {
-  // The card's own Edit this empties the form a rewrite writes into, so it reads this and
+  // The card's own Edit this changes the form a rewrite writes into, so it reads this and
   // locks itself while a press runs. The run button waits for the same reason, through
   // `blocker`. The stage is asked to draw again for those changes, and only when the answer
   // changes.
@@ -1463,9 +1463,12 @@ function wire() {
       applyMode();
       page.menus().closeMenus();
       page.setReferences([]);
-      el.promptInput.value = '';
-      look = {};
-      // The choice is part of the form the mode owns, so it goes back with the words.
+      // The words and the Look stay. A switch is a change of verb, not a reason to throw
+      // away what the person set up: the video form keeps its box and its adapter, and this
+      // form emptied the text and the picks. The Look survives because the rows are read by
+      // name: a pick the new mode does not offer contributes nothing, and it is there again
+      // on the way back. References still go, because a generate keyframe and an edit source
+      // are different things.
       document.getElementById('each-all').checked = true;
       pushLook();
       growPrompt();

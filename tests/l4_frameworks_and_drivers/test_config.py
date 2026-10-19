@@ -20,11 +20,23 @@ def test_the_file_names_the_backend_the_page_opens_with(tmp_path: Path):
     assert config.default_backend == "qwen21" and config.visible_backends == ("qwen21",)
 
 
-def test_the_shipping_config_uses_official_turbo_by_default():
+def test_the_shipping_config_opens_on_turbo_and_offers_no_picker():
+    """One model is offered, so the page draws no picker: the file hides nothing, it is the
+    default. `--all-backends` is how a person asks for the others, flux2 included."""
     config = load_config(Path(__file__).parents[2] / "studio.toml")
 
     assert config.default_backend == "qwen21_turbo"
-    assert config.visible_backends == ("qwen21_turbo", "qwen21", "viggle_turbo")
+    assert config.visible_backends == ("qwen21_turbo",)
+
+
+def test_the_shipping_config_loads_the_image_weights_at_full_precision():
+    """bf16 by default, because the 2026-10-19 measurement found no level faster than another:
+    a quantized level costs accuracy and buys no time. `-q 8` asks for int8 when memory is the
+    constraint."""
+    config = load_config(Path(__file__).parents[2] / "studio.toml")
+
+    for backend_id in ("qwen21", "qwen21_turbo", "viggle_turbo", "flux2"):
+        assert config.backend(backend_id)["quantize"] is None, backend_id
 
 
 def test_a_quantize_of_zero_means_the_full_precision_weights(tmp_path: Path):

@@ -908,25 +908,34 @@ with sync_playwright() as playwright:
     # Mode switch and cancel
     # The edit form offers its own Look: six finishing rows, and none of the generate ones,
     # because the edit model keeps the rest of the picture and a style row tuned for a run
-    # that draws has no place in it. A generate pick does not survive the switch either,
-    # which the check below reads.
+    # that draws has no place in it. A generate pick does survive the switch, because the
+    # rows are read by name: while edit is in force the Light row is simply not drawn, and
+    # the pick is marked again on the way back. The checks below read both.
     edit_rows = [name.text_content() for name in page.locator("#look-rows .look-row .label").all()]
     check(
         "edit offers the six finishing rows and none of the generate ones",
         edit_rows == ["Exposure", "White balance", "Grade", "Lens", "Finish", "Retouch"],
         ", ".join(edit_rows),
     )
+    # The run that just finished cleared the box, so the words are written here: this pair
+    # is about the switch, not about what a run leaves behind.
+    page.fill("#prompt", "Keep these words through a switch")
+    page.dispatch_event("#prompt", "input")
     page.click("label[for=mode-generate]")
     toggle_look(page, "Light", "Overcast")
     page.click("label[for=mode-edit]")
     page.click("label[for=mode-generate]")
     check(
-        "mode switch clears the look",
-        picked_looks(page).count() == 0
+        "mode switch keeps the look",
+        picked_looks(page).count() == 1
         # LEFT: the read-back the summary prints, an id the page publishes.
-        and page.text_content("#look-values") == "none",
+        and page.text_content("#look-values") != "none",
     )
-    check("mode switch clears the prompt", page.input_value("#prompt") == "")
+    check(
+        "mode switch keeps the prompt",
+        page.input_value("#prompt") == "Keep these words through a switch",
+        page.input_value("#prompt")[:40],
+    )
     page.fill("#prompt", "A lighthouse on a cliff at dusk.")
     page.dispatch_event("#prompt", "input")
     page.fill("#steps", "20")

@@ -150,6 +150,20 @@ Turn the [subject] into a 3D pose mannequin in exactly the same pose, position a
 
 On a person, both keep the face and hair. See "The skeleton test".
 
+## Video templates
+
+The four older video templates were sampled on 2026-10-17 and 2026-10-18. Their verdicts sit in the comment above `VIDEO_TEMPLATES` in `prompt_aids.py`, next to the template text.
+
+Three more were added on 2026-10-19, from the vendor's 2.5 prompt guide, its native-audio guide, and its audio-driven guide. The shape is theirs; the text is not, and every slot stays a bracket.
+
+| Template | Result |
+|---|---|
+| Multi-shot | Works. Two hard cuts read at frames 38 and 82 against a 0.27 median frame difference, 28.6 and 16.9 at the cuts. The sheet shows the wide wash, the hood close-up and the doorway wide, in the order the prompt names. |
+| Dialogue | Works as a shot. One continuous two-shot of two men at a kitchen table, no cuts (max difference 1.76). The audio is 54 percent speech band with a 2 Hz envelope and a 118 Hz fundamental. The words were not transcribed, so line accuracy is unproven here; the vendor's own samples are the evidence for that. |
+| Soundscape | Works. One continuous medium shot of a woman sanding a board, no cuts. The audio envelope follows the hand motion at r 0.56 with a 0.6 Hz modulation, and no musical score dominates its strongest bins. |
+
+Each ran once at 384 x 384, 121 frames, seed 7, with a filled-in prompt and no reference image, through the studio's own endpoint and the distilled pipeline. A filled-in prompt is not the template; it is one reading of it.
+
 ## How these were tested
 
 All runs used 20 steps and seeds 1234 and 5678. Generate ran at 1024 x 1024 with guidance 1.0. Edit ran at 768 with true CFG 1.0.

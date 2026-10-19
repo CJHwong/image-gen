@@ -209,6 +209,10 @@ def make_handler(
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))
+            # The studio serves files that change between restarts, and it sent no cache
+            # header at all, so a browser was free to keep an old page.css or module and show
+            # a form the server no longer had. Nothing here is worth caching.
+            self.send_header("Cache-Control", "no-store")
             for name, value in (headers or {}).items():
                 self.send_header(name, value)
             self.end_headers()

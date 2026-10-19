@@ -60,6 +60,7 @@
   <symbol id="i-aperture" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.3 3.3L8.6 13.2M20.6 9.5H9.2M17.7 18.2L12 8.4M9.7 20.7l5.7-9.9M3.4 14.5h11.4M6.3 5.8L12 15.6"/></symbol>
   <symbol id="i-undo" viewBox="0 0 24 24"><path d="M8 5L4 9l4 4"/><path d="M4 9h9a6 6 0 0 1 0 12H7"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></symbol>
 </svg>
 
 <div class="app">
@@ -91,10 +92,6 @@
     <section class="stage" id="image-stage">
       <div class="canvas" id="canvas"></div>
       <div class="stage-bar" id="stage-bar" hidden></div>
-      <!-- The messages are components/toast-host.js, which draws them from its
-           own list. The host stays `#toasts`, with the role a query reaches it
-           by and the polite live region it already had. -->
-      <toast-host class="toasts" id="toasts" role="status" aria-live="polite"></toast-host>
     </section>
 
     <video-studio id="video-studio" hidden></video-studio>
@@ -117,6 +114,11 @@
          placeholders wait here too, so the next request stays in the DOM. -->
     <div id="incoming"></div>
     <div id="progress"></div>
+    <!-- The messages are components/toast-host.js, which draws them from its own list. The
+         host stays `#toasts`, with the role a query reaches it by. It sits in the work area and
+         not in the image stage: that stage is hidden in the Video workspace, which hid every
+         message raised there. -->
+    <toast-host class="toasts" id="toasts" role="status" aria-live="polite"></toast-host>
   </div>
 
   <aside>
@@ -265,10 +267,21 @@
         </div>
 
         <div id="video-controls" class="mode-controls video-controls" hidden>
+          <!-- What this form makes: a clip drawn from the prompt, or a clip changed by an
+               adapter. The same radio group the image form draws, built from the record and
+               hidden for a model that has one way of working. -->
+          <div class="modes" id="video-modes" role="radiogroup" aria-label="Video mode" hidden></div>
           <div class="field prompt-field">
             <div class="field-head">
-              <label for="video-prompt">Prompt</label>
+              <label for="video-prompt"><span class="generate-only">Prompt</span><span class="edit-only">What to change</span></label>
               <div class="head-actions">
+                <!-- The effect an edit runs. The id says adapter because that is the file: an
+                     IC-LoRA. The word on screen is effect, which is what happens to the clip. It sits here, beside the other prompt aids, so
+                     its menu hangs from the prompt field the way Templates does: a menu
+                     anchors to the nearest positioned ancestor, and this field is the one. -->
+                <button type="button" class="pill" id="video-adapters-toggle" aria-expanded="false"
+                  aria-controls="video-adapters" hidden><span id="video-adapter-name">Effect</span>
+                  <svg class="icon" aria-hidden="true"><use href="#i-caret"/></svg></button>
                 <button type="button" class="pill" id="video-templates-toggle" aria-expanded="false"
                   aria-controls="video-templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
                 <!-- The video prompt is lengthened by the backend's own rewriter, the one
@@ -282,18 +295,23 @@
               </div>
             </div>
             <div class="menu" id="video-templates" role="menu" hidden></div>
+            <div class="menu" id="video-adapters" role="menu" hidden></div>
             <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."></textarea>
+          </div>
+          <!-- What the chosen adapter does, and the strength it was measured at. Each adapter
+               carries the prompt it answers to, because these answer to a trigger word or to
+               an empty box and nobody can guess which, so the choice also writes the box. -->
+          <div class="field" id="video-adapters-field" hidden>
+            <p class="caption" id="video-adapter-hint"></p>
           </div>
           <section id="video-source-panel" class="video-source-panel" aria-label="Video media">
             <div class="video-source-panel-head">
               <strong>Media</strong>
               <div class="video-source-actions">
-                <button class="text-btn" type="button" data-action="add-media">Add media</button>
+                <button class="pill" type="button" data-action="add-media"
+                  aria-label="Add media"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add media</button>
               </div>
             </div>
-            <!-- What the two kinds are for stays visible once media arrives; the zone below is
-                 the invitation, and it goes away when the first file lands. -->
-            <p class="caption">Image references guide the generated video. Source clips help you pick frames. Paste with &#8984;P.</p>
             <!-- One door for both kinds. A drop, a paste and the chooser all hand their files to
                  `addMediaFiles`, which reads each file's own type, so the form never asks which
                  kind is coming. The zone takes the click and the key the way the image form's
@@ -312,6 +330,15 @@
               </div>
               <div class="video-source-list" id="video-source-list"></div>
             </section>
+            <!-- A track a generate run follows. One at a time: a second track is a second
+                 timing, and the pipeline takes one. The run is as long as the duration
+                 above, and the pipeline trims the track to it. -->
+            <section class="video-audio-tray" id="video-audio-tray" aria-label="Audio" hidden>
+              <div class="video-audio-head">
+                <div><strong>Audio</strong><span>Sound comes from the track. Trimmed to the set duration</span></div>
+              </div>
+              <div class="video-audios" id="video-audios"></div>
+            </section>
             <section class="video-reference-tray" id="video-reference-tray" aria-label="Image references" hidden>
               <div class="video-reference-head">
                 <div><strong>Image references</strong><span id="video-reference-count">0 images</span></div>
@@ -321,7 +348,9 @@
             <input id="video-media-upload" type="file" accept="image/*,video/*" multiple hidden>
           </section>
           <div class="video-output-options">
-            <div class="field">
+            <!-- The shape and the length are Generate's: an edit runs at the clip's own size
+                 and frame count, the way an image edit matches the picture it is given. -->
+            <div class="field generate-only">
               <div class="field-head">
                 <label for="video-duration">Duration</label>
                 <output class="caption num" id="video-duration-value"></output>
@@ -330,7 +359,7 @@
               <div class="video-duration-presets" role="group" aria-label="Duration presets">
               </div>
             </div>
-            <div class="field">
+            <div class="field generate-only">
               <div class="field-head">
                 <span class="label">Frame shape</span>
                 <span class="caption num" id="video-frame-count"></span>
@@ -375,7 +404,10 @@
         <input type="hidden" id="count" name="count" value="1">
       </div>
       <div class="footer video-footer" id="video-footer" hidden>
-        <button id="video-generate" type="button" disabled>Generate video</button>
+        <button id="video-generate" type="button" disabled>
+          <run-button id="video-run-labels" data-state="idle"></run-button>
+          <span class="sub num" id="video-go-sub"></span>
+        </button>
         <span class="visually-hidden" id="video-request-status" role="status" aria-live="polite"></span>
       </div>
     </form>
@@ -407,6 +439,8 @@
   const templatesToggle = document.getElementById('templates-toggle');
   const videoTemplatesToggle = document.getElementById('video-templates-toggle');
   const videoTemplatesMenu = document.getElementById('video-templates');
+  const videoAdaptersToggle = document.getElementById('video-adapters-toggle');
+  const videoAdaptersMenu = document.getElementById('video-adapters');
   const templatesMenu = document.getElementById('templates');
 
   function busy() {
@@ -463,6 +497,22 @@
     document.getElementById('media-video-mode').disabled = disabled;
   }
 
+  // Why the button is off, in the second line of it, the way the image form says it. Empty
+  // means the form is ready. The order is the image form's: the thing a person can see is
+  // missing comes first, then the words.
+  function videoRunReason() {
+    const prompt = document.getElementById('video-prompt').value.trim();
+    const mode = videoModeInForce();
+    if (mode.needs_clip && !(videoClip.id && !videoClip.stub)) return 'Add a clip to edit';
+    // An edit is run by an adapter: the pipeline is the IC-LoRA one, and the controller
+    // refuses an edit without one. The button said nothing about it and the run came back
+    // as a server error, so the gate asks here and the second line says what it wants.
+    if (mode.needs_clip && !videoAdapterInForce()) return 'Pick an effect';
+    if (!prompt) return mode.needs_clip ? 'Describe the change' : 'Write a prompt';
+    if (/\[[^\]\n]+\]/.test(prompt)) return 'Fill in the [brackets]';
+    return '';
+  }
+
   function syncVideoGenerateButton() {
     const button = document.getElementById('video-generate');
     const prompt = document.getElementById('video-prompt').value.trim();
@@ -472,7 +522,21 @@
        image form's own run button waits through `blocker`. The form marks a press on the
        body, which is the signal the image form's buttons read too. */
     const rewriting = document.body.classList.contains('rewriting');
-    button.disabled = waiting || rewriting || (videoRunState === 'idle' && !prompt);
+    // An edit changes a clip, so the words are not enough: it waits for a clip in the strip
+    // that is not a stub, which is the one thing about an edit a person can see is missing.
+    // A template writes [brackets] the user has to fill, and a run on the raw text hands them
+    // to the model as words. The image form has waited for them since it shipped, so the same
+    // rule holds here: no brackets left, in either mode.
+    const mode = videoModeInForce();
+    const unfilled = /\[[^\]\n]+\]/.test(prompt);
+    const ready = mode.needs_clip
+      ? Boolean(prompt && !unfilled && videoClip.id && !videoClip.stub && videoAdapterInForce())
+      : Boolean(prompt && !unfilled);
+    button.disabled = waiting || rewriting || (videoRunState === 'idle' && !ready);
+    document.getElementById('video-go-sub').textContent =
+      videoRunState !== 'idle' ? ''
+        : rewriting ? 'Wait for the rewrite to finish'
+          : videoRunReason();
   }
 
   function setVideoRunState(state) {
@@ -487,8 +551,11 @@
     /* The button carries the video run's verbs: it starts the run, and while one
        goes it is the way out of it. It says Cancel and not Cancel render, because
        the button already sits in the video workspace's own footer and the word
-       it cancels is the one next to it. */
-    button.textContent = stopping ? 'Stopping…' : active ? 'Cancel' : 'Generate video';
+       it cancels is the one next to it. The labels are `run-button`, the same
+       element the image form's button uses, so the two cannot drift: the state
+       arrives here, and the verb arrives from the mode in `syncVideoMode`. */
+    document.getElementById('video-run-labels').dataset.state =
+      stopping ? 'stopping' : active ? 'busy' : 'idle';
     syncVideoGenerateButton();
     setWorkspaceControlsDisabled();
     renderBackendSelector();
@@ -590,6 +657,8 @@
         base64: reference.b64,
       });
     });
+    // References feed a generate run, so the handoff opens Generate.
+    chooseVideoMode('generate');
     setMediaMode('video');
   }
 
@@ -605,6 +674,171 @@
   function videoTemplateOffered(template) {
     if (!/reference image/.test(template.text)) return true;
     return videoStudio.imageReferences.length > 0;
+  }
+
+  // ---- Modes and adapters ------------------------------------------------------
+  // A model may have one way of working, and then no switch is drawn. When it has two, one of
+  // them changes a clip the strip is holding, and an adapter is what changes it. The adapter
+  // carries the prompt it needs, because these answer to a trigger word or to an empty box,
+  // and it carries how hard it was measured to be applied.
+  let videoMode = '';
+  let videoAdapter = '';
+  let videoAdapterSeed = '';
+  let videoClip = {id: '', name: '', stub: false, kind: ''};
+
+  function videoModeList() {
+    const capabilities = videoCapabilities();
+    return (capabilities && capabilities.modes) || [];
+  }
+
+  function videoModeInForce() {
+    const list = videoModeList();
+    if (!list.length) return {id: 'generate', label: 'Generate', hint: '', needs_clip: false};
+    return list.find(function (mode) { return mode.id === videoMode; }) || list[0];
+  }
+
+  function videoAdapters() {
+    const capabilities = videoCapabilities();
+    const list = (capabilities && capabilities.adapters) || [];
+    const mode = videoModeInForce().id;
+    return list.filter(function (adapter) { return adapter.mode === mode; });
+  }
+
+  function videoAdapterInForce() {
+    return videoAdapters().find(function (adapter) { return adapter.id === videoAdapter; }) || null;
+  }
+
+  function syncVideoMode() {
+    const mode = videoModeInForce();
+    // The controls carry the mode as a class, which shows one set of words and hides the
+    // other. It is not the form's class: both workspaces share one <form>, and putting the
+    // video's mode there rewrote the image form's words while its own switch said Generate.
+    const videoControls = document.getElementById('video-controls');
+    videoControls.classList.toggle('video-mode-generate', mode.id === 'generate');
+    videoControls.classList.toggle('video-mode-edit', mode.id === 'edit');
+    // The run button's verb comes from the same mode, and it is the image form's own
+    // `run-button`, so its Generate and Edit are drawn once for both workspaces.
+    document.getElementById('video-run-labels').dataset.mode = mode.id;
+    const box = document.getElementById('video-modes');
+    const list = videoModeList();
+    box.hidden = list.length < 2;
+    box.replaceChildren();
+    // One radio and one label per mode, the way the image form draws its own, so the two
+    // switches read as the same control. The glyph is the image form's pairing: a sparkle for
+    // what draws, a brush for what changes something already there.
+    list.forEach(function (one) {
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = 'video-mode';
+      input.id = 'video-mode-' + one.id;
+      input.value = one.id;
+      input.checked = one.id === mode.id;
+      const label = document.createElement('label');
+      label.setAttribute('for', input.id);
+      const glyph = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      glyph.setAttribute('class', 'icon');
+      const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+      use.setAttribute('href', one.id === 'edit' ? '#i-brush' : '#i-sparkle');
+      glyph.append(use);
+      label.append(glyph);
+      label.append(document.createTextNode(one.label));
+      box.append(input, label);
+    });
+    // The box says what this mode wants, in the box: the switch is the image form's, and an
+    // explanation under it was one line of text too many.
+    if (mode.placeholder) document.getElementById('video-prompt').placeholder = mode.placeholder;
+    // An edit reads no image references: its input is the clip, and the panel says so. The
+    // media door follows the mode too, because one door takes the chooser, a drop and a paste:
+    // Edit offers video files only, one per pick, and the component refuses an image that
+    // arrives anyway. Generate keeps both kinds.
+    document.getElementById('video-reference-tray').hidden = mode.max_references === 0;
+    videoStudio.needsClip = mode.needs_clip;
+    // The slot draws the edit's target, so a mode change redraws it: a generated clip that the
+    // run left selected belongs in the slot, not only in the gallery. This runs at startup
+    // too, before `video-studio.js` has upgraded the element, so the method is asked for
+    // rather than assumed.
+    if (typeof videoStudio.renderSourceVideos === 'function') videoStudio.renderSourceVideos();
+    // The track belongs to Generate, and its tray is drawn from the same mode.
+    if (typeof videoStudio.renderAudio === 'function') videoStudio.renderAudio();
+    // The output bar carries the mode's own action, so it is drawn again for a mode change.
+    if (typeof videoStudio.renderOutputDetails === 'function') videoStudio.renderOutputDetails();
+    const mediaUpload = document.getElementById('video-media-upload');
+    // Generate reads images and a track, Edit reads a clip. The chooser offers only what
+    // the mode reads.
+    mediaUpload.accept = mode.needs_clip ? 'video/*' : 'image/*,audio/*';
+    mediaUpload.multiple = !mode.needs_clip;
+    // Edit's block is the image form's block, word for word: one labelled slot, a zone that
+    // takes the click, and no "Optional" on the one input the mode cannot run without. The
+    // panel's own Add button goes, because the zone is the door.
+    const mediaZone = document.getElementById('video-media-empty');
+    mediaZone.setAttribute('aria-label', mode.needs_clip ? 'Add the clip to edit' : 'Add image references or audio');
+    mediaZone.querySelector('strong').textContent = mode.needs_clip
+      ? 'Add the clip to edit' : 'Add an image reference or audio';
+    mediaZone.querySelector('span').textContent = mode.needs_clip
+      ? 'Drop, paste or choose one.' : 'Optional. Drop, paste or choose one.';
+    const panelHead = document.getElementById('video-source-panel').querySelector('.video-source-panel-head strong');
+    panelHead.textContent = mode.needs_clip ? 'Clip to edit' : 'Media';
+    document.querySelector('#video-source-panel [data-action="add-media"]').hidden = mode.needs_clip;
+    // One clip needs no group heading: the panel's own label already says what it is.
+    const groupHead = document.querySelector('#video-source-group .video-source-group-head');
+    if (groupHead) groupHead.hidden = mode.needs_clip;
+    const adapters = videoAdapters();
+    // Templates write a shot into the box, which is a generate aid: in edit mode they would
+    // overwrite the prompt the adapter answers to, so they are hidden there. That also keeps
+    // the prompt's head to two pills, which is what fits a narrow sidebar.
+    document.getElementById('video-templates-toggle').hidden = mode.needs_clip;
+    // The selector the edit chooses from, and the strength that choice was measured at. The
+    // selector sits in the prompt head and the strength sits under the prompt: before a choice
+    // there is nothing to say, so both lines of it stay away.
+    const chosen = videoAdapterInForce();
+    videoAdaptersToggle.hidden = !adapters.length;
+    document.getElementById('video-adapters-field').hidden = !chosen;
+    document.getElementById('video-adapter-name').textContent = chosen ? chosen.label : 'Effect';
+    videoAdaptersToggle.setAttribute('aria-expanded', String(videoAdaptersMenu.hidden === false));
+    document.getElementById('video-adapter-hint').textContent = chosen ? chosen.hint : '';
+    syncVideoGenerateButton();
+  }
+
+  function chooseVideoMode(id) {
+    if (id === videoMode) return;
+    videoMode = id;
+    // The adapter and the words it seeded both stay. A switch to a mode that offers no
+    // adapters simply shows none of the control, and the pick is there again on the way back,
+    // so a person choosing between Generate and Edit keeps the shot they set up.
+    syncVideoMode();
+  }
+
+  function chooseVideoAdapter(id) {
+    const chosen = videoAdapters().find(function (adapter) { return adapter.id === id; });
+    if (!chosen) return;
+    videoAdapter = chosen.id;
+    const box = document.getElementById('video-prompt');
+    // Seed the prompt the adapter needs, and only into an empty box or over another
+    // adapter's own words: picking an adapter must never delete what a person typed.
+    if (chosen.prompt && (!box.value.trim() || box.value === videoAdapterSeed)) {
+      videoAdapterSeed = chosen.prompt;
+      box.value = chosen.prompt;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    syncVideoMode();
+  }
+
+  // The list the selector opens: one item per adapter, with the hint that says what it does.
+  function renderVideoAdapterMenu() {
+    videoAdaptersMenu.replaceChildren();
+    const head = document.createElement('div');
+    head.className = 'menu-head';
+    head.textContent = 'Change the clip with';
+    videoAdaptersMenu.append(head);
+    videoAdapters().forEach(function (adapter) {
+      const option = menus.menuItem('', adapter.label, function () { chooseVideoAdapter(adapter.id); });
+      const note = document.createElement('span');
+      note.className = 'item-note';
+      note.textContent = adapter.hint;
+      option.querySelector('.item-text').append(note);
+      videoAdaptersMenu.append(option);
+    });
+    menus.toggleMenu(videoAdaptersMenu);
   }
 
   function renderVideoTemplates() {
@@ -663,6 +897,9 @@
         src: src,
         base64: base64FromDataUrl(src),
       });
+      // The image is a keyframe for a generate run, so the handoff opens Generate whatever
+      // the video workspace was last set to.
+      chooseVideoMode('generate');
       setMediaMode('video');
     }).catch(function (error) {
       showToast('error', 'The image did not load as a video reference: ' + error.message);
@@ -786,6 +1023,12 @@
   function applyVideoCapabilities() {
     const capabilities = videoCapabilities();
     if (!capabilities) return;
+    // The record decides which mode the form opens in, and a mode the record no longer has
+    // falls back to the first one rather than leaving the form on a mode with no adapters.
+    const modes = (capabilities && capabilities.modes) || [];
+    const named = modes.some(function (mode) { return mode.id === videoMode; });
+    videoMode = modes.length && named ? videoMode : (modes.length ? modes[0].id : 'generate');
+    syncVideoMode();
     const duration = document.getElementById('video-duration');
     duration.min = String(capabilities.min_frames);
     duration.max = String(capabilities.max_frames);
@@ -961,6 +1204,80 @@
     }
   }
 
+  document.getElementById('video-modes').addEventListener('change', function (event) {
+    if (event.target.name === 'video-mode') chooseVideoMode(event.target.value);
+  });
+
+  videoAdaptersToggle.addEventListener('click', renderVideoAdapterMenu);
+
+  // The video's failures arrive on this event and land in the toast host, the page's one
+  // surface for a message that must be read.
+  document.addEventListener('video-error', function (event) {
+    if (event.detail && event.detail.message) showToast('error', event.detail.message);
+  });
+
+  document.addEventListener('video-edit-clip', function () {
+    chooseVideoMode('edit');
+  });
+
+  document.addEventListener('video-clip-selected', function (event) {
+    const detail = event.detail || {};
+    videoClip = {
+      id: detail.id || '',
+      name: detail.name || '',
+      stub: Boolean(detail.stub),
+      kind: detail.kind || '',
+    };
+    syncVideoMode();
+  });
+
+  // The clip an edit changes, as the bytes the runner writes down. The tab holds it as an
+  // object URL, so it is fetched rather than copied, and a stub has no bytes to fetch.
+  async function selectedClipPayload() {
+    if (!videoClip.id) throw new Error('Pick a clip in the strip to change.');
+    const clip = videoStudio.clips.find(function (one) { return one.id === videoClip.id; });
+    if (!clip || !clip.url) throw new Error('That clip is not in this tab any more.');
+    const blob = await (await fetch(clip.url)).blob();
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    const chunk = 0x8000;
+    for (let index = 0; index < bytes.length; index += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunk));
+    }
+    return {name: clip.name + '.mp4', data: btoa(binary)};
+  }
+
+  // The size and the length an edit runs at: the clip's own, said in the model's own terms.
+  // A clip off a phone is not on the model's grid, so its shape is matched by ratio and its
+  // width by the nearest rung, and its frames are snapped to the frame step.
+  function editGeometry() {
+    const capabilities = videoCapabilities();
+    const preview = document.getElementById('video-preview');
+    const clipWidth = preview ? preview.videoWidth : 0;
+    const clipHeight = preview ? preview.videoHeight : 0;
+    const clipSeconds = preview && Number.isFinite(preview.duration) ? preview.duration : 0;
+    if (!capabilities || !clipWidth || !clipHeight) return null;
+    const wanted = clipWidth / clipHeight;
+    let best = capabilities.shapes[0];
+    let bestGap = Infinity;
+    capabilities.shapes.forEach(function (shape) {
+      const gap = Math.abs(shape.width / shape.height - wanted) + Math.abs(shape.width - clipWidth) / 10000;
+      if (gap < bestGap) { bestGap = gap; best = shape; }
+    });
+    const step = capabilities.frame_step;
+    const offset = capabilities.min_frames % step;
+    let frames = Math.round((clipSeconds * capabilities.frame_rate - offset) / step) * step + offset;
+    frames = Math.max(capabilities.min_frames, Math.min(capabilities.max_frames, frames));
+    return {width: best.width, height: best.height, numFrames: frames};
+  }
+
+  // The strength each effect was measured at, and the only one it ships with: a run at 0.5
+  // stayed daylight on the day-to-night pair, so the form offers no dial to reach a no-op.
+  function videoAdapterStrength() {
+    const chosen = videoAdapterInForce();
+    return chosen ? chosen.strength : undefined;
+  }
+
   document.getElementById('video-generate').addEventListener('click', async function () {
     if (videoRunState !== 'idle') {
       await cancelVideoRun();
@@ -968,9 +1285,15 @@
     }
     const status = document.getElementById('video-request-status');
     const capabilities = videoCapabilities();
-    const numFrames = Number(document.getElementById('video-duration').value);
+    // An edit runs at the clip's own geometry, since the shape and duration controls belong
+    // to Generate; a generate run reads them off the form as it always has.
+    const editing = videoModeInForce().needs_clip;
+    const clipGeometry = editing ? editGeometry() : null;
+    const numFrames = clipGeometry ? clipGeometry.numFrames : Number(document.getElementById('video-duration').value);
     const duration = numFrames / capabilities.frame_rate;
-    const [width, height] = selectedVideoShape();
+    const [width, height] = clipGeometry
+      ? [clipGeometry.width, clipGeometry.height]
+      : selectedVideoShape();
     let settings;
     let seed;
     // The run is made from the words in the box, which the rewrite button may have
@@ -990,6 +1313,18 @@
         frameRate: capabilities.frame_rate,
         duration: duration,
         seed: seed,
+        // The run's own facts, saved with the clip: which mode made it, which effect, how hard,
+        // whether the second stage saw the clip, and the weights' precision.
+        mode: videoModeInForce().id,
+        adapter: videoAdapter,
+        effectStrength: videoAdapterStrength(),
+        effectFile: videoAdapterInForce() ? videoAdapterInForce().file : '',
+        stage2: videoAdapterInForce() ? videoAdapterInForce().stage_2_conditioning : null,
+        precision: capabilities.precision || 'bf16',
+        // The pipeline this run enters, and the track it followed, if any: a saved clip that
+        // does not name them cannot be compared with another one later.
+        pipeline: editing ? 'ic_lora' : (videoStudio.audio ? 'a2vid_two_stage' : 'distilled'),
+        audioName: videoStudio.audio ? videoStudio.audio.name : '',
         references: videoStudio.imageReferences.map(function (reference) {
           return {
             name: reference.name,
@@ -1056,6 +1391,14 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(videoStudio.requestPayload({
+          mode: videoModeInForce().id,
+          adapter: videoAdapter,
+          adapterStrength: videoAdapterStrength(),
+          clip: videoModeInForce().needs_clip ? await selectedClipPayload() : undefined,
+          maxReferences: videoModeInForce().max_references,
+          // The track goes only from the mode that takes one. An edit carries the clip, and
+          // the controller refuses audio there anyway.
+          audio: !videoModeInForce().needs_clip ? await videoStudio.audioPayload() : undefined,
           prompt: prompt,
           width: width,
           height: height,
@@ -1093,6 +1436,7 @@
       }
       setVideoPrompt('');
       videoStudio.clearImageReferences();
+      videoStudio.clearAudio();
     } catch (error) {
       videoStudio.setError(error.message);
       status.textContent = 'Video generation failed.';
@@ -1344,7 +1688,7 @@
       edgeName: EDGE_NAME,
       notify: showToast,
       busy: busy,
-      // Whether a rewrite is writing. The card's Edit this empties the form a rewrite
+      // Whether a rewrite is writing. The card's Edit this changes the form a rewrite
       // writes into, so it is locked while one runs.
       rewriting: function () { return document.body.classList.contains('rewriting'); },
       editing: formApi.editing,
@@ -1538,10 +1882,23 @@
       },
       frameNumber: stage.frameNumber,
       notify: showToast,
+      hasKeptMedia: function () {
+        const studio = document.getElementById('video-studio');
+        return gallery.length > 0
+          || Boolean(studio && studio.clips && studio.clips.some(function (clip) { return clip.keptInBrowser; }));
+      },
     });
     kept.load();
     customElements.whenDefined('video-studio').then(function () {
       return videoStudio.setGalleryStore(kept, keeping);
+    }).then(function () {
+      // Best-effort storage can be evicted. The answer goes to the gallery note, which is
+      // where the promise that media is kept is made, so a refusal is said there.
+      return kept.askForDurableStorage();
+    }).then(function () {
+      if (typeof videoStudio.setStoragePersisted === 'function') {
+        videoStudio.setStoragePersisted(kept.persisted());
+      }
     });
   });
 
@@ -1636,6 +1993,9 @@
       // edge's name cannot stand in for one: a file name carries no capitals and
       // no spaces. The stage's handle carries this one too, for the frame it draws.
       backendId: STUDIO.backend.id,
+      // The badge already names the weights' precision ("bf16", "int8"), and a frame records
+      // it so a file made before a restart with another -q keeps the truth about itself.
+      precision: STUDIO.backend.badge,
       rewrittenFrom: function () { return formApi.rewrittenFrom(); },
       // The tab's text belongs to the page, because the workspace decides the name in it.
       workspaceTitle: workspaceTitle,

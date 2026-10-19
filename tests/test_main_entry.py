@@ -164,3 +164,67 @@ def test_running_the_package_as_a_script_reaches_main(tmp_path, monkeypatch):
         runpy.run_module("studio", run_name="__main__")
 
     assert "no backend called krea2" in exit_message(exits)
+
+
+def test_the_full_precision_flag_reaches_the_settings_file(tmp_path, monkeypatch):
+    """`-q 0` is the documented way to load the full precision weights, and the settings reader
+    has always treated a zero as no quantization, so the flag has to accept it. It refused it
+    until 2026-10-19, which made two documented commands fail at argparse."""
+    seen = {}
+
+    def fake_load_config(path, backend=None, quantize=None, visible=None):
+        seen["quantize"] = quantize
+        raise SystemExit(0)
+
+    monkeypatch.setattr(entry, "load_config", fake_load_config)
+    argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path)), "-q", "0")
+
+    with pytest.raises(SystemExit):
+        entry.main()
+
+    assert seen["quantize"] == 0
+
+
+def test_the_all_backends_flag_offers_every_model_the_studio_can_build(tmp_path, monkeypatch):
+    """A settings file that offers one model hides the page's picker, which is the default. The
+    flag is how a person asks for the lot without editing the file, and what it hands over is
+    the registry's own list, so a backend added later is offered by the same flag."""
+    seen = {}
+
+    def fake_load_config(path, backend=None, quantize=None, visible=None):
+        seen["visible"] = visible
+        raise SystemExit(0)
+
+    monkeypatch.setattr(entry, "load_config", fake_load_config)
+    argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path)), "--all-backends")
+
+    with pytest.raises(SystemExit):
+        entry.main()
+
+    assert seen["visible"] == tuple(entry.BACKENDS)
+    assert "flux2" in seen["visible"]
+
+
+def test_without_the_flag_the_settings_file_decides_what_is_offered(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_load_config(path, backend=None, quantize=None, visible=None):
+        seen["visible"] = visible
+        raise SystemExit(0)
+
+    monkeypatch.setattr(entry, "load_config", fake_load_config)
+    argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path)))
+
+    with pytest.raises(SystemExit):
+        entry.main()
+
+    assert seen["visible"] is None
+
+
+def test_a_named_list_of_backends_is_what_the_page_offers(tmp_path):
+    """The loader takes the list outright for the flag above, and the default still comes from
+    the file when it is not handed one."""
+    path = settings_file(tmp_path)
+
+    assert load_config(path).visible_backends == ("qwen21",)
+    assert load_config(path, visible=("flux2", "qwen21")).visible_backends == ("flux2", "qwen21")

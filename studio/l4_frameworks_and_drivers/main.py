@@ -155,6 +155,7 @@ def ltx25_backend(config: Config) -> Ltx25BackendGateway:
         settings.get("python_path", ""),
         settings.get("model_dir", ""),
         prompt_enhancer_root=settings.get("prompt_enhancer_gemma_root"),
+        lora_dir=settings.get("lora_dir"),
     )
     return Ltx25BackendGateway(runner)
 

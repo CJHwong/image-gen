@@ -86,6 +86,16 @@ def test_the_root_route_serves_the_page(served):
     assert "<title>Fake</title>" in body and '<input type="hidden" name="backend" value="fake">' in body
 
 
+def test_every_response_forbids_a_stale_copy(served):
+    """The page, its modules and its stylesheet are files that change with the tree, and they
+    shipped with no cache header at all. A browser was then free to keep an old page.css across
+    a restart and draw a form the server no longer had, which read as a fix that never landed."""
+    url = f"http://127.0.0.1:{served[1].server_address[1]}"
+    for path in ("/", "/page/page.css", "/page/components/run-button.js", "/progress"):
+        with urllib.request.urlopen(url + path, timeout=30) as answer:
+            assert answer.headers["Cache-Control"] == "no-store", path
+
+
 def test_the_root_route_keeps_the_selected_workspace_in_the_url(served):
     status, content_type, body = call(served[1], "/?workspace=video")
 

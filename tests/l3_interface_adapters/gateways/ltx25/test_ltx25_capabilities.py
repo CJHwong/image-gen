@@ -6,7 +6,9 @@ def test_ltx25_offers_the_video_templates_it_was_sampled_on():
     """Four of the eight that were rendered once each at 121 frames, one seed, and judged
     against what each text promises. PROMPTS.md holds the sample and the ones that failed:
     the loop, which did not close, the one action, whose arc never read, and the style
-    template, dropped on 2026-10-18 for drawing a frame the clip never asked for."""
+    template, dropped on 2026-10-18 for drawing a frame the clip never asked for. Three more
+    shipped on 2026-10-19 from the vendor's guides and the audio references: multi-shot,
+    dialogue and soundscape, each rendered once at 121 frames on seed 7."""
     capabilities = ltx25_capabilities()
 
     assert capabilities.templates == VIDEO_TEMPLATES
@@ -14,6 +16,9 @@ def test_ltx25_offers_the_video_templates_it_was_sampled_on():
         "Camera move",
         "First frame",
         "Last frame",
+        "Multi-shot",
+        "Dialogue",
+        "Soundscape",
         "Product turn",
     ]
 
@@ -93,3 +98,80 @@ def test_ltx25_duration_choices_belong_to_its_capabilities():
         capabilities.reference_strength_step,
         capabilities.default_reference_strength,
     ) == (0.05, 1.0, 0.05, 1.0)
+
+
+def test_ltx25_offers_a_generate_mode_and_an_edit_mode_that_needs_a_clip():
+    modes = ltx25_capabilities().modes
+
+    assert [(mode.id, mode.needs_clip) for mode in modes] == [("generate", False), ("edit", True)]
+
+
+def test_the_day_to_night_adapter_keeps_stage_two_conditioned():
+    """Measured on the office M5 Pro, one daylight clip of 97 frames at 768 x 448, seed 7.
+    Two stages with stage 2 bare: the frame darkens 107.2 to 39.2, the buildings and street
+    hold, and the market stall is replaced by a parked car. Two stages with stage 2 carrying
+    the adapter and the reference: the stall, its umbrella and the street furniture all
+    survive. So the flag is the adapter's, and so is the prompt the card recommends, which
+    the page seeds because nobody can guess it."""
+    capabilities = ltx25_capabilities()
+    adapter = _adapter(capabilities, "day-to-night")
+
+    assert capabilities.adapters_for("generate") == ()
+    assert adapter.file == "ltx-2.5-22b-ic-lora-day-to-night-0.9.safetensors"
+    assert adapter.stage_2_conditioning is True
+    assert adapter.strength == 1.0
+    assert "Only the lighting changes" in adapter.prompt
+    assert "night" in adapter.prompt
+
+
+def test_every_declared_adapter_ran_on_a_clip_that_holds_its_precondition():
+    """The set on 2026-10-19, judged at frame 40 against each one's own input. The two that
+    need a defective input were re-run on one: soft.mp4 blurred at radius 6, crushed.mp4
+    encoded at 150 kbps. Two are absent on purpose, and that is what this list records.
+    Colorize added no colour to a desaturated clip, 0.52 mean chroma with the second stage
+    conditioned and 2.96 with it bare, against 11.5 for a colour clip. The pixel spatial
+    upscaler wants a reference at half the target's linear resolution, and it died inside the
+    video VAE encoder on a clip 224 pixels tall, which the form cannot ask for and the grid
+    cannot hold."""
+    capabilities = ltx25_capabilities()
+    adapters = capabilities.adapters_for("edit")
+
+    assert [one.id for one in adapters] == [
+        "day-to-night",
+        "water-simulation",
+        "clean-plate",
+        "deblur",
+        "decompression",
+    ]
+    for one in adapters:
+        assert one.mode == "edit"
+        assert one.strength == 1.0
+        assert one.stage_2_conditioning is True
+        assert one.prompt.strip()
+        assert one.hint.strip()
+        assert one.file in {
+            f"ltx-2.5-22b-ic-lora-{one.id}-0.9.safetensors",
+            f"ltx-2.5-22b-ic-lora-{one.id}-1.0.safetensors",
+        }
+
+
+def test_the_trigger_word_leads_the_prompt_the_card_names():
+    """Three of these cards answer to a literal word, and the page seeds the prompt whole, so
+    the word has to be the first thing in the box for the model to read it as a trigger."""
+    capabilities = ltx25_capabilities()
+
+    for adapter_id, trigger in (
+        ("water-simulation", "ADD WATER."),
+        ("deblur", "DEBLUR."),
+        ("decompression", "ENHANCE QUALITY."),
+    ):
+        assert _adapter(capabilities, adapter_id).prompt.startswith(trigger)
+
+    # The clean plate card warns against naming the thing to remove, so its prompt is the
+    # empty scene and carries no trigger word at all.
+    assert not _adapter(capabilities, "clean-plate").prompt.startswith("CLEAN")
+    assert "empty" in _adapter(capabilities, "clean-plate").prompt
+
+
+def _adapter(capabilities, adapter_id):
+    return next(one for one in capabilities.adapters_for("edit") if one.id == adapter_id)
