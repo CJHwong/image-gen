@@ -1,14 +1,18 @@
 # The backend the page opens with, and the backends it may offer. The page
-# shows a backend picker only when it may offer more than one. `--backend`
-# on the command line opens on another one and adds it to the list.
+# shows a model picker only when it may offer more than one, so the default is
+# the one model and no picker. `--backend` opens on another one and adds it to
+# the list, and `--all-backends` offers every configured backend, flux2 included.
 default_backend = "qwen21_turbo"
-visible_backends = ["qwen21_turbo", "qwen21", "viggle_turbo"]
+visible_backends = ["qwen21_turbo"]
 # Video has its own model choice and picker in the Video workspace.
 default_video_backend = "ltx25"
 visible_video_backends = ["ltx25"]
 
 [qwen21]
-quantize = 0                              # 0 is bf16; -q on the command line overrides it
+# bf16 by default, which is 0. Measured on 2026-10-19: no level is faster than another, so a
+# quantized one costs accuracy for nothing this machine needs. -q on the command line overrides
+# this, and 8 is the level to ask for when memory is the constraint.
+quantize = 0
 # The prompt rewriters: fine-tuned Qwen3.5-VL 9B, 18.84 GB each, and each is
 # released again before an image engine loads. The text one serves generate, the
 # image one serves edit. Neither is fetched until the toggle is first used.
@@ -16,7 +20,7 @@ rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 
 [qwen21_turbo]
-quantize = 0
+quantize = 0                              # bf16, for the reason above
 model_dir = "~/Library/Caches/models/qwen-image-2.1-turbo"
 # The checkpoint ships its own eight-node sampling schedule and this backend samples
 # it, so 8 steps is the count rather than a setting. `gateways/qwen21_turbo_schedule.py`
@@ -25,11 +29,11 @@ rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 
 [flux2]
-quantize = 8
+quantize = 0
 model_dir = "~/Library/Caches/models/mflux-klein-base-9b-uncensored"   # the README has the download
 
 [viggle_turbo]
-quantize = 0                              # 0 is bf16; the LoRA is passed unmerged
+quantize = 0                              # bf16, for the reason above; the LoRA is passed unmerged
 # Viggle's distilled 6-step adapter for Qwen-Image-2.1, 1.3 GB. The base weights
 # are the ones [qwen21] already downloads. The README has the download recipe.
 lora_path = "~/Library/Caches/models/viggle-turbo/Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors"
@@ -40,9 +44,15 @@ rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 
 [ltx25]
 python_path = "~/Workspace/LTX-2/.venv/bin/python"
+# A run that carries an audio track also fetches the full transformer and the distilled LoRA
+# into this directory, 50.9 GB, because the audio pipeline runs the full model in stage 1.
 model_dir = "~/Library/Caches/models/ltx-2.5"
 # The video model's own prompt enhancer, a second Gemma that lengthens the prompt inside the
 # pipeline when the video form's rewrite switch is on. It is fetched separately, because the
 # weight download above knows the one model: `hf download google/gemma-4-E2B-it --local-dir
 # ~/Library/Caches/models/gemma-4-E2B-it`, which is what this points at.
-prompt_enhancer_gemma_root = "~/Library/Caches/models/gemma-4-E2B-it"
+prompt_enhancer_gemma_root = "~/Library/Caches/models/gemma-4-e2b-it"
+# The IC-LoRA adapters an edit run can carry, one file each, fetched from their own
+# repositories: the weight download above knows the one base model. The README has the
+# recipe for the adapters the form offers.
+lora_dir = "~/Library/Caches/models/ltx-2.5-loras"

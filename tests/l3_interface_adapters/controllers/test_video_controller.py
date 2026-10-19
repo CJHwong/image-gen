@@ -6,7 +6,8 @@ from dataclasses import replace
 import pytest
 from PIL import Image
 
-from studio.l1_entities.errors import InvalidJob, UnreadableImage
+from studio.l1_entities.errors import InvalidJob, UnreadableImage, UnsupportedMode
+from studio.l1_entities.video_capabilities import VideoAdapter, VideoMode
 from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
@@ -274,3 +275,184 @@ def test_controller_rejects_a_non_text_video_backend_id():
 
     with pytest.raises(InvalidJob, match="backend must be a video model id"):
         video_controller.run(payload(backend=17))
+
+
+def editing_capabilities(adapter=None, **overrides):
+    """The fake model with a mode switch and one adapter, which is what an edit needs."""
+    declared = adapter or VideoAdapter(
+        id="relight",
+        label="Relight",
+        hint="Change the light of a clip",
+        mode="edit",
+        file="relight.safetensors",
+        prompt="A night version of the same place.",
+        strength=1.0,
+        stage_2_conditioning=True,
+    )
+    return replace(
+        fake_video_capabilities(),
+        modes=(
+            VideoMode("generate", "Generate", accepts_audio=True),
+            VideoMode("edit", "Edit", needs_clip=True),
+        ),
+        adapters=(declared,),
+        **overrides,
+    )
+
+
+def clip_payload(**overrides):
+    values = {"name": "input.mp4", "data": base64.b64encode(b"clip bytes").decode("ascii")}
+    values.update(overrides)
+    return values
+
+
+def audio_payload(**overrides):
+    values = {"name": "theme.wav", "data": base64.b64encode(b"RIFF\x24\x00\x00\x00WAVEfmt ").decode("ascii")}
+    values.update(overrides)
+    return values
+
+
+def test_a_generate_job_carries_the_track_and_the_name_it_came_in_with():
+    """The bytes travel as they arrived: the runner hands them to the engine's own
+    environment, which decodes the container and writes the stereo PCM the model takes."""
+    job = video_job(payload(audio=audio_payload()), editing_capabilities())
+
+    assert job.audio is not None
+    assert job.audio.name == "theme.wav"
+    assert job.audio.data.startswith(b"RIFF")
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"RIFF\x24\x00\x00\x00WAVEfmt ",
+        b"fLaC\x00\x00\x00\x22",
+        b"OggS\x00\x02",
+        b"FORM\x00\x00\x00\x00AIFF",
+        b"\x00\x00\x00\x20ftypM4A ",
+        b"ID3\x04\x00\x00",
+        b"\xff\xfb\x90\x00",
+    ],
+)
+def test_every_audio_container_the_decoder_reads_is_accepted(data):
+    job = video_job(
+        payload(audio={"name": "track", "data": base64.b64encode(data).decode("ascii")}),
+        editing_capabilities(),
+    )
+
+    assert job.audio is not None
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"audio": {"name": "theme.wav", "data": ""}}, "Could not read that audio"),
+        ({"audio": {"name": "theme.wav", "data": "not base64!"}}, "Could not read that audio"),
+        ({"audio": {"data": base64.b64encode(b"RIFF\x00\x00\x00\x00WAVE").decode("ascii")}}, "needs a name"),
+        ({"audio": "theme.wav"}, "audio must be an object"),
+        (
+            {"audio": {"name": "notes.txt", "data": base64.b64encode(b"hello, not audio").decode("ascii")}},
+            "not audio this model reads",
+        ),
+    ],
+)
+def test_a_track_the_form_could_not_have_sent_is_refused(overrides, message):
+    with pytest.raises(InvalidJob, match=message):
+        video_job(payload(**overrides), editing_capabilities())
+
+
+def test_a_track_past_the_model_s_limit_is_refused_before_the_run():
+    capabilities = replace(editing_capabilities(), max_audio_megabytes=0.000001)
+
+    with pytest.raises(InvalidJob, match="larger than"):
+        video_job(payload(audio=audio_payload()), capabilities)
+
+
+def test_an_edit_refuses_a_track_because_the_clip_is_its_whole_input():
+    with pytest.raises(InvalidJob, match="Audio is a Generate input"):
+        video_job(
+            payload(mode="edit", adapter="relight", clip=clip_payload(), audio=audio_payload()),
+            editing_capabilities(),
+        )
+
+
+def test_an_edit_job_carries_the_clip_and_the_adapter_it_was_measured_with():
+    """The controller resolves the adapter's own facts and hands them to the job, so the
+    runner builds a command from the job alone: the file's name, the strength, and the flag
+    that keeps stage 2 conditioned, which is what stopped a stall turning into a car."""
+    capabilities = editing_capabilities()
+
+    job = video_job(
+        payload(mode="edit", adapter="relight", adapter_strength=0.8, clip=clip_payload()),
+        capabilities,
+    )
+
+    assert job.edit is not None
+    assert job.edit.adapter == "relight"
+    assert job.edit.strength == 0.8
+    assert job.edit.lora_file == "relight.safetensors"
+    assert job.edit.clip == b"clip bytes"
+    assert job.edit.clip_name == "input.mp4"
+    assert job.edit.stage_2_conditioning is True
+
+
+def test_an_edit_strength_left_blank_takes_the_adapter_itself():
+    capabilities = editing_capabilities()
+
+    job = video_job(payload(mode="edit", adapter="relight", clip=clip_payload()), capabilities)
+
+    assert job.edit is not None
+    assert job.edit.strength == 1.0
+
+
+def test_a_run_that_names_no_mode_draws_a_clip():
+    """A page from before the mode switch sends no mode, and gets the run it always got."""
+    job = video_job(payload(), editing_capabilities())
+
+    assert job.edit is None
+    assert video_job(payload(mode=""), editing_capabilities()).edit is None
+    assert video_job(payload(mode="generate"), editing_capabilities()).edit is None
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"adapter": "relight"}, "needs a clip"),
+        ({"clip": clip_payload(), "adapter": "other"}, "adapter must be one of relight"),
+        ({"clip": clip_payload()}, "adapter must be one of relight"),
+        ({"clip": clip_payload(), "adapter": "relight", "adapter_strength": 9.0}, "adapter_strength"),
+        ({"clip": clip_payload(), "adapter": "relight", "adapter_strength": True}, "adapter_strength"),
+        ({"clip": clip_payload(), "adapter": "relight", "adapter_strength": "strong"}, "adapter_strength"),
+        ({"clip": {"data": "AAAA"}, "adapter": "relight"}, "needs a name"),
+        ({"clip": {"name": "in.mp4", "data": ""}, "adapter": "relight"}, "Could not read that clip"),
+        ({"clip": {"name": "in.mp4", "data": "not base64!"}, "adapter": "relight"}, "Could not read that clip"),
+        ({"clip": "a-path.mp4", "adapter": "relight"}, "needs a clip"),
+    ],
+)
+def test_an_edit_that_the_form_could_not_have_made_is_refused(overrides, message):
+    with pytest.raises(InvalidJob, match=message):
+        video_job(payload(mode="edit", **overrides), editing_capabilities())
+
+
+def test_a_clip_past_the_model_s_limit_is_refused_before_the_run():
+    capabilities = editing_capabilities(max_clip_megabytes=0.000001)
+
+    with pytest.raises(InvalidJob, match="larger than"):
+        video_job(payload(mode="edit", adapter="relight", clip=clip_payload()), capabilities)
+
+
+def test_an_edit_mode_with_no_adapter_declared_is_refused():
+    capabilities = replace(editing_capabilities(), adapters=())
+
+    with pytest.raises(InvalidJob, match="no edit adapter"):
+        video_job(payload(mode="edit", adapter="relight", clip=clip_payload()), capabilities)
+
+
+def test_a_mode_the_model_does_not_have_is_refused():
+    with pytest.raises(UnsupportedMode, match="no restore mode"):
+        video_job(payload(mode="restore"), editing_capabilities())
+
+
+def test_a_mode_that_is_not_a_string_is_refused():
+    with pytest.raises(InvalidJob, match="mode must be a string"):
+        video_job(payload(mode=17), editing_capabilities())

@@ -9,13 +9,30 @@ One model fits in memory at a time. A second job on the GPU makes every timing w
 1. Before a GPU run, check port 8765, the default studio port. If a server runs there, ask the user to stop it. Never stop it yourself.
 2. Run your own server on another port. Stop it when you finish.
 3. Run one GPU job at a time. If a timing ran next to another GPU job, discard it and measure again.
+   Never stop GPU work by pattern. The wrapper this runner writes takes the pipeline's module
+   name as its first argument, so `ltx_pipelines.distilled` sits in the command line of every
+   video child, the user's included: a `pkill -f` on that string killed a user's ten minute
+   render on 2026-10-19. Kill by the pid you started, and check for your own jobs before you
+   tell the user the machine is free.
+   A lock file is not a signal that the machine is free. On 2026-10-19 one worker reclaimed a
+   live lock as stale and another script never took the lock at all, so two 40 GB jobs met
+   three times in one night; the reliable test is the process list, and the reliable gate is a
+   token file one owner creates. Read a scratch script before you kill it: a kill took out a
+   runner halfway through a queue of three wanted runs, and `kill -9` skips the trap that would
+   have released its lock.
 4. If a change touches only the page, run `uv run studio --stub --port <port>`. The stub keeps each backend's form and fakes the engine, so it uses no GPU and the user's server can keep running. A change to a backend or its engine still needs the real model. The server reads `page.html` once at start, so restart the stub after an edit to the page, or it keeps serving the old one. Restart it before a suite run as well, with no edit at all: the studio holds each workspace's model choice on the server, so a second run against the same server inherits the first run's choice and fails three Turbo checks, reading `about 20s` where the fresh run reads `about 10s` and naming Qwen-Image-2.1 where it names the Turbo checkpoint. That cost a rerun on 2026-10-18, with no page change behind it.
 5. Run the real check against the tree you verified, and nothing else. Confirm the served files' digests match the ones you measured. Two runs died against a revision that was never under test.
 6. Never pipe a check through a filter when you need its status. `| grep` makes the exit code the filter's, so a traceback reads as a pass.
 7. Take the digest of what you measured at the same moment as the measurement, or bracket the run with it. A digest sampled later is not evidence about the bytes under test. One such digest belonged to a revision another worker's mutation script had rewritten, and the difference was reported as a flaky check that did not exist.
-8. The whole web/ tree is CPU work. Slices of it, and the UI suite, need no GPU: only `verify_page.py` and `verify_batch.py` do, because they generate and edit real images and assert on their pixels.
-9. A page-only change can spend hours on the stub before any GPU time. That pays: one campaign of fuzzed clicks and a battery over every Look option, template and backend found 47 faults with no model loaded. Keep the instrument outside the repo, and rebuild it from this rule when a change is large: `pytest`, `verify_ui`, one walk over every Look option and template, and a fuzzer that presses real controls at random and reads the state the page publishes.
-10. The stub fakes the engines, so it cannot see what a model writes. A change whose behaviour depends on the model's own words still needs a real run: the stub stayed green on the collage fault that a real rewriter produced.
+8. Measure the path the product takes, not a shorter one. A timing is a timing of that
+   invocation: driving `python -m ltx_pipelines.distilled` from a scratch script is not the
+   studio's run, because the studio writes a wrapper, patches the sampler and holds the
+   transformer. On 2026-10-19 a figure from the direct path was compared against a figure from
+   the studio's path, and the difference was read as a regression that did not exist. Take the
+   wrapper the runner writes, or drive the studio, and say in the report which one it was.
+9. The whole web/ tree is CPU work. Slices of it, and the UI suite, need no GPU: only `verify_page.py` and `verify_batch.py` do, because they generate and edit real images and assert on their pixels.
+10. A page-only change can spend hours on the stub before any GPU time. That pays: one campaign of fuzzed clicks and a battery over every Look option, template and backend found 47 faults with no model loaded. Keep the instrument outside the repo, and rebuild it from this rule when a change is large: `pytest`, `verify_ui`, one walk over every Look option and template, and a fuzzer that presses real controls at random and reads the state the page publishes.
+11. The stub fakes the engines, so it cannot see what a model writes. A change whose behaviour depends on the model's own words still needs a real run: the stub stayed green on the collage fault that a real rewriter produced.
 
 ## Backend flow
 
@@ -58,7 +75,7 @@ Run this flow when you add a backend. Also run it when you change one: its capab
    - `tests/e2e/verify_capabilities.py`, which needs no GPU. It also reads the page's geometry, so run it after a page change and not only after a backend change: a sentence added to the Look note took the closed section past the height it guards, and nothing else noticed.
    - `tests/e2e/verify_backends.py`, against `uv run studio --port <port> --backend <id>`.
    - `tests/e2e/verify_page.py` and `tests/e2e/verify_storage.py`, if the page changed.
-   - `tests/e2e/verify_ui.py`, against `uv run studio --stub --port <port>`, if a control on the page changed. It needs no GPU.
+   - `tests/e2e/verify_ui.py`, against `uv run studio --stub --backend qwen21 --all-backends --port <port>`, if a control on the page changed. It needs no GPU, but it switches models, so the server has to offer more than one.
    - `tests/e2e/verify_batch.py`, if a batch changed. It makes four pictures of four subjects and edits them twice, once without a press and once with one, so it needs the GPU and about twenty minutes.
    - In the browser, one generate, one edit, and one cancel during a run.
 10. **Get a review.** Get an independent code review of the change. Fix each finding the way step 7 says, then run steps 8 and 9 again.

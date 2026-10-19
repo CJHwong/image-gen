@@ -1,8 +1,12 @@
 """Real-run check of two backends behind one page: flux2 first, then a switch to qwen21.
 
-Start the server on flux2, which adds it to the picker next to qwen21:
-    uv run studio --port <port> --backend flux2
-Then:
+studio.toml offers one model, and the page draws no picker for one, so both flags
+are needed here. `--backend flux2` opens on flux2, which the opening checks read.
+`--all-backends` puts the rest in the picker, which is the only way the switch to
+qwen21 has a row to click: `--backend flux2` alone would offer flux2 and the
+configured default (Turbo), and the check would have nothing to switch to.
+
+    uv run studio --port <port> --backend flux2 --all-backends
     uv run --with playwright python tests/e2e/verify_backends.py <port>
 
 It makes three small images and loads both models, so it takes a few minutes.
@@ -28,7 +32,11 @@ def wait_idle(page):
 
 
 def small_run(page, prompt):
-    page.evaluate("setSelect(document.getElementById('size'), '512x512')")
+    # `#size` is a hidden select the chips drive, so it is set the way the page's own
+    # setSelect sets it: the value, then the event that mirrors it into the form.
+    page.locator("#size").evaluate(
+        "element => { element.value = '512x512'; element.dispatchEvent(new Event('change', {bubbles: true})); }"
+    )
     if page.get_attribute("#advanced", "open") is None:
         page.click("#advanced summary")
     page.fill("#steps", "4")
@@ -53,8 +61,16 @@ with sync_playwright() as playwright:
 
     check("the page opens on flux2", page.inner_text("h1") == "FLUX.2 klein 9B", page.inner_text("h1"))
     page.click("#backend-toggle")
-    offered = page.locator("#backend-menu [role=menuitemradio]").all_inner_texts()
-    check("the switch offers both", offered == ["FLUX.2 klein 9B", "Qwen-Image-2.1"], str(offered))
+    # The accessible name of a row is the model's name alone, pinned by the page. That
+    # is what is compared, so the description on the row's second line does not join in.
+    offered = page.get_by_role("menuitemradio").evaluate_all(
+        "nodes => nodes.map((node) => node.getAttribute('aria-label'))"
+    )
+    check(
+        "the picker offers every model the page may use",
+        offered == page.evaluate("() => STUDIO.backends.map((backend) => backend[1])") and "Qwen-Image-2.1" in offered,
+        str(offered),
+    )
     page.keyboard.press("Escape")
     chips = page.locator("#look-rows .chip").all_text_contents()
     check(
@@ -79,7 +95,10 @@ with sync_playwright() as playwright:
     )
     check(
         "the run learned a flux2 rate",
-        page.evaluate("learnedCost['flux2 generate two-pass'] || 0") > 0.5,
+        # The key is the page's own, and it names the mode, the reference count and
+        # whether the run took two passes. Asking costKey() for it keeps this check
+        # from going stale when that key gains a field.
+        page.evaluate("learnedCost[costKey()] || 0") > 0.5,
         str(page.evaluate("learnedCost")),
     )
 
@@ -94,15 +113,24 @@ with sync_playwright() as playwright:
     check("the edit summary names guidance, not CFG", "guidance 4" in summary and "CFG" not in summary, summary)
     small_run(page, "Put a small yellow hat on the apple.")
     check("flux2 edits the image", frames(page) == 2)
+    held = frames(page)
 
     page.click("#backend-toggle")
-    page.get_by_role("menuitemradio", name="Qwen-Image-2.1").click()
+    # Exact: "Qwen-Image-2.1" is a prefix of Turbo's name, and a substring match would
+    # land on Turbo's row and then wait for a switch that never comes.
+    page.get_by_role("menuitemradio", name="Qwen-Image-2.1", exact=True).click()
     page.wait_for_function("STUDIO.backend.id === 'qwen21'", timeout=600000)
     check("the switch reloads on qwen21", page.inner_text("h1") == "Qwen-Image-2.1")
     check("qwen21 brings back Look and templates", page.is_visible("#look") and page.is_visible("#templates-toggle"))
-    check("the gallery starts empty", frames(page) == 0)
+    # Keeping is on by default, so the reload the switch makes leaves the strip as it
+    # was. verify_ui.py checks that on its own, with the theme switch either way.
+    check("the switch keeps the strip", frames(page) == held, f"{frames(page)} of {held}")
     small_run(page, "A red apple on a wooden table, soft window light.")
-    check("qwen21 makes an image after the switch", frames(page) == 1 and "QWEN IMAGE 2.1" in page.inner_text(".stage"))
+    check(
+        "qwen21 adds an image after the switch, and it names qwen21",
+        frames(page) == held + 1 and "QWEN IMAGE 2.1" in page.inner_text(".stage"),
+        f"{frames(page)} images",
+    )
     check("no console errors", not errors, "; ".join(errors))
 
 print(f"\n{sum(results)}/{len(results)} passed")

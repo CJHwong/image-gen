@@ -28,12 +28,18 @@ class Config:
         return settings[key]
 
 
-def load_config(path: Path, backend: str | None = None, quantize: int | None = None) -> Config:
+def load_config(
+    path: Path,
+    backend: str | None = None,
+    quantize: int | None = None,
+    visible: tuple[str, ...] | None = None,
+) -> Config:
     """`backend` opens the page on that backend and makes sure the page offers it.
-    `quantize` applies to the backend the page opens with."""
+    `quantize` applies to the backend the page opens with. `visible` offers exactly the
+    backends it names, which is what the flag that shows every model passes in."""
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
     default = backend or raw["default_backend"]
-    visible = tuple(raw.get("visible_backends", [default]))
+    visible = visible if visible else tuple(raw.get("visible_backends", [default]))
     if default not in visible:
         visible = (default, *visible)
     default_video = raw.get("default_video_backend", "ltx25")

@@ -10,7 +10,7 @@ from typing import cast
 import pytest
 
 from studio.l1_entities.errors import Cancelled, StudioError
-from studio.l1_entities.video_job import VideoJob, VideoReference
+from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoReference
 from studio.l4_frameworks_and_drivers.ltx25_runner import PROGRESS_WRAPPER, Ltx25Runner, _stop_process
 
 FILES = (
@@ -23,6 +23,10 @@ FILES = (
 )
 LIVE_MODEL_DIR = Path.home() / "Library/Caches/models/ltx-2.5"
 LIVE_PYTHON_PATH = Path.home() / "Workspace/LTX-2/.venv/bin/python"
+AUDIO_FILES = (
+    "diffusion_models/ltx-2.5-22b-dev-transformer-bf16.safetensors",
+    "loras/ltx-2.5-22b-distilled-lora-450-bf16.safetensors",
+)
 
 
 def weights(root):
@@ -30,6 +34,26 @@ def weights(root):
         model_file = root / relative_path
         model_file.parent.mkdir(parents=True, exist_ok=True)
         model_file.write_bytes(b"local model placeholder")
+
+
+def audio_weights(root):
+    for relative_path in AUDIO_FILES:
+        model_file = root / relative_path
+        model_file.parent.mkdir(parents=True, exist_ok=True)
+        model_file.write_bytes(b"local model placeholder")
+
+
+def audio_job(references=()):
+    return VideoJob(
+        "A kite rises to a beat",
+        960,
+        544,
+        145,
+        24,
+        42,
+        references,
+        audio=VideoAudio(b"RIFF\x24\x00\x00\x00WAVEfmt ", "theme.wav"),
+    )
 
 
 def live_runtime_ready():
@@ -77,6 +101,124 @@ def test_a_run_that_asks_for_the_enhancer_without_its_weights_says_how_to_get_th
 
     with pytest.raises(StudioError, match="prompt enhancer and its weights are not on disk"):
         runner.run(VideoJob("A kite rises", 960, 544, 145, 24, 42, (), enhance=True))
+
+
+def normalize_to_wav(_python, _source, target, _seconds):
+    """Stand in for the engine's decoder, which writes stereo PCM from the track."""
+    target.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt ")
+
+
+def test_a_run_with_a_track_enters_the_audio_pipeline_with_its_own_weights(tmp_path, monkeypatch):
+    """The audio pipeline runs the full model in stage 1 and refines with a distilled LoRA,
+    so it takes two files the drawing pipeline never opens. The form's length stays the
+    driver: the command carries --num-frames and the pipeline trims the track to it."""
+    model_dir = tmp_path / "ltx-models"
+    model_dir.mkdir()
+    weights(model_dir)
+    audio_weights(model_dir)
+    monkeypatch.setattr(Ltx25Runner, "_normalize_audio", staticmethod(normalize_to_wav))
+    calls = []
+
+    def fake_process(command, **options):
+        calls.append(command)
+        Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4 with a track")
+
+    result = Ltx25Runner("python", model_dir, process_runner=fake_process).run(audio_job())
+
+    command = calls[0]
+    assert command[1:3] == ["-m", "ltx_pipelines.a2vid_two_stage"]
+    assert command[command.index("--transformer-path") + 1].endswith(AUDIO_FILES[0])
+    assert command[command.index("--num-frames") + 1] == "145"
+    assert "--audio-max-duration" not in command
+    assert command[command.index("--num-inference-steps") + 1] == "30"
+    assert command[command.index("--distilled-lora") + 1].endswith(AUDIO_FILES[1])
+    assert command[command.index("--distilled-lora") + 2] == "1.0"
+    audio_path = Path(command[command.index("--audio-path") + 1])
+    assert audio_path.name == "audio.wav"
+    assert not audio_path.exists()
+    assert result.mp4 == b"mp4 with a track"
+
+
+def test_the_audio_weights_are_fetched_only_for_a_run_that_follows_a_track(tmp_path, monkeypatch):
+    """The pair is 50.9 GB. A studio that draws clips must not be made to fetch it, and a
+    run that follows a track must not start without it."""
+    model_dir = tmp_path / "ltx-models"
+    model_dir.mkdir()
+    weights(model_dir)
+    monkeypatch.setattr(Ltx25Runner, "_normalize_audio", staticmethod(normalize_to_wav))
+    fetched = []
+
+    def downloader(root):
+        fetched.append(root)
+        audio_weights(root)
+
+    def fake_process(command, **options):
+        Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4 bytes")
+
+    runner = Ltx25Runner("python", model_dir, process_runner=fake_process, model_downloader=downloader)
+
+    runner.run(job())
+    assert fetched == []
+
+    runner.run(audio_job())
+    assert fetched == [model_dir]
+
+
+def test_the_progress_wrapper_counts_the_audio_pipeline_s_guided_stage(tmp_path, monkeypatch):
+    """Stage 1 of the audio pipeline samples the guided schedule, not the distilled one, so
+    the wrapper's total has to come from the step count on the command line."""
+    model_dir = tmp_path / "ltx-models"
+    model_dir.mkdir()
+    weights(model_dir)
+    audio_weights(model_dir)
+    monkeypatch.setattr(Ltx25Runner, "_normalize_audio", staticmethod(normalize_to_wav))
+    calls = []
+
+    def fake_execute(self, command, progress=None, cancelled=None):
+        calls.append((command, Path(command[1]).read_text()))
+        Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4 with progress")
+
+    monkeypatch.setattr(Ltx25Runner, "_execute", fake_execute)
+
+    Ltx25Runner("python", model_dir).run(audio_job(), lambda _step, _total, _phase: None)
+
+    command, wrapper = calls[0]
+    assert command[2] == "ltx_pipelines.a2vid_two_stage"
+    assert 'pipeline_name == "ltx_pipelines.a2vid_two_stage"' in wrapper
+    assert "STAGE_2_DISTILLED_SIGMA_VALUES" in wrapper
+
+
+def test_a_track_the_engine_cannot_decode_is_named_before_the_render(tmp_path, monkeypatch):
+    """The audio VAE wants stereo PCM, so every track is decoded first. A file the engine
+    cannot read has to fail here, not after the transformer has loaded."""
+
+    def refuse(*_args, **_options):
+        raise subprocess.CalledProcessError(1, "python")
+
+    monkeypatch.setattr(subprocess, "run", refuse)
+
+    with pytest.raises(StudioError, match="could not be decoded"):
+        Ltx25Runner._normalize_audio("python", tmp_path / "in", tmp_path / "out", 5.0)
+
+
+def test_a_track_that_takes_too_long_to_decode_is_refused(tmp_path, monkeypatch):
+    def hang(*_args, **_options):
+        raise subprocess.TimeoutExpired("python", 1)
+
+    monkeypatch.setattr(subprocess, "run", hang)
+
+    with pytest.raises(StudioError, match="two minutes"):
+        Ltx25Runner._normalize_audio("python", tmp_path / "in", tmp_path / "out", 5.0)
+
+
+def test_a_decoder_that_cannot_start_names_the_engine_python(tmp_path, monkeypatch):
+    def missing(*_args, **_options):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(subprocess, "run", missing)
+
+    with pytest.raises(StudioError, match="executable could not start"):
+        Ltx25Runner._normalize_audio("python", tmp_path / "in", tmp_path / "out", 5.0)
 
 
 def test_runner_builds_official_distilled_command_and_returns_the_mp4(tmp_path):
@@ -134,7 +276,10 @@ def test_runner_wraps_the_distilled_sampler_when_progress_is_requested(tmp_path,
 
     command, received_callback, wrapper = calls[0]
     assert command[1].endswith("ltx25_progress.py")
-    assert command[2:4] == ["--transformer-path", str(model_dir / FILES[0])]
+    # The wrapper is handed the pipeline's module name first, so one script drives either the
+    # pipeline that draws a clip and the one that changes a clip.
+    assert command[2] == "ltx_pipelines.distilled"
+    assert command[3:5] == ["--transformer-path", str(model_dir / FILES[0])]
     assert "samplers.tqdm = report_steps" in wrapper
     # The wrapper reports the whole render as one count, so the page has one
     # percentage to show. It reads both schedules from the pipeline, and the
@@ -224,6 +369,7 @@ def test_the_injected_wrapper_builds_the_transformer_once_and_frees_it_after_the
     for name, module in _fake_ltx_modules(FakeStage, denoise_chunks).items():
         monkeypatch.setitem(sys.modules, name, module)
 
+    monkeypatch.setattr(sys, "argv", ["ltx25_progress.py", "ltx_pipelines.distilled"])
     exec(compile(PROGRESS_WRAPPER, "ltx25_progress.py", "exec"), {"__name__": "__main__"})
 
     passes = sys.modules["ltx_pipelines.distilled"].denoise_chunks
@@ -264,6 +410,7 @@ def test_the_wrapper_leaves_a_streaming_stage_alone(monkeypatch):
     for name, module in _fake_ltx_modules(StreamingStage, denoise_chunks).items():
         monkeypatch.setitem(sys.modules, name, module)
 
+    monkeypatch.setattr(sys, "argv", ["ltx25_progress.py", "ltx_pipelines.distilled"])
     exec(compile(PROGRESS_WRAPPER, "ltx25_progress.py", "exec"), {"__name__": "__main__"})
 
     passes = sys.modules["ltx_pipelines.distilled"].denoise_chunks
@@ -679,3 +826,140 @@ def test_live_runner_generates_a_short_video_clip():
     assert result.mp4 is not None
     assert len(result.mp4) > 1024
     assert result.mp4[4:8] == b"ftyp"
+
+
+def edit_job(clip=b"clip bytes", strength=0.8):
+    return VideoJob(
+        "A night version of the same place",
+        768,
+        448,
+        97,
+        24,
+        7,
+        edit=VideoEdit(
+            adapter="relight",
+            strength=strength,
+            lora_file="relight.safetensors",
+            clip=clip,
+            clip_name="input.mp4",
+            stage_2_conditioning=True,
+        ),
+    )
+
+
+def test_an_edit_run_drives_the_in_context_pipeline_with_the_clip_and_the_adapter(tmp_path, monkeypatch):
+    """An edit is a different pipeline, not a different model: the same six files, the
+    adapter as a LoRA, and the clip written down and named as the conditioning input. The
+    flag that keeps stage 2 conditioned rides along, because without it the second stage
+    runs the bare checkpoint and redraws the scene."""
+    model_dir = tmp_path / "ltx-models"
+    model_dir.mkdir()
+    weights(model_dir)
+    lora_dir = tmp_path / "loras"
+    lora_dir.mkdir()
+    (lora_dir / "relight.safetensors").write_bytes(b"adapter weights")
+    calls = []
+
+    def fake_execute(self, command, progress=None, cancelled=None):
+        calls.append((command, Path(command[command.index("--video-conditioning") + 1]).read_bytes()))
+        Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4 with an edit")
+
+    monkeypatch.setattr(Ltx25Runner, "_execute", fake_execute)
+    result = Ltx25Runner("python", model_dir, lora_dir=lora_dir).run(edit_job(), lambda step, total, phase: None)
+
+    command, clip = calls[0]
+    # The wrapper is the entry point when a run reports progress, and it is handed the
+    # pipeline's module name so one script can drive either pipeline.
+    assert command[1].endswith("ltx25_progress.py")
+    assert command[2] == "ltx_pipelines.ic_lora"
+    assert command[command.index("--lora") + 1 : command.index("--lora") + 3] == [
+        str(lora_dir / "relight.safetensors"),
+        "0.8",
+    ]
+    assert command[command.index("--video-conditioning") + 2] == "1.0"
+    assert "--stage-2-ic-lora" in command
+    assert clip == b"clip bytes"
+    assert result.mp4 == b"mp4 with an edit"
+
+
+def test_an_edit_without_progress_still_names_the_in_context_pipeline(tmp_path, monkeypatch):
+    model_dir = tmp_path / "ltx-models"
+    model_dir.mkdir()
+    weights(model_dir)
+    lora_dir = tmp_path / "loras"
+    lora_dir.mkdir()
+    (lora_dir / "relight.safetensors").write_bytes(b"adapter weights")
+    seen = []
+
+    def fake_process_runner(command, **_options):
+        seen.append(command)
+        Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4")
+
+    runner = Ltx25Runner("python", model_dir, process_runner=fake_process_runner, lora_dir=lora_dir)
+    runner.run(edit_job(strength=1.0))
+
+    assert seen[0][2] == "ltx_pipelines.ic_lora"
+    assert seen[0][seen[0].index("--lora") + 2] == "1.0"
+
+
+def test_an_edit_with_no_adapter_directory_configured_says_so(tmp_path, monkeypatch):
+    model_dir = tmp_path / "ltx-models"
+    model_dir.mkdir()
+    weights(model_dir)
+
+    def fake_execute(self, command, progress=None, cancelled=None):
+        pytest.fail("a run with no adapter directory reached the pipeline")
+
+    monkeypatch.setattr(Ltx25Runner, "_execute", fake_execute)
+
+    with pytest.raises(StudioError, match="lora_dir"):
+        Ltx25Runner("python", model_dir).run(edit_job(), lambda step, total, phase: None)
+
+
+def test_an_edit_whose_adapter_is_not_downloaded_says_where_it_goes(tmp_path, monkeypatch):
+    model_dir = tmp_path / "ltx-models"
+    model_dir.mkdir()
+    weights(model_dir)
+    lora_dir = tmp_path / "loras"
+    lora_dir.mkdir()
+
+    with pytest.raises(StudioError, match="not on disk"):
+        Ltx25Runner("python", model_dir, lora_dir=lora_dir).run(edit_job(), lambda step, total, phase: None)
+
+
+def test_an_edit_whose_adapter_measured_better_without_it_leaves_stage_two_bare(tmp_path, monkeypatch):
+    """The flag is the adapter's fact, not a constant: an adapter measured without it must not
+    get it, or the run does something nobody measured."""
+    model_dir = tmp_path / "ltx-models"
+    model_dir.mkdir()
+    weights(model_dir)
+    lora_dir = tmp_path / "loras"
+    lora_dir.mkdir()
+    (lora_dir / "relight.safetensors").write_bytes(b"adapter weights")
+    calls = []
+
+    def fake_execute(self, command, progress=None, cancelled=None):
+        calls.append(command)
+        Path(command[command.index("--output-path") + 1]).write_bytes(b"mp4")
+
+    monkeypatch.setattr(Ltx25Runner, "_execute", fake_execute)
+    job = edit_job()
+    bare = VideoJob(
+        job.prompt,
+        job.width,
+        job.height,
+        job.num_frames,
+        job.frame_rate,
+        job.seed,
+        edit=VideoEdit(
+            adapter="relight",
+            strength=1.0,
+            lora_file="relight.safetensors",
+            clip=b"clip bytes",
+            clip_name="input.mp4",
+        ),
+    )
+
+    Ltx25Runner("python", model_dir, lora_dir=lora_dir).run(bare, lambda step, total, phase: None)
+
+    assert "--stage-2-ic-lora" not in calls[0]

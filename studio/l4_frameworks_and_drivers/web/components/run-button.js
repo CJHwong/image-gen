@@ -19,7 +19,14 @@ import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { get, subscribe } from '../lib/state.js';
 
 class RunLabels extends LitElement {
-  static properties = { state: { attribute: 'data-state', type: String } };
+  // `data-mode` is for a form whose mode is not the image store's: the video workspace has its
+  // own Generate and Edit, and it sets the attribute beside this element. Without it the image
+  // form's button keeps reading the store, so one element draws both and the verbs cannot
+  // drift apart.
+  static properties = {
+    state: { attribute: 'data-state', type: String },
+    mode: { attribute: 'data-mode', type: String },
+  };
 
   createRenderRoot() { return this; }
 
@@ -31,7 +38,7 @@ class RunLabels extends LitElement {
   render() {
     const stopping = this.state === 'stopping';
     const running = this.state === 'busy' || stopping;
-    const editing = get('mode') === 'edit';
+    const editing = (this.mode || get('mode')) === 'edit';
     return html`<span class="main"><span class="idle-label" ?hidden=${running}><span class="generate-only" ?hidden=${editing}>Generate</span><span class="edit-only" ?hidden=${!editing}>Edit</span></span><span class="busy-label" ?hidden=${!running || stopping}>Cancel</span><span class="stopping-label" ?hidden=${!stopping}>Stopping&hellip;</span></span>`;
   }
 }

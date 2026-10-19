@@ -13,13 +13,17 @@ The stub is enough, since this checks the page and not a model. It keeps each
 backend's real form and fakes only the engine, so the controls here are the ones
 the real backend declares, and a run finishes in seconds instead of minutes:
 
-    uv run studio --stub --backend qwen21 --port <port>
+    uv run studio --stub --backend qwen21 --all-backends --port <port>
     uv run --with playwright python tests/e2e/verify_ui.py <port>
     uv run --with playwright python tests/e2e/verify_ui.py <port> --headed    # watch it run
     uv run --with playwright python tests/e2e/verify_ui.py <port> --coverage  # and measure
 
-The suite starts on qwen21 and switches to Viggle Turbo. The official Turbo
-backend remains in the picker as the configured default and third option.
+The suite starts on qwen21 and switches to Viggle Turbo, which is the second of
+the two models it measures. `--all-backends` is what puts Viggle in the picker:
+studio.toml now offers one model, the page draws no picker for one, and the
+suite's whole subject is the picker. Turbo, the configured default, and flux2
+come along in the same menu. The one-model state is the media suite's check to
+make, not this one's.
 """
 
 import contextlib
@@ -443,6 +447,13 @@ with sync_playwright() as playwright:
         "Generate asks for a size and not for a resolution",
         page.locator("#size-chips").is_visible() and page.locator("#edit-sizes").is_hidden(),
     )
+    # A switch changes the verb, not the work: the words written before it are still there
+    # on the way back, which is the round trip through Edit above.
+    check(
+        "a mode switch keeps the words that were typed",
+        page.locator("#prompt").input_value() == "a pear on a table",
+        repr(page.locator("#prompt").input_value()),
+    )
     check(
         "the run button offers the verb of the mode it is in, and one verb only",
         verb_edit and page.get_by_role("button", name=re.compile(r"^Generate\b")).count() == 1,
@@ -541,6 +552,16 @@ with sync_playwright() as playwright:
         and page.locator("#look-adds").is_hidden(),
     )
     page.get_by_role("button", name="Close-up 85mm", exact=True).click()
+    # A mode switch keeps the Look. The rows are read by name, so a mode that does not offer
+    # this row shows nothing for it, and the pick is marked again on the way back.
+    page.locator("label[for=mode-edit]").click()
+    page.locator("label[for=mode-generate]").click()
+    page.wait_for_timeout(200)
+    check(
+        "a mode switch keeps the picked Look",
+        "85mm" in page.get_by_role("button", name=re.compile("^Camera")).inner_text(),
+        page.get_by_role("button", name=re.compile("^Camera")).inner_text()[:40],
+    )
 
     # The tail is where the whole sentence first shows, and it says what it is: the part the
     # run adds after the words in the box. Without that line a reader takes the quoted
@@ -2004,13 +2025,22 @@ with sync_playwright() as playwright:
 
     # ---- The other backend -----------------------------------------------------
     # The picker is there only when the page may offer more than one, and a switch
-    # reloads the page with the other model's own capabilities.
+    # reloads the page with the other model's own capabilities. The suite runs on a
+    # server that offers every model, so the menu is the studio's whole set and the
+    # rows drawn are read against the list the page was given. Viggle is named here
+    # as well: a recipe that offers fewer models leaves these checks with nothing to
+    # switch to, and the run would fail later on a menu row that was never there.
     tab.click("#backend-toggle")
     tab.wait_for_timeout(250)
+    offered = tab.get_by_role("menuitemradio").evaluate_all(
+        "nodes => nodes.map((node) => node.getAttribute('aria-label'))"
+    )
     check(
         "the picker offers every backend the page may use",
-        tab.get_by_role("menuitemradio", name=SECOND, exact=True).is_visible()
+        offered == tab.evaluate("() => STUDIO.backends.map((backend) => backend[1])")
+        and SECOND in offered
         and tab.get_by_role("menuitemradio", name=FIRST, exact=True).get_attribute("aria-checked") == "true",
+        str(offered),
     )
     # LEFT: the second line of a row has no role of its own and is hidden from
     # assistive technology on purpose, so it is read as text of the row it is in.
@@ -2383,8 +2413,9 @@ with sync_playwright() as playwright:
     written.dispatch_event("#prompt", "input")
     before = len(rewrites_here)
     rewrite_now(written)
-    # The card's own Edit this switches the mode, and that empties the prompt and the Look,
-    # so it is locked for the length of the press and comes back when the press ends.
+    # The card's own Edit this switches the mode, and that changes the form the rewrite
+    # writes into, so it is locked for the length of the press and comes back when the
+    # press ends.
     written.wait_for_timeout(700)
     locked = written.get_by_role("button", name="Edit this")
     check(

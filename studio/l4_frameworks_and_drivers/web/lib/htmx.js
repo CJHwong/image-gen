@@ -364,6 +364,7 @@ function harvest() {
       // The model's id beside its name, because a download names a file with it and
       // a file name cannot carry the capitals and the spaces the edge draws.
       backendId: page.backendId,
+      precision: page.precision,
       // A batch of one result each edited one picture, so it says so. Composed, every
       // reference really did go into it, which is what all of them means.
       sources: Number(data.reference) >= 0 ? [runSources[Number(data.reference)] || ''] : runSources,
@@ -537,7 +538,8 @@ function listen() {
     if (sideChannel(event)) return;
     const fresh = event.detail.elt === page.el.form;
     if (fresh) {
-      page.clearToasts();
+      // A failure's toast stays until it is dismissed: a run starting is not a dismissal.
+      // The short notices clear themselves after a few seconds.
       // The copy comes first: startWork moves the stage to the progress card, and
       // the frame the region was drawn on is part of what Cancel has to put back.
       cleared = snapshotInputs();

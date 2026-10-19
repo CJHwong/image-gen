@@ -22,7 +22,7 @@
 // The fields a stored record carries besides its two pictures. A record is read
 // back into a gallery entry, so the list is the shape both ends agree on.
 const KEPT_FIELDS = ['id', 'seed', 'width', 'height', 'steps', 'elapsed', 'position', 'mode', 'prompt',
-  'typed', 'look', 'negative', 'sources', 'backend', 'backendId', 'at'];
+  'typed', 'look', 'negative', 'sources', 'backend', 'backendId', 'precision', 'at'];
 
 const channel = new BroadcastChannel('studio-gallery');
 
@@ -231,6 +231,25 @@ channel.addEventListener('message', function (event) {
   });
 });
 
+// Best-effort storage can be evicted, and a saved video that vanishes is worse than the
+// question. Ask once for durable storage; Chrome grants it by its own rules, and a refusal
+// is worth one line rather than silence, because the next eviction is invisible.
+let durable = null;
+let durableAsked = false;
+
+function askForDurableStorage() {
+  if (durableAsked) return Promise.resolve(durable);
+  durableAsked = true;
+  if (!navigator.storage || typeof navigator.storage.persist !== 'function') {
+    durable = false;
+    return Promise.resolve(false);
+  }
+  return navigator.storage.persisted()
+    .then(function (already) { return already || navigator.storage.persist(); })
+    .then(function (granted) { durable = granted; return granted; })
+    .catch(function () { durable = false; return false; });
+}
+
 const handle = {
   keep: keep,
   keepVideo: keepVideo,
@@ -243,6 +262,8 @@ const handle = {
   announce: announce,
   blobOf: blobOf,
   fields: function () { return KEPT_FIELDS; },
+  persisted: function () { return durable; },
+  askForDurableStorage: askForDurableStorage,
 };
 
 document.dispatchEvent(new CustomEvent('store-ready', {

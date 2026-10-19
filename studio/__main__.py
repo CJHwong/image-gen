@@ -21,7 +21,7 @@ from pathlib import Path
 from studio.l3_interface_adapters.gateways.qwen21.rewriter import cache_line
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable
-from studio.l4_frameworks_and_drivers.main import REWRITERS, create_studio, qwen21_rewrite_models
+from studio.l4_frameworks_and_drivers.main import BACKENDS, REWRITERS, create_studio, qwen21_rewrite_models
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
 
@@ -35,11 +35,16 @@ def parse_args():
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="settings file (default studio.toml)")
     parser.add_argument("--backend", help="open on this backend instead of the configured default")
     parser.add_argument(
+        "--all-backends",
+        action="store_true",
+        help="offer every configured backend in the page's picker, including the ones studio.toml hides",
+    )
+    parser.add_argument(
         "-q",
         "--quantize",
         type=int,
-        choices=[3, 4, 5, 6, 8],
-        help="quantize the weights of the backend the page opens with; omit for the studio.toml setting",
+        choices=[0, 3, 4, 5, 6, 8],
+        help="quantize the weights of the backend the page opens with; 0 loads them at full precision, and omitting the flag takes the studio.toml setting",
     )
     parser.add_argument(
         "--stub",
@@ -64,7 +69,12 @@ def rewriter_cache_line(config: Config) -> str:
 def main():
     args = parse_args()
     try:
-        config = load_config(args.config, backend=args.backend, quantize=args.quantize)
+        config = load_config(
+            args.config,
+            backend=args.backend,
+            quantize=args.quantize,
+            visible=tuple(BACKENDS) if args.all_backends else None,
+        )
         studio = create_studio(config, stub=args.stub)
     except ConfigError as error:
         sys.exit(f"Bad settings in {args.config}: {error}")

@@ -22,6 +22,13 @@ re-sampled the three that were wrong. Five further clips on 2026-10-18 added a s
 names what is heard, which is the sixth element the vendor's guide asks for and the one the
 templates did not invite; that sentence costs no template its own promise, and it stays. The
 style template was dropped that day, and the comment where it sat says why.
+Three more shipped on 2026-10-19, from the vendor's 2.5 prompt guide, its native-audio guide
+and the audio-driven guide: multi-shot, dialogue and soundscape. Each rendered once at 121
+frames and seed 7. The multi-shot clip cut at frames 38 and 82 against a 0.27 median frame
+difference and showed the wide, the close-up and the doorway wide in order. The dialogue clip
+stayed one continuous two-shot with 54 percent of its audio in the speech band. The
+soundscape clip stayed one shot, its audio envelope moved with the hands at r 0.56, and no
+score sat in its strongest bins.
 PROMPTS.md holds the verdicts and the numbers, including the ones that did not, and why.
 """
 
@@ -148,6 +155,32 @@ VIDEO_TEMPLATES = (
         "[A wide or a close shot] of [the scene] at the start. By the end, the frame matches the "
         "reference image: [what must be true at the end]. The camera [moves how], [light]. "
         "[Sound: what is heard]. One continuous shot.",
+    ),
+    Template(
+        "Multi-shot",
+        "Two to four shots, each cut named",
+        "[Place] at [time of day], [light and atmosphere]. [Who or what] [does what], and "
+        "[what is heard]. A hard cut to a [shot scale] of [who or what], [new framing and "
+        "action]; [what carries across the cut]. A hard cut to a [shot scale] of [what], "
+        "[action]; [how the sound changes]. Three shots, each joined by a named cut, "
+        "[what the last shot ends on].",
+    ),
+    Template(
+        "Dialogue",
+        "Two people, one exchange, lines in quotes",
+        "[Place] at [time of day], [light]. A [shot scale] frames [two people: age, hair, "
+        "clothing], [posture or gesture], facing each other. [One of them] [physical cue] and "
+        'says quietly, "[the line]". [The other] [physical reaction], then answers, "[the '
+        'line]". The camera [holds on whom, or moves how]. [Ambient sound] under the voices. '
+        "One continuous shot, no cuts.",
+    ),
+    Template(
+        "Soundscape",
+        "An ambient bed, with effects on the action",
+        "[Place] at [time of day], [light]. [Who or what] [does what], [motion detail]. The "
+        "camera [holds, or moves how]. The sound is layered: [the ambient bed of the place] "
+        "underneath, [the effect the action makes] on each [beat or stroke], [a voice or a "
+        "distant sound, or nothing], no music.",
     ),
     Template(
         "Product turn",
