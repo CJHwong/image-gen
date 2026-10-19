@@ -79,7 +79,15 @@ class JsonApi:
         return self._video_backend().run(body)
 
     def cancel_video(self, payload: Mapping[str, object]) -> bool:
-        return self._video_backend().cancel(payload)
+        """Stop one render. A caller that names none stops the one in flight, which is
+        the only render this single-GPU studio can be running."""
+        body = dict(payload)
+        if not body.get("request_id"):
+            active = self._controller.progress().request_id
+            if not active:
+                raise InvalidJob("No video render is active.")
+            body["request_id"] = active
+        return self._video_backend().cancel(body)
 
     def _video_backend(self) -> VideoController:
         if self._video is None:

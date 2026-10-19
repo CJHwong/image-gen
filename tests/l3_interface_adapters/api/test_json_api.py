@@ -28,8 +28,9 @@ from tests.support.fakes import fake_capabilities
 class FakeController(FormController):
     """The page's controller, answering with a chain of images and nothing real."""
 
-    def __init__(self, run=None, rewrite=None, view=None):
+    def __init__(self, run=None, rewrite=None, view=None, state=None):
         self.forms = []
+        self._state = state
         self._runner = run
         self._rewrite = rewrite or RewriteResponse(prompt="longer words", size="1024x1024", elapsed=1.25)
         self._view = view or StudioView(active=fake_capabilities(), backends=(("fake", "Fake", ""),))
@@ -50,7 +51,7 @@ class FakeController(FormController):
         return self._rewrite
 
     def progress(self):
-        return RunProgress(running=True, stage="running", step=2, total=3, label="1 of 2", kind="image")
+        return self._state or RunProgress(running=True, stage="running", step=2, total=3, label="1 of 2", kind="image")
 
     def cancel(self):
         self.cancelled += 1
@@ -325,3 +326,19 @@ def test_a_video_run_that_names_no_request_gets_one():
     assert isinstance(named, str) and len(named) == 32
     JsonApi(FakeController(), video).video_run({"prompt": "a clip", "request_id": "mine"}, "generate")
     assert video.payloads[-1]["request_id"] == "mine"
+
+
+def test_a_video_stop_without_an_id_stops_the_render_in_flight():
+    """One GPU means one render, so the caller does not have to have kept its id."""
+    controller = FakeController(state=RunProgress(running=True, request_id="r-1"))
+    video = FakeVideo()
+
+    assert JsonApi(controller, video).cancel_video({}) is True
+    assert video.payloads[-1] == {"request_id": "r-1"}
+
+
+def test_a_video_stop_with_nothing_in_flight_says_so():
+    video = FakeVideo()
+
+    with pytest.raises(InvalidJob, match="No video render"):
+        JsonApi(FakeController(), video).cancel_video({})

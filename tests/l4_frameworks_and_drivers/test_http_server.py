@@ -633,7 +633,7 @@ def test_a_video_stop_without_a_request_id_is_a_bad_request(served):
     status, _, body = post_json(served[1], "/api/v1/videos/cancel", {})
 
     assert status == 400
-    assert "request" in json.loads(body)["error"].lower()
+    assert "no video render" in json.loads(body)["error"].lower()
 
 
 def test_an_unknown_api_route_is_a_json_not_found(served):

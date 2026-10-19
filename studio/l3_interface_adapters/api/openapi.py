@@ -119,8 +119,12 @@ def openapi_document() -> dict[str, Any]:
                             "application/json": {
                                 "schema": {
                                     "type": "object",
-                                    "required": ["request_id"],
-                                    "properties": {"request_id": {"type": "string"}},
+                                    "properties": {
+                                        "request_id": {
+                                            "type": "string",
+                                            "description": "Omit to stop the render in flight",
+                                        }
+                                    },
                                 }
                             }
                         },
@@ -165,7 +169,12 @@ def openapi_document() -> dict[str, Any]:
                         "guidance": {"type": "number"},
                         "cfg": {"type": "number"},
                         "negative": {"type": "string"},
-                        "count": {"type": "integer", "minimum": 1, "maximum": 16, "default": 1},
+                        "count": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 16,
+                            "description": "Up to the model's own batch limit, which is never more than 16",
+                        },
                         "references": {
                             "type": "array",
                             "description": "Images as base64, with or without a data URL prefix",

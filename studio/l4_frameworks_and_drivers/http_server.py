@@ -136,7 +136,7 @@ def make_handler(
                 self._run_video(mode="edit")
                 return
             elif path == "/api/v1/videos/cancel":
-                self._cancel_video()
+                self._cancel_video(via_api=True)
                 return
             else:
                 self._send_json({"error": "not found"}, status=404)
@@ -207,12 +207,17 @@ def make_handler(
                 headers = {"X-Studio-Seed": str(result.seed)} if result.seed is not None else None
                 self._send_bytes(result.mp4, content_type="video/mp4", headers=headers)
 
-        def _cancel_video(self) -> None:
+        def _cancel_video(self, via_api: bool = False) -> None:
             if video_controller is None:
                 self._send_json({"error": "Video generation is not configured."}, status=503)
                 return
             try:
-                cancelled = video_controller.cancel(self._read_json())
+                payload = self._read_json()
+                if via_api:
+                    assert api is not None
+                    cancelled = api.cancel_video(payload)
+                else:
+                    cancelled = video_controller.cancel(payload)
             except InvalidJob as error:
                 self._send_json({"error": str(error)}, status=400)
                 return
