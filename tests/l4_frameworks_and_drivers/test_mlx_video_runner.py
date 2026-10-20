@@ -109,10 +109,13 @@ def test_a_track_enters_the_audio_task_and_is_padded_to_the_clip(tmp_path, monke
 
     command = commands[0]
     assert command[1] == "a2v"
-    assert command[command.index("--audio") + 1].endswith("audio.wav")
+    assert command[command.index("--audio") + 1].endswith("padded.wav")
     assert "--distilled" not in command
     ffmpeg, options = ffmpeg_calls[0]
     assert ffmpeg[0] == str(tmp_path / "ffmpeg")
+    assert ffmpeg[ffmpeg.index("-i") + 1].endswith("source.wav")
+    assert ffmpeg[-1].endswith("padded.wav")
+    assert ffmpeg.index("-i") < ffmpeg.index("-af") < ffmpeg.index("-t")
     assert ffmpeg[ffmpeg.index("-af") + 1] == "apad"
     assert ffmpeg[ffmpeg.index("-t") + 1] == "5.142"
     assert ffmpeg[ffmpeg.index("-ac") + 1] == "2"

@@ -113,9 +113,10 @@ class MlxVideoRunner:
             return None
         ffmpeg = self._checked(self._ffmpeg, "Set ffmpeg_path under [mlx_video] to ffmpeg.")
         suffix = Path(job.audio.name).suffix or ".bin"
-        source = root / f"audio{suffix}"
+        # The source keeps its own name so ffmpeg never reads and writes one file.
+        source = root / f"source{suffix}"
         source.write_bytes(job.audio.data)
-        target = root / "audio.wav"
+        target = root / "padded.wav"
         seconds = job.num_frames / job.frame_rate + 0.1
         command = [
             ffmpeg,
