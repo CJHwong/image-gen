@@ -85,8 +85,12 @@ VIDEO_ADAPTERS = (
         mode="edit",
         file="ltx-2.5-22b-ic-lora-water-simulation-0.9.safetensors",
         prompt=WATER_SIMULATION_PROMPT,
-        width=960,
-        height=544,
+        # The card's production size is 1920 x 1088. The form's largest rung is 1280 x 704,
+        # and at that pair a daylight room floods: the floor becomes water and the splash
+        # shows at the feet. At 960 x 544, the card's dev-base validation size, no water
+        # appeared (2026-10-20).
+        width=1280,
+        height=704,
         num_frames=97,
     ),
     VideoAdapter(

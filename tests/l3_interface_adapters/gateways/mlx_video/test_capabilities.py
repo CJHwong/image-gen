@@ -30,6 +30,19 @@ def test_the_2_5_pack_offers_generate_and_the_seven_effects():
     assert [one.id for one in capabilities.adapters if one.doubles_output] == ["upscale-2x"]
 
 
+def test_every_effect_renders_inside_the_model_s_bounds():
+    """An effect's card size is the run's size, and the form cannot offer a pair past the
+    model's largest side. Clean plate at 1024 x 576 and water at 1280 x 704 both sit inside."""
+    capabilities = ltx25_mlx_capabilities()
+
+    for adapter in capabilities.adapters:
+        if not adapter.width or not adapter.height:
+            continue
+        assert capabilities.min_dimension <= adapter.width <= capabilities.max_dimension
+        assert capabilities.min_dimension <= adapter.height <= capabilities.max_dimension
+        assert adapter.width % 32 == 0 and adapter.height % 32 == 0
+
+
 def test_the_2_3_pack_offers_generate_only():
     capabilities = ltx23_mlx_capabilities()
 

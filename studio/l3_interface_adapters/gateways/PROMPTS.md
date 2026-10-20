@@ -1164,31 +1164,38 @@ Two things this sample says about words. A multi-shot prompt can name its cuts a
 and a quoted line alone does not make the video pass speak: text to audio does, and the track
 then drives the sound rather than the mouth.
 
-## The seven LTX-2.5 effects, and the MLX test that retired them (2026-10-20)
+## The seven LTX-2.5 effects on the q8 packs (2026-10-20)
 
-These effects ran only on the PyTorch engine, which was removed on 2026-10-20. Their verdicts
-stay here so the work is not lost.
+The port's `ic-lora` task runs these weights on its single-stage path with the distilled
+transformer. That path applies the reference at full resolution throughout, which is the
+topology each card names. The default two-stage path applies the reference at half resolution
+and drops it in stage 2, so it erases the change and tiles the frame.
 
-| Effect | Verdict |
-| --- | --- |
-| Day to night | The same shot darkens 107.2 to 39.2 and the buildings and street hold, but only with stage 2 conditioned. A bare stage 2 lost the market stall and put a parked car in its place |
-| Water simulation | The road becomes a wet reflective sheet with the crossing under standing water; the crowd, buildings and light hold |
-| Clean plate | Pedestrians, cyclist, stalls and parked cars gone, road and pavement rebuilt continuous, buildings and light intact |
-| Deblur | Judged on soft.mp4, blurred at radius 6, and shipped |
-| Decompression | Judged on crushed.mp4, encoded at 150 kbps, and shipped |
-| Restore | On a clip halved and back, sepia, blurred and noisy: colour returned (saturation 17.8 to 36.3), damage gone, crowd and street in place |
-| Upscale 2x | 384 to 768 on the PyTorch path, cuts survived, real texture at 1:1 |
-| Colorization | Not shipped. A grey clip stayed grey: 0.52 mean chroma with stage 2 conditioned, 2.96 bare, against 11.5 for a colour clip |
-| Refine details | Not shipped. A small sharpening at 384, and the card's gain is in tiled processing this pipeline did not do |
+An effect renders at the size and length its card trained at. Clean plate at 384 x 384 kept
+the crowd; at 1024 x 576 and 49 frames it emptied the street. Each adapter carries its own
+`width`, `height` and `num_frames`, and the controller and the form use them.
 
-**Why they do not move to MLX.** The port's `ic-lora` task accepts a 2.5 adapter and produces
-an artifact, not the effect. Restore at 384 with the damaged clip returned a tiled colour
-pattern on a noisy grey field, mean chroma 46.75 against 17.84 for the input, in 62.8 s.
-Upscale 2x to 768 returned the same kind of pattern in 218 s. The port's README says 2.5
-IC-LoRA is not supported, and these two runs agree. The 2.3 pack does support `ic-lora`, but
-its published LoRAs are control models (Union Control, Motion Track) that need a control video
-the studio does not make, and 2.5 weights do not transfer to 2.3. So no effect is offered on
-the q8 packs, and Edit has no model until Lightricks publishes 2.5 task LoRAs.
+| Effect | Card size | Verdict |
+| --- | --- | --- |
+| Day to night | 768 x 448, 97 | A daylight room becomes night: blue moonlight, lit windows, the dancer and the room held. 250.2 s |
+| Water simulation | 1280 x 704, 97 | A dry room floods: water across the floor and a splash at the feet. 906.7 s. At 960 x 544 the same prompt added no water |
+| Clean plate | 1024 x 576, 49 | Pedestrians gone, street rebuilt, light held |
+| Deblur | 960 x 544, 121 | A soft clip comes back sharp, faces and flame detail hold |
+| Decompression | 960 x 544, 121 | Edges clean from a crushed clip; colour unchanged |
+| Restore | 960 x 544, 97 | Colour and detail return on damaged footage, with a warm cast |
+| Upscale 2x | twice the clip | 384 to 768, faces and flame detail at 1:1 |
+
+Water's card asks for 1920 x 1088. The form's largest rung is 1280 x 704, and water shows
+there, so that pair ships. Deblur and decompression were trained at 960 x 544; their cards
+name 1920 x 1088 for production, and the trained pair shows the effect, so it ships.
+
+The day-to-night card asks 768 x 448 and 97 frames, which is what ships. Its first MLX run
+looked like a failure because the test clip was already a torch-lit night street. On a
+daylight clip the adapter relights.
+
+The port's README still says 2.5 IC-LoRA is unsupported. That line predates Lightricks
+publishing these adapters. The pipeline runs the topology the cards specify, and the runs
+above are the evidence.
 
 **Dub-It.** The 2.3 Dub-It LoRA works on the PyTorch 2.3 engine: the user judged the
 2026-10-20 output perfect. The same LoRA on 2.5 weights loads but copies the reference's mouth
