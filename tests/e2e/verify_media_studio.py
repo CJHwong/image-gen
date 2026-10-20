@@ -613,18 +613,18 @@ with sync_playwright() as playwright:
     )
     check(
         "each shape opens on its lowest rung",
-        [row["size"] for row in ladder["tall"]["rows"]] == ["384x640", "448x768", "576x1024"]
+        [row["size"] for row in ladder["tall"]["rows"]] == ["384x640", "448x768", "576x1024", "1088x1920"]
         and ladder["tall"]["rows"][0]["selected"] == "true"
         and "384 × 640" in ladder["tall"]["caption"]  # noqa: RUF001
-        and [row["selected"] for row in ladder["back"]["rows"]] == ["true", "false", "false", "false"],
+        and [row["selected"] for row in ladder["back"]["rows"]] == ["true", "false", "false", "false", "false"],
         json.dumps(ladder["tall"]),
     )
     check(
         "a rung picked on one shape does not follow the shape",
-        [row["selected"] for row in ladder["full"]["rows"]] == ["false", "false", "true", "false"]
-        and [row["selected"] for row in ladder["movedHigh"]["rows"]] == ["true", "false", "false"]
+        [row["selected"] for row in ladder["full"]["rows"]] == ["false", "false", "true", "false", "false"]
+        and [row["selected"] for row in ladder["movedHigh"]["rows"]] == ["true", "false", "false", "false"]
         and ladder["movedHigh"]["caption"] == "384 × 640, 121 frames"  # noqa: RUF001
-        and [row["selected"] for row in ladder["returned"]["rows"]] == ["true", "false", "false", "false"],
+        and [row["selected"] for row in ladder["returned"]["rows"]] == ["true", "false", "false", "false", "false"],
         json.dumps(ladder["movedHigh"]),
     )
     # The video prompt's own templates. The record decides the menu, and a template that names
