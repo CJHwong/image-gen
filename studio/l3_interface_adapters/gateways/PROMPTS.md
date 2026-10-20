@@ -1183,7 +1183,7 @@ the crowd; at 1024 x 576 and 49 frames it emptied the street. Each adapter carri
 | Deblur | 960 x 544, 121 | A soft clip comes back sharp, faces and flame detail hold |
 | Decompression | 960 x 544, 121 | Edges clean from a crushed clip; colour unchanged |
 | Restore | 960 x 544, 97 | Colour and detail return on damaged footage, with a warm cast |
-| Upscale 2x | twice the clip | 384 to 768, faces and flame detail at 1:1 |
+| Upscale 2x | twice the clip | 384 to 768, faces, hands and the floor planks at 1:1. 399.1 s through the API |
 
 The times are the studio's own run on the office M5 Pro, with no other GPU job on the
 machine: one clip, seed 7, one effect per request through `/api/v1/videos/edit`.
