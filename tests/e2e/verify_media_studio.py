@@ -225,6 +225,23 @@ with sync_playwright() as playwright:
     # The video prompt's head carries the same two controls, so it is measured at the same
     # width. Its own buttons are driven by the stub's capabilities, which offer both.
     switch_workspace(page, "video")
+    # The studio opens on the MLX q8 pack, which offers Generate only. The checks below are
+    # about the video form's controls, including Edit, so they run on the PyTorch model.
+    page.click("#backend-toggle")
+    video_models = page.evaluate(
+        "() => [...document.querySelectorAll('#backend-menu [role=menuitemradio]')].map((item) => item.getAttribute('aria-label'))"
+    )
+    video_default = page.evaluate("() => document.getElementById('backend-toggle').querySelector('.name').textContent")
+    page.click('#backend-menu button[aria-label="LTX-2.5"]')
+    page.wait_for_function(
+        "() => document.getElementById('backend-toggle').querySelector('.name').textContent === 'LTX-2.5'",
+        timeout=20000,
+    )
+    check(
+        "the video picker opens on the q8 pack and offers the PyTorch model",
+        video_default == "LTX-2.5 q8" and video_models == ["LTX-2.5 q8", "LTX-2.3 q8", "LTX-2.5"],
+        str({"default": video_default, "models": video_models}),
+    )
     narrow_video_head = page.evaluate(
         """() => {
           const head = document.querySelector('#video-controls .prompt-field .field-head');
@@ -369,9 +386,9 @@ with sync_playwright() as playwright:
         page.locator("#video-source-panel .video-reference").inner_text(),
     )
     check(
-        "Video mode shows its own selected model",
+        "Video mode shows its own selected model and offers the other video models",
         page.locator("#backend-toggle .name").inner_text() == "LTX-2.5"
-        and page.locator("#backend-toggle").is_disabled(),
+        and page.locator("#backend-toggle").is_enabled(),
         page.locator("#backend-toggle").inner_text().replace("\n", " "),
     )
     check(
