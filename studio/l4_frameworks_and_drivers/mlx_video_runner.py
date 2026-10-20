@@ -28,13 +28,24 @@ BAR = re.compile(r"(\d+)/(\d+)\s*\[")
 
 
 class MlxVideoRunner:
-    def __init__(self, settings: dict, model: str, enhances: bool, process_runner: Callable = subprocess.run):
+    def __init__(
+        self,
+        settings: dict,
+        model: str,
+        enhances: bool,
+        keyframe_two_stage: bool = False,
+        process_runner: Callable = subprocess.run,
+    ):
         self._cli = str(settings.get("cli_path", ""))
         self._ffmpeg = str(settings.get("ffmpeg_path") or (shutil.which("ffmpeg") or ""))
         self._model = model
         # The enhancer is a Gemma 3 pass, which the 2.5 pack cannot run. The job always
         # carries the flag, so the runner drops it here and the form sends one shape.
         self._enhances = enhances
+        # On 2.3 the distilled path holds the room until the last keyframe and lands the
+        # change in one frame. The two-stage path builds it through the clip, so a keyframe
+        # job takes it there. The 2.5 distilled path already builds it.
+        self._keyframe_two_stage = keyframe_two_stage
         self._process_runner = process_runner
 
     def run(
@@ -85,6 +96,8 @@ class MlxVideoRunner:
         ]
         if audio is not None:
             command.extend(("--audio", str(audio)))
+        elif images and self._keyframe_two_stage:
+            command.append("--two-stage")
         else:
             command.append("--distilled")
         if job.seed is not None:

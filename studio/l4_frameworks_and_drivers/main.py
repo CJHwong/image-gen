@@ -174,6 +174,7 @@ def ltx25_mlx_backend(config: Config) -> MlxVideoBackendGateway:
         ltx25_mlx_capabilities(),
         model_key="model_ltx25",
         enhances=False,
+        keyframe_two_stage=False,
     )
 
 
@@ -183,6 +184,7 @@ def ltx23_mlx_backend(config: Config) -> MlxVideoBackendGateway:
         ltx23_mlx_capabilities(),
         model_key="model_ltx23",
         enhances=True,
+        keyframe_two_stage=True,
     )
 
 
@@ -191,12 +193,14 @@ def _mlx_video_backend(
     capabilities: VideoCapabilities,
     model_key: str,
     enhances: bool,
+    keyframe_two_stage: bool,
 ) -> MlxVideoBackendGateway:
     settings = config.backend("mlx_video")
     model = str(settings.get(model_key, ""))
     if not model:
         raise ConfigError(f"studio.toml has no {model_key} under [mlx_video]")
-    return MlxVideoBackendGateway(capabilities, MlxVideoRunner(settings, model, enhances))
+    runner = MlxVideoRunner(settings, model, enhances, keyframe_two_stage)
+    return MlxVideoBackendGateway(capabilities, runner)
 
 
 VIDEO_BACKENDS = {

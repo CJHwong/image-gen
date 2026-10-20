@@ -210,6 +210,8 @@ def test_the_two_mlx_packs_are_separate_video_backends(tmp_path: Path):
     assert video["ltx23_mlx"].capabilities().name == "LTX-2.3 q8"
     assert video["ltx25_mlx"]._runner._enhances is False
     assert video["ltx23_mlx"]._runner._enhances is True
+    assert video["ltx25_mlx"]._runner._keyframe_two_stage is False
+    assert video["ltx23_mlx"]._runner._keyframe_two_stage is True
 
 
 def test_a_pack_without_its_model_setting_is_refused(tmp_path: Path):

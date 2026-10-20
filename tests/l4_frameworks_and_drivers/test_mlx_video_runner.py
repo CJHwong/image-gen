@@ -288,3 +288,28 @@ def test_a_cancel_that_lands_after_the_child_exits_is_raised():
 
     with pytest.raises(Cancelled):
         MlxVideoRunner({"cli_path": "x"}, "pack", False)._execute([sys.executable, "-c", "pass"], None, cancelled)
+
+
+def test_a_two_stage_pack_builds_keyframes_on_the_two_stage_path(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    runner = MlxVideoRunner({"cli_path": cli(tmp_path)}, "pack", True, keyframe_two_stage=True)
+    references = (VideoReference("first.png", b"first", 0, 1.0),)
+
+    runner.run(VideoJob("a room", 384, 384, 121, 24, 7, references=references))
+    runner.run(VideoJob("a room", 384, 384, 121, 24, 7))
+
+    assert "--two-stage" in commands[0]
+    assert "--distilled" not in commands[0]
+    assert "--distilled" in commands[1]
+
+
+def test_the_one_stage_pack_keeps_the_distilled_path_with_keyframes(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    runner = MlxVideoRunner({"cli_path": cli(tmp_path)}, "pack", False, keyframe_two_stage=False)
+
+    runner.run(VideoJob("a room", 384, 384, 121, 24, 7, references=(VideoReference("a.png", b"a", 0, 1.0),)))
+
+    assert "--distilled" in commands[0]
+    assert "--two-stage" not in commands[0]
