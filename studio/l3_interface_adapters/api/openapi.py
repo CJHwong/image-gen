@@ -27,9 +27,22 @@ curl -s localhost:8765/api/v1/images/generate \
 Images come back as base64 PNG. A video comes back as the MP4 itself, with the seed in
 `X-Studio-Seed`. A run that is stopped answers `409` and names the stop.
 
+A picture a run starts from and a track it follows travel as base64 inside the JSON body,
+not as a file upload. An image reference is a base64 string or an object with
+`png_base64`; a browser's `FileReader` result with its `data:...;base64,` prefix is
+accepted as it is. A video's keyframes are objects that name the frame and the strength,
+and its track is an object with a name and base64 data. The schemas below carry one
+example of each.
+
 One model fits in memory at a time. A request while another run holds the GPU answers
 `409`, so a client should read `GET /api/v1/progress` rather than retry at once.
 """
+
+# A 1 x 1 PNG, so the reference examples in the schemas are real bytes a reader can send.
+TINY_PNG = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
 
 
 def openapi_document() -> dict[str, Any]:
@@ -190,6 +203,12 @@ def openapi_document() -> dict[str, Any]:
                     "examples": [
                         {"prompt": "a red pear on a table", "size": "1024x1024", "seed": 7},
                         {"prompt": "a cat asleep in a sunbeam", "size": "768x768", "count": 2},
+                        {
+                            "prompt": "a red pear on the same table, at dusk",
+                            "references": [TINY_PNG],
+                            "size": "1024x1024",
+                            "seed": 7,
+                        },
                     ],
                 },
                 "ImageEditRequest": {
@@ -215,6 +234,13 @@ def openapi_document() -> dict[str, Any]:
                         "mask": {"type": "boolean"},
                     },
                     "additionalProperties": True,
+                    "examples": [
+                        {
+                            "prompt": "Turn the sky to dusk and keep the house as it is",
+                            "references": [TINY_PNG],
+                            "size": "match",
+                        }
+                    ],
                 },
                 "Image": {
                     "type": "object",
@@ -318,7 +344,27 @@ def openapi_document() -> dict[str, Any]:
                             "height": 448,
                             "num_frames": 121,
                             "seed": 7,
-                        }
+                        },
+                        {
+                            "prompt": "The empty room, then the chandeliers come up and the dancers arrive.",
+                            "width": 384,
+                            "height": 384,
+                            "num_frames": 121,
+                            "seed": 7,
+                            "references": [
+                                {"name": "start.png", "image": TINY_PNG, "frame_index": 0, "strength": 1.0},
+                                {"name": "end.png", "image": TINY_PNG, "frame_index": 120, "strength": 1.0},
+                            ],
+                        },
+                        {
+                            "prompt": "The same woman speaks the line on camera, one continuous shot.",
+                            "width": 384,
+                            "height": 384,
+                            "num_frames": 121,
+                            "seed": 7,
+                            "references": [{"name": "face.png", "image": TINY_PNG, "frame_index": 0, "strength": 1.0}],
+                            "audio": {"name": "line.wav", "data": "<base64 of a stereo WAV file>"},
+                        },
                     ],
                 },
                 "VideoEditRequest": {
