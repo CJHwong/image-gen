@@ -202,6 +202,50 @@ def test_a_silent_death_says_nothing():
         MlxVideoRunner({"cli_path": "x"}, "pack", False)._execute(command, None)
 
 
+def test_a_gated_pack_names_the_login_step():
+    command = [
+        sys.executable,
+        "-c",
+        "import sys; sys.stderr.write('huggingface_hub.errors.GatedRepoError: 401 Client Error. "
+        "Cannot access gated repo\\n'); raise SystemExit(1)",
+    ]
+
+    with pytest.raises(StudioError) as failure:
+        MlxVideoRunner({"cli_path": "x"}, "pack", False)._execute(command, None)
+
+    message = str(failure.value)
+    assert "gated repo" in message
+    assert "hf auth login" in message
+    # The tail stays, because the status and the class name are what a report needs.
+    assert "GatedRepoError" in message
+
+
+def test_an_unknown_pack_names_the_setting():
+    command = [
+        sys.executable,
+        "-c",
+        "import sys; sys.stderr.write('huggingface_hub.errors.RepositoryNotFoundError: 404\\n'); raise SystemExit(1)",
+    ]
+
+    with pytest.raises(StudioError) as failure:
+        MlxVideoRunner({"cli_path": "x"}, "pack", False)._execute(command, None)
+
+    assert "[mlx_video] in studio.toml" in str(failure.value)
+
+
+def test_an_unreachable_registry_names_the_network():
+    command = [
+        sys.executable,
+        "-c",
+        "import sys; sys.stderr.write('httpx.ConnectError: MaxRetryError while resolving\\n'); raise SystemExit(1)",
+    ]
+
+    with pytest.raises(StudioError) as failure:
+        MlxVideoRunner({"cli_path": "x"}, "pack", False)._execute(command, None)
+
+    assert "Check the network" in str(failure.value)
+
+
 def test_execute_stops_the_child_when_cancelled():
     command = [sys.executable, "-c", "import time; time.sleep(30)"]
 

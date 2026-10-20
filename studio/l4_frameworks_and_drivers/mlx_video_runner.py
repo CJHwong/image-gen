@@ -161,8 +161,8 @@ class MlxVideoRunner:
         path = Path(self._lora_dir) / file
         if not path.is_file():
             raise StudioError(
-                f"The adapter's weights are not on disk at {path}. Fetch them from the Lightricks "
-                f"LTX-2.5 Creative Lab collection into {self._lora_dir}."
+                f"The adapter's weights are not on disk at {path}. Fetch the file from the "
+                f"Lightricks collection at https://huggingface.co/Lightricks into {self._lora_dir}."
             )
         return path
 
@@ -271,11 +271,41 @@ def _report(text: str, reported: tuple[int, int], progress: Callable[[int, int, 
     return reported
 
 
+# What a failed weight fetch looks like, and the step it needs. The first run downloads
+# about 72 GB, so the common failure is an unprepared machine, not a broken render. The
+# tail stays after the hint: the class name and the status are what a report needs.
+FETCH_FIXES = (
+    (
+        ("gatedrepoerror", "cannot access gated repo"),
+        "The weights sit in a gated repo. Accept its terms on the model page and run "
+        "`uv run hf auth login` once, then run this again.",
+    ),
+    (
+        ("repositorynotfounderror", "repository not found"),
+        "No Hugging Face repo has that id. Check the pack id under [mlx_video] in studio.toml.",
+    ),
+    (
+        ("connectionerror", "maxretryerror", "nameresolutionerror"),
+        "The studio could not reach Hugging Face. Check the network, then run this again.",
+    ),
+)
+
+
 def _crash_report(return_code: int, recent: deque[str]) -> str:
     tail = " | ".join(list(recent)[-TAIL_LINES:])
     if not tail:
         return f"MLX video pipeline failed with exit status {return_code} and said nothing."
-    return f"MLX video pipeline failed with exit status {return_code}. Its last lines: {tail}"
+    hint = _fetch_fix(tail)
+    lead = f"{hint} " if hint else ""
+    return f"{lead}MLX video pipeline failed with exit status {return_code}. Its last lines: {tail}"
+
+
+def _fetch_fix(tail: str) -> str:
+    lowered = tail.lower()
+    for needles, fix in FETCH_FIXES:
+        if any(needle in lowered for needle in needles):
+            return fix
+    return ""
 
 
 def _stop_process(process: subprocess.Popen) -> None:
