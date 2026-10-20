@@ -20,9 +20,11 @@ SHAPES = (
     VideoShape("16:9", 768, 448),
     VideoShape("16:9", 1024, 576),
     VideoShape("16:9", 1280, 704),
+    VideoShape("16:9", 1920, 1088),
     VideoShape("9:16", 384, 640),
     VideoShape("9:16", 448, 768),
     VideoShape("9:16", 576, 1024),
+    VideoShape("9:16", 1088, 1920),
     VideoShape("3:2", 768, 512),
     VideoShape("3:2", 960, 640),
     VideoShape("3:2", 1152, 768),
@@ -85,10 +87,11 @@ VIDEO_ADAPTERS = (
         mode="edit",
         file="ltx-2.5-22b-ic-lora-water-simulation-0.9.safetensors",
         prompt=WATER_SIMULATION_PROMPT,
-        # The card's production size is 1920 x 1088. The form's largest rung is 1280 x 704,
-        # and at that pair a daylight room floods: the floor becomes water and the splash
-        # shows at the feet. At 960 x 544, the card's dev-base validation size, no water
-        # appeared (2026-10-20).
+        # The card's production size is 1920 x 1088. This pair is the one measured: at
+        # 1280 x 704 a daylight room floods, the floor becomes water and the splash shows at
+        # the feet. At 960 x 544, the card's dev-base validation size, no water appeared
+        # (2026-10-20). 1920 x 1088 is untested for this effect and costs about three times
+        # the run.
         width=1280,
         height=704,
         num_frames=97,
@@ -195,7 +198,9 @@ def _capabilities(backend_id: str, name: str, edit: bool = False) -> VideoCapabi
         # The port accepts any side on the 64 pixel grid; the form keeps its own bounds so a
         # typo cannot ask for a shape the model was never sampled at.
         min_dimension=256,
-        max_dimension=1280,
+        # 1080p class. Measured on the office M5 Pro: a 1920 x 1088 generate of 97 frames
+        # took 790 s on 2.5 q8 and stayed inside 64 GB, on the distilled two-stage path.
+        max_dimension=1920,
         dimension_step=64,
         templates=VIDEO_TEMPLATES,
         modes=(generate, edit_mode) if edit else (generate,),

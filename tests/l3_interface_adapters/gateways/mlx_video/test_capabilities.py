@@ -63,7 +63,8 @@ def test_every_size_keeps_its_named_ratio_on_the_64_pixel_grid(build):
         assert capabilities.min_dimension <= shape.height <= capabilities.max_dimension
         # The ladder is the model's own: 640 x 384 is the wide shape at five to three, and
         # 1280 x 704 sits 2.3 percent off 16:9 because 704 is the tallest 64 pixel side under
-        # the model's 720. The form prints the pixels it will use under the field.
+        # the model's 720. The 1080 class is 1920 x 1088, which is 0.7 percent off. The form
+        # prints the pixels it will use under the field.
 
 
 @pytest.mark.parametrize("build", [ltx25_mlx_capabilities, ltx23_mlx_capabilities])
