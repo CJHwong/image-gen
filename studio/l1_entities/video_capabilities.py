@@ -79,6 +79,9 @@ class VideoAdapter:
     """The size and length the card trained at. Zero means the run takes the clip's own. An
     effect is trained at one geometry, and a run at another leaves the distribution: clean
     plate at 384 x 384 kept the crowd, at 1024 x 576 and 49 frames it emptied the street."""
+    card: str = ""
+    """The collection the effect's weights come from, when they are fetched. Empty means the
+    weights are the person's own to place, and the studio does not go looking for them."""
 
     def __post_init__(self) -> None:
         if self.mode not in ("generate", "edit"):

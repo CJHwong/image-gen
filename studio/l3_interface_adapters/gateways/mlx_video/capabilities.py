@@ -79,6 +79,7 @@ VIDEO_ADAPTERS = (
         width=768,
         height=448,
         num_frames=97,
+        card="Day-To-Night",
     ),
     VideoAdapter(
         id="water-simulation",
@@ -90,11 +91,12 @@ VIDEO_ADAPTERS = (
         # The card's production size is 1920 x 1088. This pair is the one measured: at
         # 1280 x 704 a daylight room floods, the floor becomes water and the splash shows at
         # the feet. At 960 x 544, the card's dev-base validation size, no water appeared
-        # (2026-10-20). 1920 x 1088 is untested for this effect and costs about three times
-        # the run.
+        # (2026-10-20). At 1920 x 1088 the single-stage path runs out of Metal memory on a
+        # 64 GB Mac, so the shipped pair is the largest that fits.
         width=1280,
         height=704,
         num_frames=97,
+        card="Water-Simulation",
     ),
     VideoAdapter(
         id="clean-plate",
@@ -106,6 +108,7 @@ VIDEO_ADAPTERS = (
         width=1024,
         height=576,
         num_frames=49,
+        card="Clean-Plate",
     ),
     VideoAdapter(
         id="deblur",
@@ -117,6 +120,7 @@ VIDEO_ADAPTERS = (
         width=960,
         height=544,
         num_frames=121,
+        card="Deblur",
     ),
     VideoAdapter(
         id="decompression",
@@ -128,6 +132,7 @@ VIDEO_ADAPTERS = (
         width=960,
         height=544,
         num_frames=121,
+        card="Decompression",
     ),
     VideoAdapter(
         id="restore",
@@ -139,6 +144,7 @@ VIDEO_ADAPTERS = (
         width=960,
         height=544,
         num_frames=97,
+        card="Restore",
     ),
     VideoAdapter(
         id="upscale-2x",
@@ -148,6 +154,7 @@ VIDEO_ADAPTERS = (
         file="ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
         prompt=UPSCALE_PROMPT,
         doubles_output=True,
+        card="Pixel-Spatial-Upscaler",
     ),
 )
 

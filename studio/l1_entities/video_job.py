@@ -26,6 +26,9 @@ class VideoEdit:
     clip: bytes
     clip_name: str
     stage_2_conditioning: bool = False
+    card: str = ""
+    """The Lightricks collection the weights come from, when the studio may fetch them.
+    Empty means the person placed the file themselves and the studio does not go looking."""
 
 
 @dataclass(frozen=True)

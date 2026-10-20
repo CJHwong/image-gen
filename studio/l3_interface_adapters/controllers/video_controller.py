@@ -105,6 +105,7 @@ def _edit(payload: Mapping, adapter: VideoAdapter, capabilities: VideoCapabiliti
         clip=clip,
         clip_name=clip_name,
         stage_2_conditioning=adapter.stage_2_conditioning,
+        card=adapter.card,
     )
 
 

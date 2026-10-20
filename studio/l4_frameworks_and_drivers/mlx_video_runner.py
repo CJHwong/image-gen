@@ -19,6 +19,7 @@ from typing import BinaryIO, cast
 
 from studio.l1_entities.errors import Cancelled, StudioError
 from studio.l1_entities.video_job import VideoEdit, VideoJob, VideoResult
+from studio.l3_interface_adapters.gateways.mlx_video.lora_fetch import fetch_lora
 
 RUN_TIMEOUT_SECONDS = 60 * 60
 TAIL_LINES = 12
@@ -42,6 +43,9 @@ class MlxVideoRunner:
         self._model = model
         self._model_key = model_key
         self._lora_dir = str(settings.get("lora_dir") or "")
+        # Fetching a missing adapter is a download the person did not ask for, so the
+        # setting decides. Off by default, and the file is named either way.
+        self._fetches_loras = bool(settings.get("fetch_loras", False))
         # The enhancer is a Gemma 3 pass, which the 2.5 pack cannot run. The job always
         # carries the flag, so the runner drops it here and the form sends one shape.
         self._enhances = enhances
@@ -125,7 +129,7 @@ class MlxVideoRunner:
         """
         clip = root / "conditioning.mp4"
         clip.write_bytes(edit.clip)
-        lora = self._lora(edit.lora_file)
+        lora = self._lora(edit)
         command = [
             self._cli,
             "ic-lora",
@@ -155,16 +159,25 @@ class MlxVideoRunner:
             command.extend(("--seed", str(job.seed)))
         return command
 
-    def _lora(self, file: str) -> Path:
+    def _lora(self, edit: VideoEdit) -> Path:
+        """The adapter's weights, on disk.
+
+        A file that is missing is fetched from Lightricks when the setting allows it, and
+        refused with the path when it does not. The fetch is a download, so it is the
+        setting's decision and not the runner's.
+        """
         if not self._lora_dir:
             raise StudioError("Set lora_dir under [mlx_video] to the adapter directory.")
-        path = Path(self._lora_dir) / file
-        if not path.is_file():
+        path = Path(self._lora_dir) / edit.lora_file
+        if path.is_file():
+            return path
+        if not self._fetches_loras:
             raise StudioError(
                 f"The adapter's weights are not on disk at {path}. Fetch the file from the "
-                f"Lightricks collection at https://huggingface.co/Lightricks into {self._lora_dir}."
+                f"Lightricks collection at https://huggingface.co/Lightricks into {self._lora_dir}, "
+                f"or set fetch_loras to true under [mlx_video] and the studio will fetch it."
             )
-        return path
+        return fetch_lora(edit.adapter, edit.lora_file, Path(self._lora_dir))
 
     def _write_references(self, job: VideoJob, root: Path) -> list[Path]:
         paths = []

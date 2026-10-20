@@ -394,6 +394,62 @@ def test_an_effect_job_builds_the_single_stage_ic_lora_command(tmp_path, monkeyp
     assert "--seed" in command
 
 
+def test_a_missing_effect_is_fetched_when_the_setting_allows_it(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    loras = tmp_path / "loras"
+    loras.mkdir()
+    fetched = []
+
+    def fake_fetch(adapter_id, file_name, target_dir):
+        fetched.append((adapter_id, file_name, str(target_dir)))
+        (target_dir / file_name).write_bytes(b"weights")
+        return target_dir / file_name
+
+    monkeypatch.setattr("studio.l4_frameworks_and_drivers.mlx_video_runner.fetch_lora", fake_fetch)
+    runner = MlxVideoRunner(
+        {"cli_path": cli(tmp_path), "lora_dir": str(loras), "fetch_loras": True},
+        "pack",
+        False,
+    )
+    job = VideoJob(
+        "relight it",
+        384,
+        384,
+        121,
+        24,
+        7,
+        edit=VideoEdit("day-to-night", 1.0, "effect.safetensors", b"clip bytes", "clip.mp4", card="Day-To-Night"),
+    )
+
+    runner.run(job)
+
+    assert fetched == [("day-to-night", "effect.safetensors", str(loras))]
+    assert commands[0][commands[0].index("--lora") + 1] == str(loras / "effect.safetensors")
+
+
+def test_a_missing_effect_is_refused_when_the_setting_says_no(tmp_path):
+    loras = tmp_path / "loras"
+    loras.mkdir()
+    runner = MlxVideoRunner(
+        {"cli_path": cli(tmp_path), "lora_dir": str(loras), "fetch_loras": False},
+        "pack",
+        False,
+    )
+    job = VideoJob(
+        "relight it",
+        384,
+        384,
+        121,
+        24,
+        7,
+        edit=VideoEdit("day-to-night", 1.0, "effect.safetensors", b"clip bytes", "clip.mp4"),
+    )
+
+    with pytest.raises(StudioError, match="fetch_loras"):
+        runner.run(job)
+
+
 def test_an_effect_without_its_weights_names_the_directory(tmp_path):
     runner = MlxVideoRunner({"cli_path": cli(tmp_path)}, "pack", False)
     job = VideoJob(
