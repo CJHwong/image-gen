@@ -817,6 +817,19 @@ with sync_playwright() as playwright:
     )
     check("picking a theme closes the menu", page.locator("#theme-menu").is_hidden())
 
+    # The API is the page's other door onto the same use cases, and its document is
+    # the one thing in the menu a reader opens to look something up.
+    page.click("#theme-toggle")
+    page.wait_for_timeout(150)
+    spec_item = page.get_by_role("menuitem", name="OpenAPI spec")
+    check(
+        "the theme menu links the API document",
+        spec_item.count() == 1,
+        f"items named OpenAPI spec: {spec_item.count()}",
+    )
+    if page.locator("#theme-menu").is_visible():
+        page.click("#theme-toggle")
+
     # The menu reads the theme back out of the store, so the pick is marked where
     # a user sees it. The closed menu leaves the accessibility tree, so it is
     # opened again before the marks are read.

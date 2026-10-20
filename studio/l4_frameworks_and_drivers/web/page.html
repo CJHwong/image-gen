@@ -2189,6 +2189,16 @@
     keep.id = 'keep-toggle';
     menu.append(head, keep);
     markKeep();
+    // The API is the page's other door onto the same use cases, so its document
+    // belongs in the menu a reader opens to look something up.
+    const apiHead = document.createElement('div');
+    apiHead.className = 'menu-head';
+    apiHead.textContent = 'API';
+    const spec = menus.menuItem('', 'OpenAPI spec', function () {
+      window.open('/api/v1/openapi.json', '_blank', 'noreferrer');
+    });
+    spec.id = 'api-spec';
+    menu.append(apiHead, spec);
   }
 
   // The kept images are asked for on the store's own door: that module owns the
