@@ -160,7 +160,8 @@ def _is_audio(data: bytes) -> bool:
         return True
     if data[:4] == b"OggS":
         return True
-    if data[:4] == b"FORM" and data[8:12] == b"AIFF":
+    # `say` writes an AIFF-C container, which the decoder reads as well as AIFF.
+    if data[:4] == b"FORM" and data[8:12] in (b"AIFF", b"AIFC"):
         return True
     if data[4:8] == b"ftyp":
         return True

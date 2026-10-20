@@ -329,6 +329,7 @@ def test_a_generate_job_carries_the_track_and_the_name_it_came_in_with():
         b"fLaC\x00\x00\x00\x22",
         b"OggS\x00\x02",
         b"FORM\x00\x00\x00\x00AIFF",
+        b"FORM\x00\x00\x00\x00AIFC",
         b"\x00\x00\x00\x20ftypM4A ",
         b"ID3\x04\x00\x00",
         b"\xff\xfb\x90\x00",
