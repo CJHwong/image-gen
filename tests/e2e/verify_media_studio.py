@@ -1765,7 +1765,7 @@ with sync_playwright() as playwright:
           document.getElementById('video-studio').addGeneratedClip(
             new Blob([new Uint8Array(videoBytes)], {type: 'video/webm'}),
             {
-              backend: 'ltx25', modelName: 'LTX-2.5',
+              backend: 'ltx25_mlx', modelName: 'LTX-2.5 q8',
               prompt: 'An amber kite crosses a blue sky',
               width: 96, height: 64, numFrames: 12, frameRate: 12,
               duration: 1, seed: 7, elapsedSeconds: 83.2,
@@ -1881,7 +1881,7 @@ with sync_playwright() as playwright:
           const studio = document.getElementById('video-studio');
           studio.setGenerationProgress(
             {running: true, stage: 'running', step: 3, total: 11, phase: 1, stopping: false}, 12.5,
-            {width: 384, height: 384, modelName: 'LTX-2.5'});
+            {width: 384, height: 384, modelName: 'LTX-2.5 q8'});
           return {
             monitor: Boolean(document.querySelector('.video-render-placeholder')),
             tile: document.querySelector('#video-gallery .video-gallery-pending')?.getAttribute('aria-pressed'),
@@ -2004,7 +2004,7 @@ with sync_playwright() as playwright:
             "Add reference",
             "More actions",
             "Download video",
-            "Remove video LTX-2.5 1s",
+            "Remove video LTX-2.5 q8 1s",
             "Full screen",
         ]
         and video_presentation.get("hasActionDivider")
@@ -2013,12 +2013,12 @@ with sync_playwright() as playwright:
         # The clip's name, its length, and the moment it was made: no space, so a second
         # render of the same length cannot land on the first one's file name.
         and re.fullmatch(
-            r"LTX-2\.5-1s-\d{8}-\d{6}\.webm",
+            r"LTX-2\.5-q8-1s-\d{8}-\d{6}\.webm",
             page.locator("#video-output-details .video-output-actions a[download]").get_attribute("download"),
         )
         is not None
         and page.locator("#video-output-details .video-output-actions [aria-label='More actions']").count() == 1
-        and page.get_by_role("button", name="Remove video LTX-2.5 1s").is_visible()
+        and page.get_by_role("button", name="Remove video LTX-2.5 q8 1s").is_visible()
         and page.get_by_role("button", name="Full screen").is_visible()
         and page.locator("#video-gallery .video-gallery-head").count() == 1
         and page.locator("#video-timeline").count() == 0,
@@ -2074,7 +2074,7 @@ with sync_playwright() as playwright:
         and page.get_by_role("menuitem", name="Edit this clip").is_visible()
         and page.get_by_role("button", name="Add reference").is_visible()
         and page.get_by_role("menuitem", name="Add reference").count() == 0
-        and page.get_by_role("menuitem", name="Remove video LTX-2.5 1s").count() == 0,
+        and page.get_by_role("menuitem", name="Remove video LTX-2.5 q8 1s").count() == 0,
         page.locator("#video-output-menu").inner_text(),
     )
     # The menu sends the clip itself to Edit: it is in hand, and the mode switches, so the next
@@ -2156,7 +2156,7 @@ with sync_playwright() as playwright:
     page.wait_for_function("() => document.querySelector('#media-image-mode').getAttribute('aria-pressed') === 'true'")
     check(
         "the more menu sends the current video frame to Image",
-        page.locator("#thumbs img[alt^='LTX-2.5 1s frame']").count() == 1,
+        page.locator("#thumbs img[alt^='LTX-2.5 q8 1s frame']").count() == 1,
     )
     switch_workspace(page, "video")
     progress_result = page.evaluate(
@@ -2165,7 +2165,7 @@ with sync_playwright() as playwright:
           if (typeof studio.setGenerationProgress !== 'function') return {supported: false};
           studio.setGenerationProgress(
             {running: true, stage: 'preparing', step: 0, total: 0}, 5.2,
-            {width: 512, height: 640, modelName: 'LTX-2.5'});
+            {width: 512, height: 640, modelName: 'LTX-2.5 q8'});
           const preparing = document.querySelector('#video-preview-root #video-render-progress');
           const preparingText = preparing && preparing.getAttribute('aria-valuetext');
           const preparingIndeterminate = Boolean(preparing && preparing.classList.contains('is-indeterminate'));
@@ -2356,7 +2356,7 @@ with sync_playwright() as playwright:
     video_downloads = downloads[download_start:]
     check(
         "Download all saves each video and its useful metadata",
-        any(re.fullmatch(r"LTX-2\.5-1s-\d{8}-\d{6}\.webm", name) for name in video_downloads)
+        any(re.fullmatch(r"LTX-2\.5-q8-1s-\d{8}-\d{6}\.webm", name) for name in video_downloads)
         and "studio-video-metadata.json" in video_downloads,
         str(video_downloads),
     )
@@ -2428,7 +2428,16 @@ with sync_playwright() as playwright:
         "Edit asks for a clip, offers its effects, and puts the shot templates away",
         [entry["mode"] for entry in edit_form["modes"]] == ["generate", "edit"]
         and edit_form["modes"][1]["pressed"] == "true"
-        and edit_form["adapters"] == ["day-to-night"]
+        and edit_form["adapters"]
+        == [
+            "day-to-night",
+            "water-simulation",
+            "clean-plate",
+            "deblur",
+            "decompression",
+            "restore",
+            "upscale-2x",
+        ]
         and edit_form["templatesPill"] is True
         and edit_form["promptLabel"] == "What to change"
         and "pick an effect" in edit_form["placeholder"].lower()
