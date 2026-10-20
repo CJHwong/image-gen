@@ -497,3 +497,37 @@ def test_a_mode_the_model_does_not_have_is_refused():
 def test_a_mode_that_is_not_a_string_is_refused():
     with pytest.raises(InvalidJob, match="mode must be a string"):
         video_job(payload(mode=17), editing_capabilities())
+
+
+def test_an_effect_runs_at_the_geometry_its_card_trained_at():
+    """960 x 544 does not sit on the 64 pixel grid, so the adapter's own pair decides the
+    size instead of the ladder, and the card's frame count is the only one accepted."""
+    adapter = VideoAdapter(
+        id="relight",
+        label="Relight",
+        hint="Change the light of a clip",
+        mode="edit",
+        file="relight.safetensors",
+        prompt="A night version of the same place.",
+        width=960,
+        height=544,
+        num_frames=97,
+    )
+    capabilities = editing_capabilities(adapter)
+
+    job = video_job(
+        payload(mode="edit", adapter="relight", clip=clip_payload(), width=544, height=960, num_frames=97),
+        capabilities,
+    )
+    assert (job.width, job.height, job.num_frames) == (544, 960, 97)
+
+    with pytest.raises(InvalidJob, match="960 by 544"):
+        video_job(
+            payload(mode="edit", adapter="relight", clip=clip_payload(), width=384, height=384, num_frames=97),
+            capabilities,
+        )
+    with pytest.raises(InvalidJob, match="97 frames"):
+        video_job(
+            payload(mode="edit", adapter="relight", clip=clip_payload(), width=960, height=544, num_frames=121),
+            capabilities,
+        )

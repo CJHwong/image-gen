@@ -46,10 +46,15 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
     mode = capabilities.mode(_mode_id(payload.get("mode")))
     adapter = _adapter(payload, mode, capabilities) if mode.needs_clip else None
     prompt = _prompt(payload.get("prompt"))
-    width = _dimension(payload.get("width"), "width", capabilities)
-    height = _dimension(payload.get("height"), "height", capabilities)
-    _shape(width, height, capabilities, adapter)
+    if adapter is not None and adapter.width and adapter.height:
+        width, height = _adapter_dimensions(payload, adapter)
+    else:
+        width = _dimension(payload.get("width"), "width", capabilities)
+        height = _dimension(payload.get("height"), "height", capabilities)
+        _shape(width, height, capabilities, adapter)
     num_frames = _frame_count(payload.get("num_frames"), capabilities)
+    if adapter is not None and adapter.num_frames and num_frames != adapter.num_frames:
+        raise InvalidJob(f"This effect renders {adapter.num_frames} frames.")
     frame_rate = _frame_rate(payload.get("frame_rate"), capabilities)
     seed = _seed(payload.get("seed"), capabilities)
     references = _references(payload.get("references", []), num_frames, capabilities)
@@ -208,6 +213,20 @@ def _dimension(value, name: str, capabilities: VideoCapabilities) -> int:
             f"on a {capabilities.dimension_step}-pixel grid"
         )
     return value
+
+
+def _adapter_dimensions(payload: Mapping, adapter: VideoAdapter) -> tuple[int, int]:
+    """The card's own size, in either orientation.
+
+    An effect is trained at one geometry, and 960 x 544 does not sit on the 64 pixel grid the
+    generated clips use, so this pair is validated against the adapter rather than the ladder.
+    """
+    width = payload.get("width")
+    height = payload.get("height")
+    allowed = {(adapter.width, adapter.height), (adapter.height, adapter.width)}
+    if type(width) is not int or type(height) is not int or (width, height) not in allowed:
+        raise InvalidJob(f"This effect renders at {adapter.width} by {adapter.height}, in either orientation.")
+    return width, height
 
 
 def _shape(width: int, height: int, capabilities: VideoCapabilities, adapter: VideoAdapter | None = None) -> None:

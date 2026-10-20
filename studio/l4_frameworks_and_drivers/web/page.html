@@ -1295,6 +1295,22 @@
     const clipHeight = preview ? preview.videoHeight : 0;
     const clipSeconds = preview && Number.isFinite(preview.duration) ? preview.duration : 0;
     if (!capabilities || !clipWidth || !clipHeight) return null;
+    const step = capabilities.frame_step;
+    const offset = capabilities.min_frames % step;
+    let frames = Math.round((clipSeconds * capabilities.frame_rate - offset) / step) * step + offset;
+    frames = Math.max(capabilities.min_frames, Math.min(capabilities.max_frames, frames));
+    const chosen = videoAdapterInForce();
+    // An effect is trained at one geometry. The run uses the card's size and length, with the
+    // portrait pair when the clip is portrait, rather than the clip's own rung.
+    if (chosen && chosen.width && chosen.height) {
+      const portrait = clipHeight > clipWidth;
+      const swap = portrait && chosen.width > chosen.height;
+      return {
+        width: swap ? chosen.height : chosen.width,
+        height: swap ? chosen.width : chosen.height,
+        numFrames: chosen.num_frames || frames,
+      };
+    }
     const wanted = clipWidth / clipHeight;
     let best = capabilities.shapes[0];
     let bestGap = Infinity;
@@ -1302,7 +1318,6 @@
       const gap = Math.abs(shape.width / shape.height - wanted) + Math.abs(shape.width - clipWidth) / 10000;
       if (gap < bestGap) { bestGap = gap; best = shape; }
     });
-    const chosen = videoAdapterInForce();
     const scale = chosen && chosen.doubles_output ? 2 : 1;
     const width = best.width * scale;
     const height = best.height * scale;
@@ -1310,10 +1325,6 @@
       throw new Error('This clip is too large to upscale: its doubled shape is ' + width + ' × '
         + height + ', past the model\'s ' + capabilities.max_dimension + ' pixel limit. Use a smaller clip.');
     }
-    const step = capabilities.frame_step;
-    const offset = capabilities.min_frames % step;
-    let frames = Math.round((clipSeconds * capabilities.frame_rate - offset) / step) * step + offset;
-    frames = Math.max(capabilities.min_frames, Math.min(capabilities.max_frames, frames));
     return {width: width, height: height, numFrames: frames};
   }
 

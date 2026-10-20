@@ -74,6 +74,9 @@ VIDEO_ADAPTERS = (
         mode="edit",
         file="ltx-2.5-22b-ic-lora-day-to-night-0.9.safetensors",
         prompt=DAY_TO_NIGHT_PROMPT,
+        width=768,
+        height=448,
+        num_frames=97,
     ),
     VideoAdapter(
         id="water-simulation",
@@ -82,6 +85,9 @@ VIDEO_ADAPTERS = (
         mode="edit",
         file="ltx-2.5-22b-ic-lora-water-simulation-0.9.safetensors",
         prompt=WATER_SIMULATION_PROMPT,
+        width=960,
+        height=544,
+        num_frames=97,
     ),
     VideoAdapter(
         id="clean-plate",
@@ -90,6 +96,9 @@ VIDEO_ADAPTERS = (
         mode="edit",
         file="ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors",
         prompt=CLEAN_PLATE_PROMPT,
+        width=1024,
+        height=576,
+        num_frames=49,
     ),
     VideoAdapter(
         id="deblur",
@@ -98,6 +107,9 @@ VIDEO_ADAPTERS = (
         mode="edit",
         file="ltx-2.5-22b-ic-lora-deblur-0.9.safetensors",
         prompt=DEBLUR_PROMPT,
+        width=960,
+        height=544,
+        num_frames=121,
     ),
     VideoAdapter(
         id="decompression",
@@ -106,6 +118,9 @@ VIDEO_ADAPTERS = (
         mode="edit",
         file="ltx-2.5-22b-ic-lora-decompression-0.9.safetensors",
         prompt=DECOMPRESSION_PROMPT,
+        width=960,
+        height=544,
+        num_frames=121,
     ),
     VideoAdapter(
         id="restore",
@@ -114,6 +129,9 @@ VIDEO_ADAPTERS = (
         mode="edit",
         file="ltx-2.5-22b-ic-lora-restore-1.0.safetensors",
         prompt=RESTORE_PROMPT,
+        width=960,
+        height=544,
+        num_frames=97,
     ),
     VideoAdapter(
         id="upscale-2x",

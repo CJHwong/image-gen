@@ -73,6 +73,12 @@ class VideoAdapter:
     """The card renders at twice the reference's width and height. The form asks for the
     doubled shape, and the controller accepts one for this adapter and no other. Only the
     pixel spatial upscaler does this."""
+    width: int = 0
+    height: int = 0
+    num_frames: int = 0
+    """The size and length the card trained at. Zero means the run takes the clip's own. An
+    effect is trained at one geometry, and a run at another leaves the distribution: clean
+    plate at 384 x 384 kept the crowd, at 1024 x 576 and 49 frames it emptied the street."""
 
     def __post_init__(self) -> None:
         if self.mode not in ("generate", "edit"):
