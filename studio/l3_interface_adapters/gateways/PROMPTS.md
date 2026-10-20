@@ -1163,3 +1163,35 @@ Each clip was judged on a contact sheet at 1:1, and the cuts and the audio were 
 Two things this sample says about words. A multi-shot prompt can name its cuts and get them,
 and a quoted line alone does not make the video pass speak: text to audio does, and the track
 then drives the sound rather than the mouth.
+
+## The seven LTX-2.5 effects, and the MLX test that retired them (2026-10-20)
+
+These effects ran only on the PyTorch engine, which was removed on 2026-10-20. Their verdicts
+stay here so the work is not lost.
+
+| Effect | Verdict |
+| --- | --- |
+| Day to night | The same shot darkens 107.2 to 39.2 and the buildings and street hold, but only with stage 2 conditioned. A bare stage 2 lost the market stall and put a parked car in its place |
+| Water simulation | The road becomes a wet reflective sheet with the crossing under standing water; the crowd, buildings and light hold |
+| Clean plate | Pedestrians, cyclist, stalls and parked cars gone, road and pavement rebuilt continuous, buildings and light intact |
+| Deblur | Judged on soft.mp4, blurred at radius 6, and shipped |
+| Decompression | Judged on crushed.mp4, encoded at 150 kbps, and shipped |
+| Restore | On a clip halved and back, sepia, blurred and noisy: colour returned (saturation 17.8 to 36.3), damage gone, crowd and street in place |
+| Upscale 2x | 384 to 768 on the PyTorch path, cuts survived, real texture at 1:1 |
+| Colorization | Not shipped. A grey clip stayed grey: 0.52 mean chroma with stage 2 conditioned, 2.96 bare, against 11.5 for a colour clip |
+| Refine details | Not shipped. A small sharpening at 384, and the card's gain is in tiled processing this pipeline did not do |
+
+**Why they do not move to MLX.** The port's `ic-lora` task accepts a 2.5 adapter and produces
+an artifact, not the effect. Restore at 384 with the damaged clip returned a tiled colour
+pattern on a noisy grey field, mean chroma 46.75 against 17.84 for the input, in 62.8 s.
+Upscale 2x to 768 returned the same kind of pattern in 218 s. The port's README says 2.5
+IC-LoRA is not supported, and these two runs agree. The 2.3 pack does support `ic-lora`, but
+its published LoRAs are control models (Union Control, Motion Track) that need a control video
+the studio does not make, and 2.5 weights do not transfer to 2.3. So no effect is offered on
+the q8 packs, and Edit has no model until Lightricks publishes 2.5 task LoRAs.
+
+**Dub-It.** The 2.3 Dub-It LoRA works on the PyTorch 2.3 engine: the user judged the
+2026-10-20 output perfect. The same LoRA on 2.5 weights loads but copies the reference's mouth
+timing rather than retiming it. The MLX port has no Dub-It task; its LipDub entry is
+experimental and re-syncs to source audio. Removing the PyTorch engine removed the only Dub-It
+path, so Dub is deferred and would need that engine restored.

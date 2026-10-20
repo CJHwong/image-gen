@@ -42,7 +42,7 @@ def load_config(
     visible = visible if visible else tuple(raw.get("visible_backends", [default]))
     if default not in visible:
         visible = (default, *visible)
-    default_video = raw.get("default_video_backend", "ltx25")
+    default_video = raw.get("default_video_backend", "ltx25_mlx")
     visible_video = tuple(raw.get("visible_video_backends", [default_video]))
     if default_video not in visible_video:
         visible_video = (default_video, *visible_video)
@@ -61,8 +61,8 @@ def load_config(
 def _settings(section: dict, base: Path) -> dict:
     settings = {}
     for key, value in section.items():
-        if key == "python_path":
-            # The venv symlink selects the site-packages the model runtime needs.
+        if key in ("python_path", "cli_path"):
+            # A venv's executable link selects the site-packages the runtime needs.
             value = str((base / Path(value).expanduser()).absolute())
         elif key.endswith(("_script", "_dir", "_path")):
             value = str((base / Path(value).expanduser()).resolve())

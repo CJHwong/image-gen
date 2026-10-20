@@ -64,9 +64,9 @@ def test_python_path_keeps_a_virtual_environment_symlink(tmp_path: Path):
     python_link.parent.mkdir(parents=True)
     python_link.symlink_to(python_target)
 
-    config = load_config(write(tmp_path, 'default_backend = "qwen21"\n[ltx25]\npython_path = "venv/bin/python"\n'))
+    config = load_config(write(tmp_path, 'default_backend = "qwen21"\n[mlx_video]\ncli_path = "venv/bin/python"\n'))
 
-    assert config.backend("ltx25")["python_path"] == str(python_link)
+    assert config.backend("mlx_video")["cli_path"] == str(python_link)
 
 
 def test_a_flag_opens_the_page_on_a_backend_the_file_left_out(tmp_path: Path):

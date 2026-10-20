@@ -35,10 +35,12 @@ class MlxVideoRunner:
         enhances: bool,
         keyframe_two_stage: bool = False,
         process_runner: Callable = subprocess.run,
+        model_key: str = "the model",
     ):
         self._cli = str(settings.get("cli_path", ""))
         self._ffmpeg = str(settings.get("ffmpeg_path") or (shutil.which("ffmpeg") or ""))
         self._model = model
+        self._model_key = model_key
         # The enhancer is a Gemma 3 pass, which the 2.5 pack cannot run. The job always
         # carries the flag, so the runner drops it here and the form sends one shape.
         self._enhances = enhances
@@ -54,6 +56,8 @@ class MlxVideoRunner:
         progress: Callable[[int, int, int], None] | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> VideoResult:
+        if not self._model:
+            raise StudioError(f"Set {self._model_key} under [mlx_video] to a q8 pack id.")
         self._checked(self._cli, "Set cli_path under [mlx_video] to the MLX port's executable.")
         with tempfile.TemporaryDirectory(prefix="studio-mlx-") as scratch:
             root = Path(scratch)

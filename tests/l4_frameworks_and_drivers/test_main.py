@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from studio.l1_entities.errors import StudioError
+from studio.l1_entities.video_job import VideoJob
 from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
 from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
 from studio.l4_frameworks_and_drivers.main import (
@@ -34,26 +36,27 @@ def test_video_models_have_an_independent_default_and_visible_list(tmp_path: Pat
     config = settings(
         tmp_path,
         'default_backend = "qwen21"\n'
-        'default_video_backend = "ltx25"\n'
-        'visible_video_backends = ["ltx25"]\n'
-        "[qwen21]\nquantize = 0\n",
+        'default_video_backend = "ltx25_mlx"\n'
+        'visible_video_backends = ["ltx25_mlx"]\n'
+        "[qwen21]\nquantize = 0\n"
+        '[mlx_video]\nmodel_ltx25 = "pack-25"\n',
     )
 
-    assert config.default_video_backend == "ltx25"
-    assert config.visible_video_backends == ("ltx25",)
-    assert list(build_video_backends(config)) == ["ltx25"]
+    assert config.default_video_backend == "ltx25_mlx"
+    assert config.visible_video_backends == ("ltx25_mlx",)
+    assert list(build_video_backends(config)) == ["ltx25_mlx"]
 
 
 def test_video_default_is_added_when_the_visible_list_omits_it(tmp_path: Path):
     config = settings(
         tmp_path,
         'default_backend = "qwen21"\n'
-        'default_video_backend = "ltx25"\n'
+        'default_video_backend = "ltx25_mlx"\n'
         'visible_video_backends = ["future-model"]\n'
         "[qwen21]\nquantize = 0\n",
     )
 
-    assert config.visible_video_backends == ("ltx25", "future-model")
+    assert config.visible_video_backends == ("ltx25_mlx", "future-model")
 
 
 def test_a_video_backend_the_app_does_not_know_is_named(tmp_path: Path):
@@ -214,7 +217,9 @@ def test_the_two_mlx_packs_are_separate_video_backends(tmp_path: Path):
     assert video["ltx23_mlx"]._runner._keyframe_two_stage is True
 
 
-def test_a_pack_without_its_model_setting_is_refused(tmp_path: Path):
+def test_a_pack_without_its_model_setting_fails_when_it_runs(tmp_path: Path):
+    """A studio with no video settings still builds and serves images; only a video run
+    names the missing pack."""
     config = settings(
         tmp_path,
         'default_backend = "qwen21"\n'
@@ -224,5 +229,7 @@ def test_a_pack_without_its_model_setting_is_refused(tmp_path: Path):
         '[mlx_video]\ncli_path = "/tmp/ltx-2-mlx"\n',
     )
 
-    with pytest.raises(ConfigError, match="model_ltx25"):
-        build_video_backends(config)
+    backend = build_video_backends(config)["ltx25_mlx"]
+
+    with pytest.raises(StudioError, match="model_ltx25"):
+        backend.run(VideoJob("a cat", 384, 384, 121, 24, 7))

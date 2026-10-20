@@ -4,10 +4,10 @@
 # the list, and `--all-backends` offers every configured backend, flux2 included.
 default_backend = "qwen21_turbo"
 visible_backends = ["qwen21_turbo"]
-# Video has its own model choice and picker in the Video workspace. The MLX q8 packs are the
-# default; the PyTorch backend stays listed until the q8 path passes its real runs.
+# Video has its own model choice and picker in the Video workspace. Both models run the
+# MLX q8 pack; the PyTorch engine was removed on 2026-10-20.
 default_video_backend = "ltx25_mlx"
-visible_video_backends = ["ltx25_mlx", "ltx23_mlx", "ltx25"]
+visible_video_backends = ["ltx25_mlx", "ltx23_mlx"]
 
 [mlx_video]
 # The third-party MLX port, its two 8-bit packs, and ffmpeg for padding a short track. The
@@ -50,18 +50,3 @@ lora_path = "~/Library/Caches/models/viggle-turbo/Qwen-Image-2.1-viggle-turbo-v0
 # depend on which weights draw the image.
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
-
-[ltx25]
-python_path = "~/Workspace/LTX-2/.venv/bin/python"
-# A run that carries an audio track also fetches the full transformer and the distilled LoRA
-# into this directory, 50.9 GB, because the audio pipeline runs the full model in stage 1.
-model_dir = "~/Library/Caches/models/ltx-2.5"
-# The video model's own prompt enhancer, a second Gemma that lengthens the prompt inside the
-# pipeline when the video form's rewrite switch is on. It is fetched separately, because the
-# weight download above knows the one model: `hf download google/gemma-4-E2B-it --local-dir
-# ~/Library/Caches/models/gemma-4-E2B-it`, which is what this points at.
-prompt_enhancer_gemma_root = "~/Library/Caches/models/gemma-4-e2b-it"
-# The IC-LoRA adapters an edit run can carry, one file each, fetched from their own
-# repositories: the weight download above knows the one base model. The README has the
-# recipe for the adapters the form offers.
-lora_dir = "~/Library/Caches/models/ltx-2.5-loras"

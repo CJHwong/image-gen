@@ -36,7 +36,6 @@ from studio.l3_interface_adapters.gateways.in_memory_rewrite_progress_gateway im
 from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
     InMemoryVideoBackendCatalogGateway,
 )
-from studio.l3_interface_adapters.gateways.ltx25.ltx25_backend_gateway import Ltx25BackendGateway
 from studio.l3_interface_adapters.gateways.mlx_video.capabilities import (
     ltx23_mlx_capabilities,
     ltx25_mlx_capabilities,
@@ -55,7 +54,10 @@ from studio.l3_interface_adapters.gateways.qwen21_turbo.official_qwen_turbo_back
     OfficialQwenTurboBackendGateway,
 )
 from studio.l3_interface_adapters.gateways.stub_backend_gateway import StubBackendGateway
-from studio.l3_interface_adapters.gateways.stub_video_backend_gateway import StubVideoBackendGateway
+from studio.l3_interface_adapters.gateways.stub_video_backend_gateway import (
+    StubVideoBackendGateway,
+    editing_video_capabilities,
+)
 from studio.l3_interface_adapters.gateways.thread_confined_backend_gateway import ThreadConfinedBackendGateway
 from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter import ThreadConfinedPromptRewriter
 from studio.l3_interface_adapters.gateways.viggle.qwen21_turbo_backend_gateway import (
@@ -65,7 +67,6 @@ from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
-from studio.l4_frameworks_and_drivers.ltx25_runner import Ltx25Runner
 from studio.l4_frameworks_and_drivers.mlx_video_runner import MlxVideoRunner
 
 PAGE = Path(__file__).with_name("web") / "page.html"
@@ -157,17 +158,6 @@ BACKENDS = {
 }
 
 
-def ltx25_backend(config: Config) -> Ltx25BackendGateway:
-    settings = config.backend("ltx25")
-    runner = Ltx25Runner(
-        settings.get("python_path", ""),
-        settings.get("model_dir", ""),
-        prompt_enhancer_root=settings.get("prompt_enhancer_gemma_root"),
-        lora_dir=settings.get("lora_dir"),
-    )
-    return Ltx25BackendGateway(runner)
-
-
 def ltx25_mlx_backend(config: Config) -> MlxVideoBackendGateway:
     return _mlx_video_backend(
         config,
@@ -197,14 +187,11 @@ def _mlx_video_backend(
 ) -> MlxVideoBackendGateway:
     settings = config.backend("mlx_video")
     model = str(settings.get(model_key, ""))
-    if not model:
-        raise ConfigError(f"studio.toml has no {model_key} under [mlx_video]")
-    runner = MlxVideoRunner(settings, model, enhances, keyframe_two_stage)
+    runner = MlxVideoRunner(settings, model, enhances, keyframe_two_stage, model_key=model_key)
     return MlxVideoBackendGateway(capabilities, runner)
 
 
 VIDEO_BACKENDS = {
-    "ltx25": ltx25_backend,
     "ltx25_mlx": ltx25_mlx_backend,
     "ltx23_mlx": ltx23_mlx_backend,
 }
@@ -263,6 +250,7 @@ def create_studio(config: Config, stub: bool = False) -> Studio:
     backends = build_backends(config)
     video_backends = build_video_backends(config)
     rewriters = build_rewriters(config)
+    visible_video_ids = config.visible_video_backends
     if stub:
         backends = {backend_id: StubBackendGateway(backend.capabilities()) for backend_id, backend in backends.items()}
         rewriters = {backend_id: StubPromptRewriter() for backend_id in rewriters}
@@ -270,6 +258,9 @@ def create_studio(config: Config, stub: bool = False) -> Studio:
             backend_id: StubVideoBackendGateway(backend.capabilities())
             for backend_id, backend in video_backends.items()
         }
+        # No real pack offers Edit, so the stub adds one and the suite keeps the form covered.
+        video_backends = {**video_backends, "video_edit_stub": StubVideoBackendGateway(editing_video_capabilities())}
+        visible_video_ids = (*config.visible_video_backends, "video_edit_stub")
     else:
         require_mlx()
     return assemble_studio(
@@ -279,7 +270,7 @@ def create_studio(config: Config, stub: bool = False) -> Studio:
         config.visible_backends,
         video_backends=video_backends,
         default_video_id=config.default_video_backend,
-        visible_video_ids=config.visible_video_backends,
+        visible_video_ids=visible_video_ids,
     )
 
 

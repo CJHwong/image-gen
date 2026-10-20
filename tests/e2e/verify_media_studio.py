@@ -1605,7 +1605,7 @@ with sync_playwright() as playwright:
         "a clip records its model, precision, mode and effect",
         run_meta is not None
         and run_meta["mode"] == "generate"
-        and run_meta["precision"] == "bf16"
+        and run_meta["precision"] == "int8"
         and run_meta["model"] == "LTX-2.5"
         and run_meta["effect"] == "",
         json.dumps(run_meta),
@@ -2432,16 +2432,7 @@ with sync_playwright() as playwright:
         "Edit asks for a clip, offers its effects, and puts the shot templates away",
         [entry["mode"] for entry in edit_form["modes"]] == ["generate", "edit"]
         and edit_form["modes"][1]["pressed"] == "true"
-        and edit_form["adapters"]
-        == [
-            "day-to-night",
-            "water-simulation",
-            "clean-plate",
-            "deblur",
-            "decompression",
-            "restore",
-            "upscale-2x",
-        ]
+        and edit_form["adapters"] == ["day-to-night"]
         and edit_form["templatesPill"] is True
         and edit_form["promptLabel"] == "What to change"
         and "pick an effect" in edit_form["placeholder"].lower()
