@@ -1177,13 +1177,16 @@ the crowd; at 1024 x 576 and 49 frames it emptied the street. Each adapter carri
 
 | Effect | Card size | Verdict |
 | --- | --- | --- |
-| Day to night | 768 x 448, 97 | A daylight room becomes night: blue moonlight, lit windows, the dancer and the room held. 250.2 s |
-| Water simulation | 1280 x 704, 97 | A dry room floods: water across the floor and a splash at the feet. 906.7 s. At 960 x 544 the same prompt added no water |
+| Day to night | 768 x 448, 97 | A daylight room becomes night: blue moonlight, lit windows, the dancer and the room held. 273.3 s through the API |
+| Water simulation | 1280 x 704, 97 | A dry room floods: water across the floor and a splash at the feet. 958.8 s through the API. At 960 x 544 the same prompt added no water |
 | Clean plate | 1024 x 576, 49 | Pedestrians gone, street rebuilt, light held |
 | Deblur | 960 x 544, 121 | A soft clip comes back sharp, faces and flame detail hold |
 | Decompression | 960 x 544, 121 | Edges clean from a crushed clip; colour unchanged |
 | Restore | 960 x 544, 97 | Colour and detail return on damaged footage, with a warm cast |
 | Upscale 2x | twice the clip | 384 to 768, faces and flame detail at 1:1 |
+
+The times are the studio's own run on the office M5 Pro, with no other GPU job on the
+machine: one clip, seed 7, one effect per request through `/api/v1/videos/edit`.
 
 Water's card asks for 1920 x 1088. The form's largest rung is 1280 x 704, and water shows
 there, so that pair ships. Deblur and decompression were trained at 960 x 544; their cards
