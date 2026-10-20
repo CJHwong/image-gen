@@ -1138,3 +1138,28 @@ is a plausible reading of the words and a poor soundtrack.
 - The reference strength control was not sampled. Both keyframe clips used 1.0.
 - The camera move template originally ended "Locked off on a tripod", which contradicts a
   moving camera, and the model drew a tripod standing in the sand. The shipped text drops it.
+
+### The vendor's own example prompts, run once each, 2026-10-20
+
+Ten prompts, one from the 2.5 prompt guide and nine from the vendor's published samples, were
+sent to `/api/v1/videos/generate` with no template and no words of this studio's own. Every
+clip ran at 384 x 384, 121 frames and seed 7 on the office M5 Pro, 115 to 207 seconds each.
+Each clip was judged on a contact sheet at 1:1, and the cuts and the audio were measured;
+"change" is a spike in the frame difference that the sheet confirms is a cut, not a re-render.
+
+| Prompt | What the clip did |
+| --- | --- |
+| Multishot (guide) | Cuts at frames 46 and 82: the wide of the yellow raincoat, the close-up under the hood, the man. The guide's example reproduces |
+| Car race | One shot, no cut, and the sound follows the action at r 0.89 |
+| Riad perfume | Three shot changes at frames 29, 64 and 82, in the order the words ask: courtyard, bottle, bronze silk, back to the wide |
+| Carnival | One shot, dense saturated crowd, motion-audio r 0.87 |
+| Vienna 1974 | Continuous; the man looks up on the beat. Audio rms 0.057, 0.33 of the energy in the speech band |
+| Decanter pour | Locked off. One change at frame 67, the ice drop, not a cut |
+| Ballroom | The transformation runs; one change at frame 94 when the dancers arrive, no camera cut |
+| Flamenco | The scene and the light read; the dance is generic, not flamenco heelwork. Audio rms 0.40, a guitar-like peak at 221 Hz |
+| Courtroom | The scene is right and the audio is silent, rms 0.0009. A quoted line in a video prompt made no speech in this run |
+| Motorcycle | The turntable rotates through four angles, but the frame difference reads 0.34 because the set is black. The sheet decides, not the metric |
+
+Two things this sample says about words. A multi-shot prompt can name its cuts and get them,
+and a quoted line alone does not make the video pass speak: text to audio does, and the track
+then drives the sound rather than the mouth.
