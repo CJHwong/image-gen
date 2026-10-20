@@ -54,10 +54,7 @@ from studio.l3_interface_adapters.gateways.qwen21_turbo.official_qwen_turbo_back
     OfficialQwenTurboBackendGateway,
 )
 from studio.l3_interface_adapters.gateways.stub_backend_gateway import StubBackendGateway
-from studio.l3_interface_adapters.gateways.stub_video_backend_gateway import (
-    StubVideoBackendGateway,
-    editing_video_capabilities,
-)
+from studio.l3_interface_adapters.gateways.stub_video_backend_gateway import StubVideoBackendGateway
 from studio.l3_interface_adapters.gateways.thread_confined_backend_gateway import ThreadConfinedBackendGateway
 from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter import ThreadConfinedPromptRewriter
 from studio.l3_interface_adapters.gateways.viggle.qwen21_turbo_backend_gateway import (
@@ -250,7 +247,6 @@ def create_studio(config: Config, stub: bool = False) -> Studio:
     backends = build_backends(config)
     video_backends = build_video_backends(config)
     rewriters = build_rewriters(config)
-    visible_video_ids = config.visible_video_backends
     if stub:
         backends = {backend_id: StubBackendGateway(backend.capabilities()) for backend_id, backend in backends.items()}
         rewriters = {backend_id: StubPromptRewriter() for backend_id in rewriters}
@@ -258,9 +254,6 @@ def create_studio(config: Config, stub: bool = False) -> Studio:
             backend_id: StubVideoBackendGateway(backend.capabilities())
             for backend_id, backend in video_backends.items()
         }
-        # No real pack offers Edit, so the stub adds one and the suite keeps the form covered.
-        video_backends = {**video_backends, "video_edit_stub": StubVideoBackendGateway(editing_video_capabilities())}
-        visible_video_ids = (*config.visible_video_backends, "video_edit_stub")
     else:
         require_mlx()
     return assemble_studio(
@@ -270,7 +263,7 @@ def create_studio(config: Config, stub: bool = False) -> Studio:
         config.visible_backends,
         video_backends=video_backends,
         default_video_id=config.default_video_backend,
-        visible_video_ids=visible_video_ids,
+        visible_video_ids=config.visible_video_backends,
     )
 
 

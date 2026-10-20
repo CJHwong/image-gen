@@ -16,6 +16,8 @@ cli_path = "~/ltx-experiments/ltx-2-mlx/.venv/bin/ltx-2-mlx"
 ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
 model_ltx25 = "dgrauet/ltx-2.5-mlx-q8"
 model_ltx23 = "dgrauet/ltx-2.3-mlx-q8"
+# The seven LTX-2.5 effects, one file each, fetched from the Creative Lab collection.
+lora_dir = "~/Library/Caches/models/ltx-2.5-loras"
 
 [qwen21]
 # bf16 by default, which is 0. Measured on 2026-10-19: no level is faster than another, so a

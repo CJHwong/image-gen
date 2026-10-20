@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import BinaryIO, cast
 
 from studio.l1_entities.errors import Cancelled, StudioError
-from studio.l1_entities.video_job import VideoJob, VideoResult
+from studio.l1_entities.video_job import VideoEdit, VideoJob, VideoResult
 
 RUN_TIMEOUT_SECONDS = 60 * 60
 TAIL_LINES = 12
@@ -41,6 +41,7 @@ class MlxVideoRunner:
         self._ffmpeg = str(settings.get("ffmpeg_path") or (shutil.which("ffmpeg") or ""))
         self._model = model
         self._model_key = model_key
+        self._lora_dir = str(settings.get("lora_dir") or "")
         # The enhancer is a Gemma 3 pass, which the 2.5 pack cannot run. The job always
         # carries the flag, so the runner drops it here and the form sends one shape.
         self._enhances = enhances
@@ -62,9 +63,12 @@ class MlxVideoRunner:
         with tempfile.TemporaryDirectory(prefix="studio-mlx-") as scratch:
             root = Path(scratch)
             output = root / "output.mp4"
-            images = self._write_references(job, root)
-            audio = self._write_audio(job, root)
-            command = self._command(job, output, images, audio)
+            if job.edit is not None:
+                command = self._edit_command(job, job.edit, root, output)
+            else:
+                images = self._write_references(job, root)
+                audio = self._write_audio(job, root)
+                command = self._command(job, output, images, audio)
             self._execute(command, progress, cancelled)
             if not output.is_file() or output.stat().st_size == 0:
                 raise StudioError("The MLX video pipeline did not write an MP4 file.")
@@ -111,6 +115,56 @@ class MlxVideoRunner:
         for path, reference in zip(images, job.references, strict=True):
             command.extend(("--image", str(path), str(reference.frame_index), f"{reference.strength:g}"))
         return command
+
+    def _edit_command(self, job: VideoJob, edit: VideoEdit, root: Path, output: Path) -> list[str]:
+        """An effect run, on the single-stage path.
+
+        The port's default IC-LoRA path is two-stage and applies the reference at half
+        resolution, which turns a 2.5 effect into a tiled artifact. The single-stage path
+        applies the reference at full resolution throughout, and the 2.5 weights answer to it.
+        """
+        clip = root / "conditioning.mp4"
+        clip.write_bytes(edit.clip)
+        lora = self._lora(edit.lora_file)
+        command = [
+            self._cli,
+            "ic-lora",
+            "-p",
+            job.prompt,
+            "--lora",
+            str(lora),
+            f"{edit.strength:g}",
+            "--video-conditioning",
+            str(clip),
+            "1.0",
+            "-H",
+            str(job.height),
+            "-W",
+            str(job.width),
+            "-f",
+            str(job.num_frames),
+            "--frame-rate",
+            str(job.frame_rate),
+            "--model",
+            self._model,
+            "--single-stage",
+            "-o",
+            str(output),
+        ]
+        if job.seed is not None:
+            command.extend(("--seed", str(job.seed)))
+        return command
+
+    def _lora(self, file: str) -> Path:
+        if not self._lora_dir:
+            raise StudioError("Set lora_dir under [mlx_video] to the adapter directory.")
+        path = Path(self._lora_dir) / file
+        if not path.is_file():
+            raise StudioError(
+                f"The adapter's weights are not on disk at {path}. Fetch them from the Lightricks "
+                f"LTX-2.5 Creative Lab collection into {self._lora_dir}."
+            )
+        return path
 
     def _write_references(self, job: VideoJob, root: Path) -> list[Path]:
         paths = []

@@ -5,7 +5,7 @@ version, and that is all: the modes, sizes, Looks and templates below are the on
 person can choose, and every difference between the two models stays in the runner.
 """
 
-from studio.l1_entities.video_capabilities import VideoCapabilities, VideoMode, VideoShape
+from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities, VideoMode, VideoShape
 from studio.l3_interface_adapters.gateways.prompt_aids import VIDEO_LOOKS, VIDEO_TEMPLATES
 
 # The rungs the 22B model renders. Every side is a multiple of 64 and every shape follows
@@ -32,7 +32,123 @@ SHAPES = (
 )
 
 
-def _capabilities(backend_id: str, name: str) -> VideoCapabilities:
+# The seven LTX-2.5 effects. The port's default IC-LoRA path is two-stage and applies the
+# reference at half resolution, which turns these adapters into a tiled artifact. Its
+# single-stage path applies the reference at full resolution throughout, and that is the one
+# these weights answer to: restore and upscale both return the scene on it (2026-10-20).
+DAY_TO_NIGHT_PROMPT = (
+    "A realistic nighttime scene of the same place: deep blue moonlight, warm street lamps "
+    "and lit shop windows, deep natural shadows. Only the lighting changes from day to "
+    "night; identical composition, framing, camera movement and motion."
+)
+WATER_SIMULATION_PROMPT = (
+    "ADD WATER. A sudden downpour floods the same shot, water running along every surface and "
+    "splashing underfoot, the same composition and the same subjects. One continuous shot."
+)
+CLEAN_PLATE_PROMPT = (
+    "The same shot with nobody in it: the place empty, the same setting and the same light, "
+    "with the people, the animals and the vehicles gone. One continuous shot."
+)
+DEBLUR_PROMPT = (
+    "DEBLUR. The same shot, sharp and in focus, every edge crisp and the texture of each "
+    "surface visible. One continuous shot."
+)
+DECOMPRESSION_PROMPT = (
+    "ENHANCE QUALITY. The same shot with clean edges, no blocking or banding, honest colour. One continuous shot."
+)
+RESTORE_PROMPT = (
+    "The same shot as a clean, colour, high-resolution capture: natural colour and skin "
+    "tones, sharp detail, stable frames, no scratches, no dust, no flicker, no sepia cast. "
+    "One continuous shot."
+)
+UPSCALE_PROMPT = (
+    "The same shot at twice the width and height: crisp edges, fine texture and natural "
+    "detail, no blur, no ringing. One continuous shot."
+)
+
+VIDEO_ADAPTERS = (
+    VideoAdapter(
+        id="day-to-night",
+        label="Day to night",
+        hint="Relight a daylight clip as the same shot at night",
+        mode="edit",
+        file="ltx-2.5-22b-ic-lora-day-to-night-0.9.safetensors",
+        prompt=DAY_TO_NIGHT_PROMPT,
+    ),
+    VideoAdapter(
+        id="water-simulation",
+        label="Water simulation",
+        hint="Flood the same shot: rain, standing water, splashes underfoot",
+        mode="edit",
+        file="ltx-2.5-22b-ic-lora-water-simulation-0.9.safetensors",
+        prompt=WATER_SIMULATION_PROMPT,
+    ),
+    VideoAdapter(
+        id="clean-plate",
+        label="Clean plate",
+        hint="Empty the shot: people and vehicles gone, the place kept",
+        mode="edit",
+        file="ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors",
+        prompt=CLEAN_PLATE_PROMPT,
+    ),
+    VideoAdapter(
+        id="deblur",
+        label="Deblur",
+        hint="Sharpen a soft or out of focus clip",
+        mode="edit",
+        file="ltx-2.5-22b-ic-lora-deblur-0.9.safetensors",
+        prompt=DEBLUR_PROMPT,
+    ),
+    VideoAdapter(
+        id="decompression",
+        label="Decompression",
+        hint="Clean up a clip crushed by heavy compression",
+        mode="edit",
+        file="ltx-2.5-22b-ic-lora-decompression-0.9.safetensors",
+        prompt=DECOMPRESSION_PROMPT,
+    ),
+    VideoAdapter(
+        id="restore",
+        label="Restore",
+        hint="Clean up old or damaged footage: colour, sharpness, no noise",
+        mode="edit",
+        file="ltx-2.5-22b-ic-lora-restore-1.0.safetensors",
+        prompt=RESTORE_PROMPT,
+    ),
+    VideoAdapter(
+        id="upscale-2x",
+        label="Upscale 2x",
+        hint="Render the same shot at twice the width and height",
+        mode="edit",
+        file="ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
+        prompt=UPSCALE_PROMPT,
+        doubles_output=True,
+    ),
+)
+
+
+def _capabilities(backend_id: str, name: str, edit: bool = False) -> VideoCapabilities:
+    generate = VideoMode(
+        "generate",
+        "Generate",
+        accepts_audio=True,
+        looks=VIDEO_LOOKS,
+        min_references=0,
+        max_references=8,
+        prompt_label="Prompt",
+        placeholder="Describe how the subject should look and move.",
+        run_label="Generate video",
+    )
+    edit_mode = VideoMode(
+        "edit",
+        "Edit",
+        needs_clip=True,
+        min_references=0,
+        max_references=0,
+        prompt_label="What to change",
+        placeholder="Pick an effect, then describe the change.",
+        run_label="Edit clip",
+    )
     return VideoCapabilities(
         backend_id=backend_id,
         name=name,
@@ -60,24 +176,13 @@ def _capabilities(backend_id: str, name: str) -> VideoCapabilities:
         max_dimension=1280,
         dimension_step=64,
         templates=VIDEO_TEMPLATES,
-        modes=(
-            VideoMode(
-                "generate",
-                "Generate",
-                accepts_audio=True,
-                looks=VIDEO_LOOKS,
-                min_references=0,
-                max_references=8,
-                prompt_label="Prompt",
-                placeholder="Describe how the subject should look and move.",
-                run_label="Generate video",
-            ),
-        ),
+        modes=(generate, edit_mode) if edit else (generate,),
+        adapters=VIDEO_ADAPTERS if edit else (),
     )
 
 
 def ltx25_mlx_capabilities() -> VideoCapabilities:
-    return _capabilities("ltx25_mlx", "LTX-2.5 q8")
+    return _capabilities("ltx25_mlx", "LTX-2.5 q8", edit=True)
 
 
 def ltx23_mlx_capabilities() -> VideoCapabilities:

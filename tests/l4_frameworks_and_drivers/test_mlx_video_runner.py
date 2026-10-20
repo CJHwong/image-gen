@@ -7,7 +7,7 @@ from typing import Any, cast
 import pytest
 
 from studio.l1_entities.errors import Cancelled, StudioError
-from studio.l1_entities.video_job import VideoAudio, VideoJob, VideoReference
+from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoReference
 from studio.l4_frameworks_and_drivers import mlx_video_runner
 from studio.l4_frameworks_and_drivers.mlx_video_runner import MlxVideoRunner, _stop_process
 
@@ -313,3 +313,94 @@ def test_the_one_stage_pack_keeps_the_distilled_path_with_keyframes(tmp_path, mo
 
     assert "--distilled" in commands[0]
     assert "--two-stage" not in commands[0]
+
+
+def test_an_effect_job_builds_the_single_stage_ic_lora_command(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    loras = tmp_path / "loras"
+    loras.mkdir()
+    (loras / "effect.safetensors").write_bytes(b"weights")
+    runner = MlxVideoRunner(
+        {"cli_path": cli(tmp_path), "lora_dir": str(loras)},
+        "pack",
+        False,
+    )
+    job = VideoJob(
+        "relight it",
+        384,
+        384,
+        121,
+        24,
+        7,
+        edit=VideoEdit("day-to-night", 1.0, "effect.safetensors", b"clip bytes", "clip.mp4"),
+    )
+
+    runner.run(job)
+
+    command = commands[0]
+    assert command[1] == "ic-lora"
+    assert "--single-stage" in command
+    assert "--distilled" not in command
+    assert command[command.index("--lora") + 1] == str(loras / "effect.safetensors")
+    assert command[command.index("--lora") + 2] == "1"
+    assert command[command.index("--video-conditioning") + 2] == "1.0"
+    assert Path(command[command.index("--video-conditioning") + 1]).suffix == ".mp4"
+    assert command[command.index("-H") + 1] == "384"
+    assert "--seed" in command
+
+
+def test_an_effect_without_its_weights_names_the_directory(tmp_path):
+    runner = MlxVideoRunner({"cli_path": cli(tmp_path)}, "pack", False)
+    job = VideoJob(
+        "relight it",
+        384,
+        384,
+        121,
+        24,
+        7,
+        edit=VideoEdit("day-to-night", 1.0, "effect.safetensors", b"clip", "clip.mp4"),
+    )
+
+    with pytest.raises(StudioError, match="lora_dir"):
+        runner.run(job)
+
+
+def test_an_effect_file_that_is_missing_is_named(tmp_path):
+    loras = tmp_path / "loras"
+    loras.mkdir()
+    runner = MlxVideoRunner({"cli_path": cli(tmp_path), "lora_dir": str(loras)}, "pack", False)
+    job = VideoJob(
+        "relight it",
+        384,
+        384,
+        121,
+        24,
+        7,
+        edit=VideoEdit("day-to-night", 1.0, "effect.safetensors", b"clip", "clip.mp4"),
+    )
+
+    with pytest.raises(StudioError, match=r"effect\.safetensors"):
+        runner.run(job)
+
+
+def test_an_effect_job_without_a_seed_leaves_it_to_the_port(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    loras = tmp_path / "loras"
+    loras.mkdir()
+    (loras / "effect.safetensors").write_bytes(b"weights")
+    runner = MlxVideoRunner({"cli_path": cli(tmp_path), "lora_dir": str(loras)}, "pack", False)
+    job = VideoJob(
+        "relight it",
+        384,
+        384,
+        121,
+        24,
+        None,
+        edit=VideoEdit("day-to-night", 1.0, "effect.safetensors", b"clip", "clip.mp4"),
+    )
+
+    runner.run(job)
+
+    assert "--seed" not in commands[0]

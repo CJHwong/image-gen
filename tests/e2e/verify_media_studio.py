@@ -232,14 +232,10 @@ with sync_playwright() as playwright:
         "() => [...document.querySelectorAll('#backend-menu [role=menuitemradio]')].map((item) => item.getAttribute('aria-label'))"
     )
     video_default = page.evaluate("() => document.getElementById('backend-toggle').querySelector('.name').textContent")
-    page.click('#backend-menu button[aria-label="LTX-2.5"]')
-    page.wait_for_function(
-        "() => document.getElementById('backend-toggle').querySelector('.name').textContent === 'LTX-2.5'",
-        timeout=20000,
-    )
+    page.keyboard.press("Escape")
     check(
-        "the video picker opens on the q8 pack and offers the PyTorch model",
-        video_default == "LTX-2.5 q8" and video_models == ["LTX-2.5 q8", "LTX-2.3 q8", "LTX-2.5"],
+        "the video picker opens on the 2.5 q8 pack and offers the 2.3 one",
+        video_default == "LTX-2.5 q8" and video_models == ["LTX-2.5 q8", "LTX-2.3 q8"],
         str({"default": video_default, "models": video_models}),
     )
     narrow_video_head = page.evaluate(
@@ -387,7 +383,7 @@ with sync_playwright() as playwright:
     )
     check(
         "Video mode shows its own selected model and offers the other video models",
-        page.locator("#backend-toggle .name").inner_text() == "LTX-2.5"
+        page.locator("#backend-toggle .name").inner_text() == "LTX-2.5 q8"
         and page.locator("#backend-toggle").is_enabled(),
         page.locator("#backend-toggle").inner_text().replace("\n", " "),
     )
@@ -1606,7 +1602,7 @@ with sync_playwright() as playwright:
         run_meta is not None
         and run_meta["mode"] == "generate"
         and run_meta["precision"] == "int8"
-        and run_meta["model"] == "LTX-2.5"
+        and run_meta["model"] == "LTX-2.5 q8"
         and run_meta["effect"] == "",
         json.dumps(run_meta),
     )
@@ -1999,7 +1995,7 @@ with sync_playwright() as playwright:
         and "LTX-2.5" not in (video_presentation.get("facts") or "")
         and video_presentation.get("isMonitorFrame")
         and video_presentation.get("detailsInStage")
-        and video_presentation.get("model") == "LTX-2.5"
+        and video_presentation.get("model") == "LTX-2.5 q8"
         and video_presentation.get("serial") == "02"
         and video_presentation.get("referenceDetailCount") == 0
         and video_presentation.get("directFrameAction") is False
@@ -2234,7 +2230,7 @@ with sync_playwright() as playwright:
         progress_result.get("supported")
         and progress_result.get("headline") == "Denoising, step 4 of 8"
         and progress_result.get("elapsed") == "00:06.4 elapsed"
-        and "LTX-2.5" in progress_result.get("previewModel", "")
+        and "LTX-2.5 q8" in progress_result.get("previewModel", "")
         and progress_result.get("previewSerial") == "03"
         and "Loading LTX-2.5" not in progress_result.get("previewStatus", "")
         and "Upscaling" not in progress_result.get("previewStatus", "")

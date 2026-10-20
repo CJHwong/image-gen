@@ -7,25 +7,35 @@ from studio.l3_interface_adapters.gateways.mlx_video.capabilities import (
 from studio.l3_interface_adapters.gateways.prompt_aids import VIDEO_LOOKS, VIDEO_TEMPLATES
 
 
-@pytest.mark.parametrize(
-    ("build", "backend_id", "name"),
-    [
-        (ltx25_mlx_capabilities, "ltx25_mlx", "LTX-2.5 q8"),
-        (ltx23_mlx_capabilities, "ltx23_mlx", "LTX-2.3 q8"),
-    ],
-)
-def test_each_pack_offers_the_same_generic_form(build, backend_id, name):
-    """A person sees one Generate form on either pack. The model id changes the weights and
-    nothing a control depends on, because every difference lives in the runner."""
-    capabilities = build()
+def test_the_2_5_pack_offers_generate_and_the_seven_effects():
+    """The q8 port runs the 2.5 effects on its single-stage path, so Edit is offered there."""
+    capabilities = ltx25_mlx_capabilities()
 
-    assert capabilities.backend_id == backend_id
-    assert capabilities.name == name
+    assert capabilities.backend_id == "ltx25_mlx"
+    assert capabilities.name == "LTX-2.5 q8"
     assert capabilities.precision == "int8"
-    assert [mode.id for mode in capabilities.modes] == ["generate"]
+    assert [mode.id for mode in capabilities.modes] == ["generate", "edit"]
     assert capabilities.modes[0].accepts_audio is True
     assert capabilities.modes[0].looks == VIDEO_LOOKS
     assert capabilities.templates == VIDEO_TEMPLATES
+    assert [adapter.id for adapter in capabilities.adapters] == [
+        "day-to-night",
+        "water-simulation",
+        "clean-plate",
+        "deblur",
+        "decompression",
+        "restore",
+        "upscale-2x",
+    ]
+    assert [one.id for one in capabilities.adapters if one.doubles_output] == ["upscale-2x"]
+
+
+def test_the_2_3_pack_offers_generate_only():
+    capabilities = ltx23_mlx_capabilities()
+
+    assert capabilities.backend_id == "ltx23_mlx"
+    assert capabilities.name == "LTX-2.3 q8"
+    assert [mode.id for mode in capabilities.modes] == ["generate"]
     assert capabilities.adapters == ()
 
 
