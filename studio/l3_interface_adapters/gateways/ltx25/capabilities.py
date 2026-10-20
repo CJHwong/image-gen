@@ -51,8 +51,8 @@ from studio.l3_interface_adapters.gateways.prompt_aids import VIDEO_TEMPLATES
 #   refine-details 1.0: sharper edges on faces at 384, and the card's own gain is in its tiled
 #       workflow, which this pipeline does not tile. Not declared yet.
 #   pixel spatial upscaler 2x 1.0: 384 to 768 works and the detail is real at 1:1, so the grid
-#       failure above was the 224 height, not the adapter. The form cannot ask for a doubled
-#       shape, so it stays out until it can.
+#       failure above was the 224 height, not the adapter. The form asks for the doubled shape
+#       when this adapter is picked, so it is declared.
 #
 # A difference number does not judge an adapter. water simulation scores 17.03 mean absolute
 # frame difference against its input and clean plate 19.06, but so does decompression at 14.53,
@@ -92,18 +92,24 @@ RESTORE_PROMPT = (
     "tones, sharp detail, stable frames, no scratches, no dust, no flicker, no sepia cast. "
     "One continuous shot."
 )
+# The upscaler card gives no example prompt and names no trigger word: the reference carries
+# the shot and the target size carries the work. The prompt only says what the detail should
+# look like, so it names texture rather than a scene the model would redraw.
+UPSCALE_PROMPT = (
+    "The same shot at twice the width and height: crisp edges, fine texture and natural "
+    "detail, no blur, no ringing. One continuous shot."
+)
 
 # Every adapter here ran with the second stage conditioned, and stage 2 conditions the same
 # clip as stage 1, so the strength the card ships is the strength the form offers.
 _ADAPTER_STRENGTH = 1.0
 
-# The pixel spatial upscaler is left out, and it is not a defect to fix. Its card wants a
-# reference at half the linear resolution of the target, and its own run died inside the video
-# VAE encoder on a clip 224 pixels tall: the latent height is 7 and the down block splits it by
-# 2, so the reference must sit on the 64 pixel grid and the target on the 128 pixel grid. Seven
-# of this model's sixteen rungs have a side that breaks that pair, and the form picks the
-# output shape from the clip's own ratio rather than at twice its size, so it cannot express
-# the 2x the model is trained for. It stays out until the form can ask for a doubled shape.
+# The pixel spatial upscaler's own run died inside the video VAE encoder on a clip 224 pixels
+# tall: the latent height is 7 and the down block splits it by 2, so the reference must sit on
+# the 64 pixel grid and the target on the 128 pixel grid. The form now asks for a target at
+# twice the clip's matched rung, and the controller accepts that doubled shape for this
+# adapter only. A clip whose rung doubles past the model's 1280 pixel limit is refused by the
+# form with the numbers, rather than dying in the pipeline.
 VIDEO_ADAPTERS = (
     VideoAdapter(
         id="day-to-night",
@@ -168,6 +174,21 @@ VIDEO_ADAPTERS = (
         prompt=RESTORE_PROMPT,
         strength=_ADAPTER_STRENGTH,
         stage_2_conditioning=True,
+    ),
+    # Sampled on 2026-10-20 at 384 x 384, 121 frames, seed 7: the 384 clip came back at 768
+    # with the cuts in place and texture the lanczos source does not carry. The pipeline runs
+    # stage 1 at the reference's size and stage 2 at the target's, which is the card's own
+    # half-resolution relationship.
+    VideoAdapter(
+        id="upscale-2x",
+        label="Upscale 2x",
+        hint="Render the same shot at twice the width and height",
+        mode="edit",
+        file="ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
+        prompt=UPSCALE_PROMPT,
+        strength=_ADAPTER_STRENGTH,
+        stage_2_conditioning=True,
+        doubles_output=True,
     ),
 )
 

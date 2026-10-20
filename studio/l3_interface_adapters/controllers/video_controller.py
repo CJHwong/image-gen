@@ -44,10 +44,11 @@ class VideoController:
 
 def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
     mode = capabilities.mode(_mode_id(payload.get("mode")))
+    adapter = _adapter(payload, mode, capabilities) if mode.needs_clip else None
     prompt = _prompt(payload.get("prompt"))
     width = _dimension(payload.get("width"), "width", capabilities)
     height = _dimension(payload.get("height"), "height", capabilities)
-    _shape(width, height, capabilities)
+    _shape(width, height, capabilities, adapter)
     num_frames = _frame_count(payload.get("num_frames"), capabilities)
     frame_rate = _frame_rate(payload.get("frame_rate"), capabilities)
     seed = _seed(payload.get("seed"), capabilities)
@@ -61,7 +62,7 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
         seed,
         references,
         enhance=bool(payload.get("enhance")),
-        edit=_edit(payload, mode, capabilities) if mode.needs_clip else None,
+        edit=_edit(payload, adapter, capabilities) if adapter else None,
         audio=_audio(payload.get("audio"), mode, capabilities),
     )
 
@@ -76,9 +77,9 @@ def _mode_id(value) -> str:
     return value
 
 
-def _edit(payload: Mapping, mode: VideoMode, capabilities: VideoCapabilities) -> VideoEdit:
-    """The clip and the adapter an edit carries. Both are required, and the adapter has to be
-    one this mode offers: an adapter from the other mode is a request the form never makes."""
+def _adapter(payload: Mapping, mode: VideoMode, capabilities: VideoCapabilities) -> VideoAdapter:
+    """The adapter an edit carries. It is required, and it has to be one this mode offers: an
+    adapter from the other mode is a request the form never makes."""
     adapters = capabilities.adapters_for(mode.id)
     if not adapters:
         raise InvalidJob(f"This video model offers no {mode.label.lower()} adapter.")
@@ -86,6 +87,11 @@ def _edit(payload: Mapping, mode: VideoMode, capabilities: VideoCapabilities) ->
     adapter = next((one for one in adapters if one.id == wanted), None)
     if adapter is None:
         raise InvalidJob("adapter must be one of " + ", ".join(one.id for one in adapters))
+    return adapter
+
+
+def _edit(payload: Mapping, adapter: VideoAdapter, capabilities: VideoCapabilities) -> VideoEdit:
+    """The clip and the adapter an edit carries."""
     clip, clip_name = _clip(payload.get("clip"), capabilities)
     return VideoEdit(
         adapter=adapter.id,
@@ -204,11 +210,25 @@ def _dimension(value, name: str, capabilities: VideoCapabilities) -> int:
     return value
 
 
-def _shape(width: int, height: int, capabilities: VideoCapabilities) -> None:
+def _shape(width: int, height: int, capabilities: VideoCapabilities, adapter: VideoAdapter | None = None) -> None:
+    """A rendered shape is one the model declares, or, for an adapter that doubles the
+    reference's size, exactly twice one.
+
+    Every declared shape sits on the 64 pixel grid, so a doubled target sits on the 128 pixel
+    grid, which is the pair the upscaler's card asks for. A target past the model's largest
+    side was refused by `_dimension` before this check.
+    """
     if any(shape.width == width and shape.height == height for shape in capabilities.shapes):
+        return
+    if adapter is not None and adapter.doubles_output and _half_is_declared(width, height, capabilities):
         return
     choices = ", ".join(shape.ratio for shape in capabilities.shapes)
     raise InvalidJob(f"width and height must match a supported video shape: {choices}")
+
+
+def _half_is_declared(width: int, height: int, capabilities: VideoCapabilities) -> bool:
+    half_width, half_height = width // 2, height // 2
+    return any(shape.width == half_width and shape.height == half_height for shape in capabilities.shapes)
 
 
 def _frame_count(value, capabilities: VideoCapabilities) -> int:

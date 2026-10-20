@@ -142,12 +142,11 @@ def test_the_day_to_night_adapter_keeps_stage_two_conditioned():
 def test_every_declared_adapter_ran_on_a_clip_that_holds_its_precondition():
     """The set on 2026-10-19, judged at frame 40 against each one's own input. The two that
     need a defective input were re-run on one: soft.mp4 blurred at radius 6, crushed.mp4
-    encoded at 150 kbps. Two are absent on purpose, and that is what this list records.
-    Colorize added no colour to a desaturated clip, 0.52 mean chroma with the second stage
+    encoded at 150 kbps. Colorize is absent on purpose, and that is what this list records:
+    it added no colour to a desaturated clip, 0.52 mean chroma with the second stage
     conditioned and 2.96 with it bare, against 11.5 for a colour clip. The pixel spatial
-    upscaler wants a reference at half the target's linear resolution, and it died inside the
-    video VAE encoder on a clip 224 pixels tall, which the form cannot ask for and the grid
-    cannot hold."""
+    upscaler ran on 2026-10-20 at 384 to 768, and the form asks for that doubled shape when
+    it is picked."""
     capabilities = ltx25_capabilities()
     adapters = capabilities.adapters_for("edit")
 
@@ -158,6 +157,7 @@ def test_every_declared_adapter_ran_on_a_clip_that_holds_its_precondition():
         "deblur",
         "decompression",
         "restore",
+        "upscale-2x",
     ]
     for one in adapters:
         assert one.mode == "edit"
@@ -168,7 +168,17 @@ def test_every_declared_adapter_ran_on_a_clip_that_holds_its_precondition():
         assert one.file in {
             f"ltx-2.5-22b-ic-lora-{one.id}-0.9.safetensors",
             f"ltx-2.5-22b-ic-lora-{one.id}-1.0.safetensors",
+            "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
         }
+
+
+def test_the_upscaler_is_the_one_adapter_that_doubles_its_output():
+    """The card asks for a reference at half the target's linear resolution, so the form has
+    to ask for a shape twice the clip's. No other adapter re-renders at a new size."""
+    capabilities = ltx25_capabilities()
+    doubles = [one.id for one in capabilities.adapters_for("edit") if one.doubles_output]
+
+    assert doubles == ["upscale-2x"]
 
 
 def test_the_trigger_word_leads_the_prompt_the_card_names():

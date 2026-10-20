@@ -2423,6 +2423,7 @@ with sync_playwright() as playwright:
             "deblur",
             "decompression",
             "restore",
+            "upscale-2x",
         ]
         and edit_form["templatesPill"] is True
         and edit_form["promptLabel"] == "What to change"

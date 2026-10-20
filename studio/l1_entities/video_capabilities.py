@@ -69,6 +69,10 @@ class VideoAdapter:
     max_strength: float = 2.0
     strength_step: float = 0.05
     stage_2_conditioning: bool = False
+    doubles_output: bool = False
+    """The card renders at twice the reference's width and height. The form asks for the
+    doubled shape, and the controller accepts one for this adapter and no other. Only the
+    pixel spatial upscaler does this."""
 
     def __post_init__(self) -> None:
         if self.mode not in ("generate", "edit"):

@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from studio.l1_entities.errors import InvalidJob, UnreadableImage, UnsupportedMode
-from studio.l1_entities.video_capabilities import VideoAdapter, VideoMode
+from studio.l1_entities.video_capabilities import VideoAdapter, VideoMode, VideoShape
 from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
@@ -395,6 +395,46 @@ def test_an_edit_job_carries_the_clip_and_the_adapter_it_was_measured_with():
     assert job.edit.clip == b"clip bytes"
     assert job.edit.clip_name == "input.mp4"
     assert job.edit.stage_2_conditioning is True
+
+
+def test_a_doubling_edit_may_ask_for_twice_a_declared_shape():
+    """The upscaler's card wants a reference at half the target's linear resolution, so the
+    one adapter that declares it may ask for a shape the ladder does not hold: twice one
+    that it does. A shape that is not twice a declared rung is still refused."""
+    capabilities = editing_capabilities(
+        VideoAdapter(
+            id="upscale",
+            label="Upscale",
+            hint="Twice the size",
+            mode="edit",
+            file="upscale.safetensors",
+            prompt="The same shot.",
+            doubles_output=True,
+        ),
+        shapes=(VideoShape("1:1", 512, 512),),
+    )
+
+    job = video_job(
+        payload(mode="edit", adapter="upscale", clip=clip_payload(), width=1024, height=1024),
+        capabilities,
+    )
+
+    assert (job.width, job.height) == (1024, 1024)
+    with pytest.raises(InvalidJob, match="supported video shape"):
+        video_job(
+            payload(mode="edit", adapter="upscale", clip=clip_payload(), width=896, height=896),
+            capabilities,
+        )
+
+
+def test_an_edit_that_does_not_double_refuses_the_doubled_shape():
+    capabilities = editing_capabilities(shapes=(VideoShape("1:1", 512, 512),))
+
+    with pytest.raises(InvalidJob, match="supported video shape"):
+        video_job(
+            payload(mode="edit", adapter="relight", clip=clip_payload(), width=1024, height=1024),
+            capabilities,
+        )
 
 
 def test_an_edit_strength_left_blank_takes_the_adapter_itself():

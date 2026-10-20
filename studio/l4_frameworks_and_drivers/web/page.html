@@ -1285,7 +1285,9 @@
 
   // The size and the length an edit runs at: the clip's own, said in the model's own terms.
   // A clip off a phone is not on the model's grid, so its shape is matched by ratio and its
-  // width by the nearest rung, and its frames are snapped to the frame step.
+  // width by the nearest rung, and its frames are snapped to the frame step. An adapter that
+  // doubles its output asks for twice that rung, which is the shape the controller accepts
+  // for that adapter and no other.
   function editGeometry() {
     const capabilities = videoCapabilities();
     const preview = document.getElementById('video-preview');
@@ -1300,11 +1302,19 @@
       const gap = Math.abs(shape.width / shape.height - wanted) + Math.abs(shape.width - clipWidth) / 10000;
       if (gap < bestGap) { bestGap = gap; best = shape; }
     });
+    const chosen = videoAdapterInForce();
+    const scale = chosen && chosen.doubles_output ? 2 : 1;
+    const width = best.width * scale;
+    const height = best.height * scale;
+    if (width > capabilities.max_dimension || height > capabilities.max_dimension) {
+      throw new Error('This clip is too large to upscale: its doubled shape is ' + width + ' × '
+        + height + ', past the model\'s ' + capabilities.max_dimension + ' pixel limit. Use a smaller clip.');
+    }
     const step = capabilities.frame_step;
     const offset = capabilities.min_frames % step;
     let frames = Math.round((clipSeconds * capabilities.frame_rate - offset) / step) * step + offset;
     frames = Math.max(capabilities.min_frames, Math.min(capabilities.max_frames, frames));
-    return {width: best.width, height: best.height, numFrames: frames};
+    return {width: width, height: height, numFrames: frames};
   }
 
   // The strength each effect was measured at, and the only one it ships with: a run at 0.5
@@ -1324,12 +1334,10 @@
     // An edit runs at the clip's own geometry, since the shape and duration controls belong
     // to Generate; a generate run reads them off the form as it always has.
     const editing = videoModeInForce().needs_clip;
-    const clipGeometry = editing ? editGeometry() : null;
-    const numFrames = clipGeometry ? clipGeometry.numFrames : Number(document.getElementById('video-duration').value);
-    const duration = numFrames / capabilities.frame_rate;
-    const [width, height] = clipGeometry
-      ? [clipGeometry.width, clipGeometry.height]
-      : selectedVideoShape();
+    let numFrames;
+    let duration;
+    let width;
+    let height;
     let settings;
     let seed;
     // The run is made from the words in the box, which the rewrite button may have
@@ -1341,6 +1349,12 @@
     const lookText = formApi && formApi.videoLookText ? formApi.videoLookText() : '';
     const prompt = lookText ? typedPrompt.replace(/\s+$/, '') + ' ' + lookText : typedPrompt;
     try {
+      const clipGeometry = editing ? editGeometry() : null;
+      numFrames = clipGeometry ? clipGeometry.numFrames : Number(document.getElementById('video-duration').value);
+      duration = numFrames / capabilities.frame_rate;
+      [width, height] = clipGeometry
+        ? [clipGeometry.width, clipGeometry.height]
+        : selectedVideoShape();
       seed = selectedVideoSeed();
       settings = {
         backend: STUDIO.video.backend.id,
