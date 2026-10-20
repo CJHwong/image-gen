@@ -4,6 +4,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from studio.l1_entities.video_capabilities import VideoCapabilities
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
@@ -36,6 +37,11 @@ from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gatew
     InMemoryVideoBackendCatalogGateway,
 )
 from studio.l3_interface_adapters.gateways.ltx25.ltx25_backend_gateway import Ltx25BackendGateway
+from studio.l3_interface_adapters.gateways.mlx_video.capabilities import (
+    ltx23_mlx_capabilities,
+    ltx25_mlx_capabilities,
+)
+from studio.l3_interface_adapters.gateways.mlx_video.mlx_video_backend_gateway import MlxVideoBackendGateway
 from studio.l3_interface_adapters.gateways.prompt_rewriters import (
     CatalogPromptRewriter,
     NoPromptRewriter,
@@ -60,6 +66,7 @@ from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
 from studio.l4_frameworks_and_drivers.ltx25_runner import Ltx25Runner
+from studio.l4_frameworks_and_drivers.mlx_video_runner import MlxVideoRunner
 
 PAGE = Path(__file__).with_name("web") / "page.html"
 
@@ -161,7 +168,42 @@ def ltx25_backend(config: Config) -> Ltx25BackendGateway:
     return Ltx25BackendGateway(runner)
 
 
-VIDEO_BACKENDS = {"ltx25": ltx25_backend}
+def ltx25_mlx_backend(config: Config) -> MlxVideoBackendGateway:
+    return _mlx_video_backend(
+        config,
+        ltx25_mlx_capabilities(),
+        model_key="model_ltx25",
+        enhances=False,
+    )
+
+
+def ltx23_mlx_backend(config: Config) -> MlxVideoBackendGateway:
+    return _mlx_video_backend(
+        config,
+        ltx23_mlx_capabilities(),
+        model_key="model_ltx23",
+        enhances=True,
+    )
+
+
+def _mlx_video_backend(
+    config: Config,
+    capabilities: VideoCapabilities,
+    model_key: str,
+    enhances: bool,
+) -> MlxVideoBackendGateway:
+    settings = config.backend("mlx_video")
+    model = str(settings.get(model_key, ""))
+    if not model:
+        raise ConfigError(f"studio.toml has no {model_key} under [mlx_video]")
+    return MlxVideoBackendGateway(capabilities, MlxVideoRunner(settings, model, enhances))
+
+
+VIDEO_BACKENDS = {
+    "ltx25": ltx25_backend,
+    "ltx25_mlx": ltx25_mlx_backend,
+    "ltx23_mlx": ltx23_mlx_backend,
+}
 
 # Which backends offer a prompt rewriter, and where their weights come from. The
 # rewriter is a model of its own and does not read the image engine at all, so

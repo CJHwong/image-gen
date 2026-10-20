@@ -4,9 +4,18 @@
 # the list, and `--all-backends` offers every configured backend, flux2 included.
 default_backend = "qwen21_turbo"
 visible_backends = ["qwen21_turbo"]
-# Video has its own model choice and picker in the Video workspace.
-default_video_backend = "ltx25"
-visible_video_backends = ["ltx25"]
+# Video has its own model choice and picker in the Video workspace. The MLX q8 packs are the
+# default; the PyTorch backend stays listed until the q8 path passes its real runs.
+default_video_backend = "ltx25_mlx"
+visible_video_backends = ["ltx25_mlx", "ltx23_mlx", "ltx25"]
+
+[mlx_video]
+# The third-party MLX port, its two 8-bit packs, and ffmpeg for padding a short track. The
+# paths are the office machine's; a laptop runs the stub and never reads them.
+cli_path = "~/ltx-experiments/ltx-2-mlx/.venv/bin/ltx-2-mlx"
+ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
+model_ltx25 = "dgrauet/ltx-2.5-mlx-q8"
+model_ltx23 = "dgrauet/ltx-2.3-mlx-q8"
 
 [qwen21]
 # bf16 by default, which is 0. Measured on 2026-10-19: no level is faster than another, so a

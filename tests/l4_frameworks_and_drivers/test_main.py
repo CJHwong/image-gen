@@ -190,3 +190,37 @@ def test_shutdown_without_a_rewriter_skips_unused_model_adapters(served):
     studio, _, backend, _ = served
     replace(studio, rewriter=None).shutdown()
     assert backend.events == []
+
+
+def test_the_two_mlx_packs_are_separate_video_backends(tmp_path: Path):
+    config = settings(
+        tmp_path,
+        'default_backend = "qwen21"\n'
+        'default_video_backend = "ltx25_mlx"\n'
+        'visible_video_backends = ["ltx25_mlx", "ltx23_mlx"]\n'
+        "[qwen21]\nquantize = 0\n"
+        '[mlx_video]\ncli_path = "/tmp/ltx-2-mlx"\n'
+        'model_ltx25 = "pack-25"\nmodel_ltx23 = "pack-23"\n',
+    )
+
+    video = build_video_backends(config)
+
+    assert list(video) == ["ltx25_mlx", "ltx23_mlx"]
+    assert video["ltx25_mlx"].capabilities().name == "LTX-2.5 q8"
+    assert video["ltx23_mlx"].capabilities().name == "LTX-2.3 q8"
+    assert video["ltx25_mlx"]._runner._enhances is False
+    assert video["ltx23_mlx"]._runner._enhances is True
+
+
+def test_a_pack_without_its_model_setting_is_refused(tmp_path: Path):
+    config = settings(
+        tmp_path,
+        'default_backend = "qwen21"\n'
+        'default_video_backend = "ltx25_mlx"\n'
+        'visible_video_backends = ["ltx25_mlx"]\n'
+        "[qwen21]\nquantize = 0\n"
+        '[mlx_video]\ncli_path = "/tmp/ltx-2-mlx"\n',
+    )
+
+    with pytest.raises(ConfigError, match="model_ltx25"):
+        build_video_backends(config)
