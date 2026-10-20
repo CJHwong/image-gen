@@ -431,3 +431,46 @@ def pick_templates(names: tuple[str, ...]) -> tuple[Template, ...]:
     if unknown:
         raise ValueError(f"no template named {', '.join(unknown)}")
     return tuple(templates[name] for name in names)
+
+
+# A Look sentence is appended after the prompt, so it can only name what composes with any
+# prompt: light, weather, palette and the mix. A camera move or a shot scale would fight a
+# prompt that already names one, and the vendor's own guide warns about two orders to one
+# camera operator. Each option below was sampled against one bare control clip on the office
+# M5 Pro on 2026-10-19: 384 x 384, 121 frames, seed 7, distilled path, one prompt and one
+# appended sentence. The verdicts are in PROMPTS.md.
+VIDEO_LOOKS = (
+    LookRow(
+        "Light",
+        options=(
+            ("Golden hour", "Warm low sun from the side, long shadows."),
+            ("Soft daylight", "Soft diffuse daylight from the left, gentle shadows."),
+            ("Neon night", "At night, lit by colored neon signs, reflections on wet surfaces."),
+        ),
+    ),
+    LookRow(
+        "Atmosphere",
+        options=(
+            # The clip reads as a wet, hazy street; falling drops did not read at 384 x 384.
+            ("Wet street", "Rain falls steadily, water beading on surfaces and running off edges."),
+            ("Fog", "Thick fog drifts through the scene, softening the distance."),
+        ),
+    ),
+    LookRow(
+        "Grade",
+        options=(
+            ("Warm", "Warm palette of amber, cream and brown."),
+            ("Cool", "Cool palette of blue, teal and grey."),
+        ),
+    ),
+    # The vendor calls "no music" the single most useful audio direction, and on a scene that
+    # invites a score it reproduces here: the control carried tones at 350, 263 and 522 Hz with
+    # 7.4 envelope crossings a second, and the same clip with "no music" was 33 times quieter
+    # with no tonal peak above 0.8 percent. "Ambient only" is not offered: it produced a
+    # 524 Hz hum on a scene the model had already left unscored, so it changes nothing for the
+    # better.
+    LookRow(
+        "Mix",
+        options=(("No music", "The sound is the scene itself: footsteps, cloth, a light breeze, no music."),),
+    ),
+)
