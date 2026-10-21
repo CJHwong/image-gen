@@ -58,3 +58,15 @@ def test_the_gateway_capabilities_come_before_any_run():
     gateway = MlxVideoBackendGateway(ltx25_mlx_capabilities(), pytest.fail)
 
     assert gateway.capabilities().backend_id == "ltx25_mlx"
+
+
+def test_the_gateway_hands_the_whole_batch_to_the_runner():
+    from unittest.mock import Mock
+
+    runner = Mock()
+    runner.run_batch.return_value = ["retained"]
+    gateway = MlxVideoBackendGateway(ltx25_mlx_capabilities(), runner)
+    jobs = [VideoJob("cat", 384, 384, 9, 24, 7)]
+    completed, started, progress, cancelled = (Mock() for _ in range(4))
+    assert gateway.run_batch(jobs, completed, started, progress, cancelled) == ["retained"]
+    runner.run_batch.assert_called_once_with(jobs, completed, started, progress, cancelled)

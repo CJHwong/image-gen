@@ -23,6 +23,9 @@ class MlxVideoBackendGateway(VideoBackendGateway):
     ) -> VideoResult:
         return self._runner.run(job, progress, cancelled)
 
+    def run_batch(self, jobs, completed, started, progress, cancelled) -> list[VideoResult]:
+        return self._runner.run_batch(jobs, completed, started, progress, cancelled)
+
     def release(self) -> None:
         # The pipeline process owns the weights and exits after each clip.
         pass
