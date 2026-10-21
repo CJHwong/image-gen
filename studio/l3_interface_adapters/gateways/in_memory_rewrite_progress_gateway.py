@@ -1,4 +1,5 @@
 import threading
+from collections.abc import Callable
 
 from studio.l1_entities.rewrite_progress import RewriteProgress
 from studio.l2_use_cases.boundaries.rewrite_progress_gateway import RewriteProgressGateway
@@ -11,10 +12,11 @@ class InMemoryRewriteProgressGateway(RewriteProgressGateway):
     one lock.
     """
 
-    def __init__(self):
+    def __init__(self, external_cancel: Callable[[], bool] = lambda: False):
         self._lock = threading.Lock()
         self._state = RewriteProgress()
         self._cancel = False
+        self._external_cancel = external_cancel
 
     def begin(self):
         with self._lock:
@@ -35,7 +37,7 @@ class InMemoryRewriteProgressGateway(RewriteProgressGateway):
 
     def cancel_requested(self):
         with self._lock:
-            return self._cancel
+            return self._cancel or self._external_cancel()
 
     def clear_cancel(self):
         with self._lock:

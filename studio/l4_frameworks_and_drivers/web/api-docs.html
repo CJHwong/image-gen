@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Studio API reference</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.25.3/swagger-ui.css">
+  <style>
+    body { margin: 0; background: #fafafa; color: #263238; font: 16px system-ui, sans-serif; }
+    nav { display: flex; gap: 24px; padding: 20px 32px; border-bottom: 1px solid #ddd; }
+    nav a { color: inherit; }
+    #docs-loading { padding: 24px 32px; }
+  </style>
+</head>
+<body>
+  <nav aria-label="API documentation">
+    <a href="/">Studio</a>
+    <a href="/api/v1/openapi.json">Raw OpenAPI JSON</a>
+  </nav>
+  <p id="docs-loading" role="status">Loading API documentation. If it does not load, open the raw OpenAPI JSON above.</p>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5.25.3/swagger-ui-bundle.js"></script>
+  <script>
+    if (typeof SwaggerUIBundle === "function") {
+      SwaggerUIBundle({
+        url: "/api/v1/openapi.json",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        filter: true,
+        validatorUrl: null,
+        onComplete: function () { document.getElementById("docs-loading").hidden = true; },
+      });
+    }
+  </script>
+</body>
+</html>

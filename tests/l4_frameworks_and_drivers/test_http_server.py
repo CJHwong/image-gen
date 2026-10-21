@@ -223,10 +223,13 @@ def test_video_route_returns_mp4_bytes_from_the_backend(served):
     with urllib.request.urlopen(request, timeout=30) as answer:
         status, content_type, body = answer.status, answer.headers["Content-Type"], answer.read().decode()
         seed = answer.headers.get("X-Studio-Seed")
+        completed_at = float(answer.headers["X-Studio-Completed"])
 
     assert (status, content_type, body) == (200, "video/mp4", "fake mp4 bytes")
     assert seed == "42"
     assert served[2].jobs[0].prompt == "A kite rises"
+    _, _, state = call(served[1], "/api/v1/state")
+    assert completed_at == json.loads(state)["operations"][0]["finished_at"]
 
 
 def test_video_route_returns_cancellation_as_a_successful_result(served):
@@ -643,6 +646,18 @@ def test_an_unknown_api_route_is_a_json_not_found(served):
     assert json.loads(body) == {"error": "not found"}
 
 
+def test_api_docs_renders_the_existing_spec_and_keeps_a_raw_link(served):
+    status, content_type, body = call(served[1], "/api/docs")
+
+    assert status == 200
+    assert content_type == "text/html; charset=utf-8"
+    assert 'id="swagger-ui"' in body
+    assert 'url: "/api/v1/openapi.json"' in body
+    assert 'href="/api/v1/openapi.json"' in body
+    assert "validatorUrl: null" in body
+    assert "filter: true" in body
+
+
 def test_every_documented_path_is_a_route_this_server_serves(served):
     """The spec is written by hand, so this walks it: a path the document names and
     the server does not serve would be a promise the API does not keep."""
@@ -650,7 +665,12 @@ def test_every_documented_path_is_a_route_this_server_serves(served):
     document = json.loads(body)
 
     assert document["openapi"].startswith("3.")
+    post_json(served[1], "/api/v1/images/generate", {"prompt": "pear"})
+    _, _, state = call(served[1], "/api/v1/state")
+    operation_id = json.loads(state)["operations"][0]["id"]
     for path, operations in document["paths"].items():
+        backend_id = "fake" if "/images/" in path else "video-fake"
+        path = path.replace("{id}", backend_id if "/backends/" in path else operation_id)
         for method in operations:
             if method == "get":
                 status, _, _ = call(served[1], path)
@@ -739,3 +759,525 @@ def test_the_api_video_route_needs_no_request_id(served):
 
     assert status == 200
     assert served[2].jobs[-1].prompt == "A kite rises"
+
+
+def test_async_operations_return_shared_results_and_client_identity(served):
+    import time
+
+    server = served[1]
+    status, _, body = post_json(
+        server, "/api/v1/operations", {"kind": "image", "prompt": "pear", "seed": 12, "client_id": "client"}
+    )
+    assert status == 202
+    operation = json.loads(body)
+    for _ in range(100):
+        status, _, body = call(server, "/api/v1/operations/" + operation["id"])
+        if json.loads(body)["status"] == "succeeded":
+            break
+        time.sleep(0.01)
+    assert json.loads(body)["client_id"] == "client"
+    status, _, body = call(server, "/api/v1/state")
+    state = json.loads(body)
+    assert status == 200 and state["active"] is None
+    assert state["operations"][0]["id"] == operation["id"]
+    result = state["operations"][0]["result_url"]
+    status, _, body = call(server, result)
+    assert status == 200 and json.loads(body)["images"][0]["seed"] == 12
+    assert call(server, "/api/v1/operations/missing")[0] == 404
+    assert call(server, "/api/v1/operations/missing/result")[0] == 404
+    assert post_json(server, "/api/v1/operations/" + operation["id"] + "/cancel")[0] == 409
+    assert post_json(server, "/api/v1/operations/missing/cancel")[0] == 404
+    assert post_json(server, "/api/v1/operations", {"kind": "invalid"})[0] == 400
+
+
+def test_async_operations_hold_the_slot_and_target_cancel(served):
+    import time
+
+    server = served[1]
+    entered, released = threading.Event(), threading.Event()
+    backend = served[2]
+    original = backend.run
+
+    def run(job, progress=None, cancelled=None):
+        entered.set()
+        released.wait(5)
+        assert cancelled is not None
+        if cancelled():
+            raise Cancelled("stopped")
+        return original(job, progress, cancelled)
+
+    backend.run = run
+    payload = {**json.loads(video_request()), "kind": "video"}
+    status, _, body = post_json(server, "/api/v1/operations", payload)
+    assert status == 202
+    operation = json.loads(body)
+    try:
+        assert entered.wait(3)
+        assert post_json(server, "/api/v1/operations", payload)[0] == 409
+        assert post_json(server, "/api/v1/images/generate", {"prompt": "pear"})[0] == 409
+        assert post_json(server, "/api/v1/images/backend", {"backend": "other"})[0] == 409
+        assert post_json(server, "/api/v1/memory/release")[0] == 409
+        from studio.l3_interface_adapters.api.openapi import openapi_document
+
+        trim_example = openapi_document()["paths"]["/api/v1/audio/trim"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]["examples"]["middle_second"]["value"]
+        assert post_json(server, "/api/v1/audio/trim", trim_example)[0] == 200
+        assert call(server, "/api/v1/operations/" + operation["id"] + "/result")[0] == 409
+        status, _, body = call(server, "/api/v1/state")
+        assert json.loads(body)["active"]["id"] == operation["id"]
+        assert post_json(server, "/api/v1/operations/" + operation["id"] + "/cancel")[0] == 204
+    finally:
+        released.set()
+    for _ in range(100):
+        _, _, body = call(server, "/api/v1/operations/" + operation["id"])
+        if json.loads(body)["status"] == "cancelled":
+            break
+        time.sleep(0.01)
+    assert json.loads(body)["status"] == "cancelled"
+
+
+def test_json_backend_selection_and_rewrite_state(served):
+    server = served[1]
+    assert post_json(server, "/api/v1/images/backend", {"backend": "other"})[0] == 204
+    assert post_json(server, "/api/v1/videos/backend", {"backend": "video-other"})[0] == 204
+    assert post_json(server, "/api/v1/memory/release")[0] == 204
+    status, _, body = call(server, "/api/v1/rewrite/state")
+    assert status == 200 and json.loads(body)["stage"] == "idle"
+
+
+def test_native_ui_image_results_include_shared_operation_identity(served):
+    status, _, body = call(
+        served[1],
+        "/generate",
+        b"prompt=pear",
+        **{
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Studio-Client": "tab-client",
+            "X-Studio-Library": "browser-library",
+        },
+    )
+    assert status == 200 and "data-operation-id=" in body and "data-operation-started=" in body
+    assert "data-operation-completed=" in body
+    _, _, state = call(served[1], "/api/v1/state")
+    operation = json.loads(state)["operations"][0]
+    assert operation["client_id"] == "tab-client"
+    assert operation["library_id"] == "browser-library"
+
+
+def test_video_results_can_be_read_from_another_client(served):
+    status, _, _ = post_json(served[1], "/api/v1/videos/generate", json.loads(video_request()))
+    assert status == 200
+    _, _, state = call(served[1], "/api/v1/state")
+    operation = json.loads(state)["operations"][0]
+    status, content_type, body = call(served[1], operation["result_url"])
+    assert status == 200 and content_type == "video/mp4" and body == "fake mp4 bytes"
+
+
+def test_optional_api_keeps_legacy_image_and_video_routes():
+    controller = SimpleNamespace(run=lambda form: "image")
+    presenter = SimpleNamespace(run=lambda result: result + " markup")
+    video = SimpleNamespace(run=lambda payload: VideoResult(b"mp4", 8, 8, 9, 24, None))
+    handler = http_server.make_handler(cast(Any, controller), cast(Any, presenter), cast(Any, video))
+    answers = []
+
+    class Stub(handler):  # ty: ignore[unsupported-base]
+        def __init__(self):
+            pass
+
+        def _read_json(self):
+            return {}
+
+        def _send_bytes(self, payload, status=200, content_type="", headers=None):
+            answers.append((payload, status, content_type, headers))
+
+    instance = Stub()
+    assert instance._run_image_form({}) == "image markup"
+    instance._run_video()
+    assert answers == [(b"mp4", 200, "video/mp4", {})]
+
+
+def test_an_async_start_returns_its_status_location(served):
+    url = f"http://127.0.0.1:{served[1].server_address[1]}/api/v1/operations"
+    request = urllib.request.Request(
+        url, data=json.dumps({"kind": "image", "prompt": "pear"}).encode(), headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(request, timeout=5) as answer:
+        operation = json.loads(answer.read())
+        assert answer.status == 202
+        assert answer.headers["Location"] == operation["status_url"] == "/api/v1/operations/" + operation["id"]
+
+
+def test_operation_sources_distinguish_native_and_api_requests(served):
+    server = served[1]
+    call(server, "/generate", b"prompt=pear", **{"Content-Type": "application/x-www-form-urlencoded"})
+    call(
+        server,
+        "/video/generate",
+        video_request(),
+        **{"Content-Type": "application/json", "X-Studio-Library": "video-library"},
+    )
+    call(server, "/rewrite", b"prompt=pear", **{"Content-Type": "application/x-www-form-urlencoded"})
+    _, _, state = call(server, "/api/v1/state")
+    native = json.loads(state)["operations"]
+    assert {one["kind"] for one in native} == {"image", "video", "rewrite"}
+    assert all(one["source"] == "ui" for one in native)
+    assert next(one for one in native if one["kind"] == "video")["library_id"] == "video-library"
+    post_json(server, "/api/v1/images/generate", {"prompt": "api pear"})
+    post_json(server, "/api/v1/videos/generate", json.loads(video_request()))
+    post_json(server, "/api/v1/images/rewrite", {"prompt": "api pear"})
+    _, _, state = call(server, "/api/v1/state")
+    api_operations = json.loads(state)["operations"][:3]
+    assert {one["kind"] for one in api_operations} == {"image", "video", "rewrite"}
+    assert all(one["source"] == "api" for one in api_operations)
+
+
+def test_native_video_timestamp_survives_immediate_result_eviction(served, monkeypatch):
+    from studio.l3_interface_adapters.api.operations import Operations
+
+    retain = Operations.retain
+
+    def retain_with_small_limit(operations, operation_id, result):
+        operations._max_bytes = 1
+        retain(operations, operation_id, result)
+
+    monkeypatch.setattr(Operations, "retain", retain_with_small_limit)
+    url = f"http://127.0.0.1:{served[1].server_address[1]}/video/generate"
+    request = urllib.request.Request(url, data=video_request(), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=30) as answer:
+        assert answer.status == 200
+        assert answer.read() == b"fake mp4 bytes"
+        assert float(answer.headers["X-Studio-Completed"]) > 0
+    _, _, state = call(served[1], "/api/v1/state")
+    assert json.loads(state)["operations"] == []
+
+
+@pytest.fixture
+def voice_served():
+    from studio.l3_interface_adapters.gateways.stub_voice_backend_gateway import StubVoiceBackendGateway
+
+    studio = assemble_studio(
+        {"fake": FakeBackendGateway()},
+        {"fake": fast(StubPromptRewriter())},
+        "fake",
+        ("fake",),
+        voice_backends={"auk": StubVoiceBackendGateway(), "auk_base": StubVoiceBackendGateway("base")},
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield server
+    server.shutdown()
+    server.server_close()
+    studio.shutdown()
+
+
+def test_voice_capabilities_and_wav_routes(voice_served):
+    status, _, body = call(voice_served, "/api/v1/voice/capabilities")
+    assert status == 200 and json.loads(body)["name"] == "AuK Flash"
+    assert json.loads(body)["loading"]["policy"] == "download_on_first_use"
+    url = f"http://127.0.0.1:{voice_served.server_address[1]}/api/v1/voice/generate"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps({"text": "Hello", "voice": "a calm narrator"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request) as answer:
+        assert answer.headers["Content-Type"] == "audio/wav"
+        assert answer.read().startswith(b"RIFF")
+        assert float(answer.headers["X-Studio-Duration"]) == 1
+        operation_id = answer.headers["X-Studio-Operation"]
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{voice_served.server_address[1]}/api/v1/operations/{operation_id}/result"
+    ) as answer:
+        assert answer.read().startswith(b"RIFF")
+    assert post_json(voice_served, "/api/v1/voice/generate", {"text": ""})[0] == 400
+
+
+def test_batch_item_routes_return_retained_outputs(voice_served):
+    import time
+
+    status, _, body = post_json(
+        voice_served,
+        "/api/v1/operations",
+        {
+            "kind": "voice",
+            "voice": "a calm narrator",
+            "items": [{"text": "one"}, {"text": "two"}],
+        },
+    )
+    operation = json.loads(body)
+    assert status == 202
+    for _ in range(100):
+        _, _, state = call(voice_served, operation["status_url"])
+        if json.loads(state)["status"] != "running":
+            break
+        time.sleep(0.02)
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{voice_served.server_address[1]}/api/v1/operations/{operation['id']}/items/1/result"
+    ) as answer:
+        assert answer.headers["Content-Type"] == "audio/wav"
+    assert call(voice_served, f"/api/v1/operations/{operation['id']}/items/9/result")[0] == 404
+    assert call(voice_served, f"/api/v1/operations/{operation['id']}/items/bad/result")[0] == 400
+
+
+def test_voice_speed_template_routes_use_reference_duration_and_keep_the_instruction(voice_served):
+    import time
+
+    from tests.support.voice_audio import wav_b64
+
+    payload = {"mode": "edit", "template": "Speed", "reference": {"wav_base64": wav_b64(seconds=3)}}
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{voice_served.server_address[1]}/api/v1/voice/generate",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request) as response:
+        assert response.read().startswith(b"RIFF")
+        assert float(response.headers["X-Studio-Duration"]) == 2
+        operation_id = response.headers["X-Studio-Operation"]
+    _, _, encoded = call(voice_served, f"/api/v1/operations/{operation_id}")
+    assert json.loads(encoded)["prompt"] == "Adjust the speech speed to 1.5x."
+    status, _, encoded = post_json(
+        voice_served,
+        "/api/v1/operations",
+        {
+            **payload,
+            "kind": "voice",
+            "items": [{"template_values": {"speed": "0.5"}}, {"template_values": {"speed": "2.0"}}],
+        },
+    )
+    assert status == 202
+    operation = json.loads(encoded)
+    for _ in range(100):
+        _, _, encoded = call(voice_served, operation["status_url"])
+        if json.loads(encoded)["status"] != "running":
+            break
+        time.sleep(0.02)
+    state = json.loads(encoded)
+    assert state["status"] == "succeeded"
+    _, _, encoded = call(voice_served, state["result_url"])
+    manifest = json.loads(encoded)
+    assert [item["seconds"] for item in manifest["items"]] == [6, 1.5]
+    assert [item["prompt"] for item in manifest["items"]] == [
+        "Adjust the speech speed to 0.5x.",
+        "Adjust the speech speed to 2.0x.",
+    ]
+    assert manifest["items"][0]["settings"]["template"] == "Speed"
+
+
+def test_readonly_backend_discovery(served):
+    for workspace, backend in [("images", "fake"), ("videos", "video-fake")]:
+        status, _, body = call(served[1], f"/api/v1/{workspace}/backends/{backend}")
+        assert status == 200 and json.loads(body)["backend_id"] == backend
+        assert call(served[1], f"/api/v1/{workspace}/backends/missing")[0] == 404
+    assert call(served[1], "/api/v1/unrelated/backends/fake")[0] == 404
+
+
+def test_native_voice_operation_uses_browser_identity(voice_served):
+    status, _, body = call(
+        voice_served,
+        "/voice/operations",
+        json.dumps({"kind": "voice", "text": "Hello", "voice": "a calm narrator"}).encode(),
+        **{"Content-Type": "application/json", "X-Studio-Client": "voice-tab", "X-Studio-Library": "voice-library"},
+    )
+    assert status == 202
+    operation = json.loads(body)
+    assert operation["source"] == "ui"
+    assert operation["client_id"] == "voice-tab"
+    assert operation["library_id"] == "voice-library"
+
+
+def test_api_explicit_image_backend_selects_model_before_generation(served):
+    status, _, body = post_json(served[1], "/api/v1/images/generate", {"backend": "other", "prompt": "a pear"})
+    assert status == 200, body
+    _, _, state = call(served[1], "/api/v1/state")
+    assert json.loads(state)["studio"]["image"]["active"] == "other"
+
+
+def test_api_explicit_video_backend_selects_model_before_generation(served):
+    payload = json.loads(video_request())
+    payload["backend"] = "video-other"
+    status, _, body = post_json(served[1], "/api/v1/videos/generate", payload)
+    assert status == 200, body
+    assert served[3].jobs
+
+
+@pytest.mark.parametrize("kind,backend", [("image", "other"), ("video", "video-other")])
+def test_async_batch_selects_the_requested_backend(served, kind, backend):
+    import time
+
+    item = {"prompt": "one"} if kind == "image" else json.loads(video_request())
+    payload = {"kind": kind, "backend": backend, "items": [item, {**item, "prompt": "two"}]}
+    status, _, body = post_json(served[1], "/api/v1/operations", payload)
+    assert status == 202
+    operation = json.loads(body)
+    for _ in range(100):
+        _, _, body = call(served[1], operation["status_url"])
+        state = json.loads(body)
+        if state["status"] not in ("running", "stopping"):
+            break
+        time.sleep(0.01)
+    assert state["status"] == "succeeded", state
+    _, _, body = call(served[1], state["result_url"])
+    assert json.loads(body)["completed"] == 2
+
+
+def test_native_image_page_still_refuses_a_stale_model(served):
+    status, _, body = call(
+        served[1], "/generate", b"backend=other&prompt=pear", **{"Content-Type": "application/x-www-form-urlencoded"}
+    )
+    assert status == 200
+    assert "The model changed in another tab." in body
+
+
+def test_audio_trim_route_returns_pcm_without_reserving_an_operation(served):
+    import io
+    import wave
+
+    samples = bytes(range(64))
+    output = io.BytesIO()
+    with wave.open(output, "wb") as stream:
+        stream.setparams((2, 2, 8, 16, "NONE", "not compressed"))
+        stream.writeframes(samples)
+    raw = output.getvalue()
+    payload = {
+        "audio": {"name": "selection.wav", "data": base64.b64encode(raw).decode()},
+        "start_seconds": 0.25,
+        "end_seconds": 1.25,
+    }
+    port = served[1].server_address[1]
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/v1/audio/trim",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request) as answer:
+        assert answer.status == 200
+        assert answer.headers["Content-Type"] == "audio/wav"
+        assert float(answer.headers["X-Studio-Duration"]) == 1
+        with wave.open(io.BytesIO(answer.read()), "rb") as stream:
+            assert stream.readframes(99) == samples[8:40]
+    _, _, state = call(served[1], "/api/v1/state")
+    assert json.loads(state)["active"] is None
+    status, _, body = post_json(served[1], "/api/v1/audio/trim", {})
+    assert status == 400 and json.loads(body)["error"]
+
+
+def test_voice_models_switch_through_native_and_public_routes(voice_served):
+    from studio.l3_interface_adapters.api.openapi import openapi_document
+
+    _, _, body = call(voice_served, "/api/v1/studio")
+    voice = json.loads(body)["voice"]
+    assert voice["active"] == "auk"
+    assert [one["name"] for one in voice["backends"]] == ["AuK Flash", "AuK"]
+    status, _, body = call(voice_served, "/api/v1/voice/backends/auk_base")
+    assert status == 200 and json.loads(body)["backend_id"] == "auk_base"
+    assert call(voice_served, "/api/v1/voice/backends/missing")[0] == 404
+    assert post_json(voice_served, "/api/v1/voice/backend", {"backend": "auk_base"})[0] == 204
+    _, _, body = call(voice_served, "/api/v1/voice/capabilities")
+    assert json.loads(body)["name"] == "AuK"
+    port = voice_served.server_address[1]
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/v1/voice/generate",
+        data=json.dumps(
+            {"mode": "design", "backend": "auk", "text": "Switch back through a run.", "voice": "A warm voice."}
+        ).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request) as response:
+        assert response.headers["Content-Type"] == "audio/wav"
+    _, _, body = call(voice_served, "/api/v1/state")
+    state = json.loads(body)
+    assert state["studio"]["voice"]["active"] == "auk"
+    assert state["operations"][0]["model"] == "AuK Flash"
+    status, _, _ = call(
+        voice_served, "/voice/backend", b"backend=auk_base", **{"Content-Type": "application/x-www-form-urlencoded"}
+    )
+    assert status == 200
+    assert "/api/v1/voice/backends/{id}" in openapi_document()["paths"]
+    assert "/api/v1/voice/backend" in openapi_document()["paths"]
+
+
+def test_voice_batch_records_base_backend_and_refuses_a_switch_during_work(voice_served):
+    import time
+
+    payload = {
+        "kind": "voice",
+        "backend": "auk_base",
+        "voice": "A warm narrator.",
+        "items": [{"text": "One."}, {"text": "Two."}],
+    }
+    status, _, body = post_json(voice_served, "/api/v1/operations", payload)
+    assert status == 202
+    operation = json.loads(body)
+    assert operation["model"] == "AuK" and operation["backend"] == "auk_base"
+    assert post_json(voice_served, "/api/v1/voice/backend", {"backend": "auk"})[0] == 409
+    for _ in range(200):
+        _, _, body = call(voice_served, operation["status_url"])
+        state = json.loads(body)
+        if state["status"] == "succeeded":
+            break
+        time.sleep(0.01)
+    assert state["status"] == "succeeded", state
+    _, _, body = call(voice_served, state["result_url"])
+    assert all(item["settings"]["backend"] == "auk_base" for item in json.loads(body)["items"])
+    assert post_json(voice_served, "/api/v1/voice/backend", {"backend": "auk"})[0] == 204
+
+
+@pytest.mark.parametrize("backend", [[], {}, True, False, None, ""])
+def test_voice_routes_reject_invalid_model_types(voice_served, backend):
+    status, _, body = post_json(
+        voice_served, "/api/v1/voice/generate", {"backend": backend, "text": "One.", "voice": "A warm voice."}
+    )
+    assert status == 400 and "model id" in json.loads(body)["error"]
+    status, _, body = post_json(voice_served, "/api/v1/voice/backend", {"backend": backend})
+    assert status == 400 and json.loads(body)["error"]
+    status, _, body = post_json(
+        voice_served,
+        "/api/v1/operations",
+        {"kind": "voice", "backend": backend, "voice": "A warm voice.", "items": [{"text": "One."}]},
+    )
+    assert status == 400 and "model id" in json.loads(body)["error"]
+
+
+@pytest.mark.parametrize("backend", ["auk", "auk_base"])
+def test_design_templates_discovery_single_and_batch_routes(voice_served, backend):
+    import time
+
+    _, _, encoded = call(voice_served, "/api/v1/voice/backends/" + backend)
+    design = next(mode for mode in json.loads(encoded)["modes"] if mode["id"] == "design")
+    assert len(design["templates"]) == 6
+    payload = {"backend": backend, "mode": "design", "template": "Narration", "text": "The river flows.", "seed": 7}
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{voice_served.server_address[1]}/api/v1/voice/generate",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request) as response:
+        assert response.read().startswith(b"RIFF")
+        operation_id = response.headers["X-Studio-Operation"]
+    _, _, encoded = call(voice_served, "/api/v1/operations/" + operation_id)
+    assert json.loads(encoded)["prompt"] == "The river flows."
+    status, _, encoded = post_json(
+        voice_served,
+        "/api/v1/operations",
+        {
+            **payload,
+            "kind": "voice",
+            "items": [{"text": "First line."}, {"text": "Second line.", "template_values": {"tone": "bright"}}],
+        },
+    )
+    assert status == 202
+    operation = json.loads(encoded)
+    for _ in range(100):
+        _, _, encoded = call(voice_served, operation["status_url"])
+        state = json.loads(encoded)
+        if state["status"] != "running":
+            break
+        time.sleep(0.02)
+    assert state["status"] == "succeeded"
+    _, _, encoded = call(voice_served, state["result_url"])
+    items = json.loads(encoded)["items"]
+    assert [item["prompt"] for item in items] == ["First line.", "Second line."]
+    assert items[1]["settings"]["template_values"] == {"tone": "bright"}
+    assert post_json(voice_served, "/api/v1/voice/generate", {**payload, "text": ""})[0] == 400

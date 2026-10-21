@@ -1,12 +1,43 @@
 """What the MLX q8 video packs offer the form.
 
-Both packs are the same engine at 8 bits on Apple Silicon. A pack decides the model
-version, and that is all: the modes, sizes, Looks and templates below are the ones a
-person can choose, and every difference between the two models stays in the runner.
+Both packs use the same engine at 8 bits on Apple Silicon. Each pack declares its
+measured prompt aids and modes here.
 """
 
+from studio.l1_entities.capabilities import Template
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities, VideoMode, VideoShape
 from studio.l3_interface_adapters.gateways.prompt_aids import VIDEO_LOOKS, VIDEO_TEMPLATES
+
+# These three first fills reproduce the API probes from 2026-10-20. The sideways and
+# orbit probes also moved forward, so they do not earn separate templates.
+_CAMERA_SCENE = (
+    "[Subject] rests on [surface]. [Foreground object] stands closer to the camera, "
+    "and [background object] stands behind [subject name]. [light]. "
+)
+LTX25_TEMPLATES = (
+    *VIDEO_TEMPLATES,
+    Template(
+        "Speak to camera",
+        "One speaker, quoted words, fixed camera",
+        "A front-facing medium close-up shows [speaker] against [background]. [light]. "
+        '[Subject pronoun] looks into the lens and clearly says in [language], "[dialogue]" '
+        "[Possessive pronoun] lips and jaw move naturally with each word. "
+        "The camera stays fixed throughout the continuous shot. "
+        "[Possessive pronoun] voice is clear over [sound].",
+    ),
+    Template(
+        "Fixed composition",
+        "A still subject with a fixed camera",
+        _CAMERA_SCENE + "The camera stays fixed, holding the same composition. One continuous shot with [sound].",
+    ),
+    Template(
+        "Slow push-in",
+        "Move closer while the subject stays still",
+        _CAMERA_SCENE
+        + "The camera slowly moves toward [subject name], ending in a closer view while [subject name] stays still. "
+        "One continuous shot with [sound].",
+    ),
+)
 
 # The rungs the 22B model renders. Every side is a multiple of 64 and every shape follows
 # the image form's own. Only 384 x 384 and 121 frames was timed on the q8 packs: 40.9 s from
@@ -209,15 +240,15 @@ def _capabilities(backend_id: str, name: str, edit: bool = False) -> VideoCapabi
         # took 790 s on 2.5 q8 and stayed inside 64 GB, on the distilled two-stage path.
         max_dimension=1920,
         dimension_step=64,
-        templates=VIDEO_TEMPLATES,
+        templates=LTX25_TEMPLATES if backend_id == "ltx25_mlx" else VIDEO_TEMPLATES,
         modes=(generate, edit_mode) if edit else (generate,),
         adapters=VIDEO_ADAPTERS if edit else (),
     )
 
 
 def ltx25_mlx_capabilities() -> VideoCapabilities:
-    return _capabilities("ltx25_mlx", "LTX-2.5 q8", edit=True)
+    return _capabilities("ltx25_mlx", "LTX-2.5", edit=True)
 
 
 def ltx23_mlx_capabilities() -> VideoCapabilities:
-    return _capabilities("ltx23_mlx", "LTX-2.3 q8")
+    return _capabilities("ltx23_mlx", "LTX-2.3")

@@ -388,3 +388,166 @@ def test_the_marker_for_a_mask_travels_the_chain(studio):
         request(mode="edit", prompt="x", references=(PHOTO, mask), total=2, each_reference=True, mask=True)
     )
     assert first.next_run.mask is True and first.next_run.each_reference is True
+
+
+def test_native_batch_holds_one_lock_and_retains_varied_results(studio):
+    use_case, backend, _, _ = studio
+    events = []
+
+    def completed(index, response):
+        assert use_case._engine_lock.locked()
+        events.append((index, response.prompt))
+
+    responses = use_case.execute_batch(
+        [request(), request(prompt="a blue cup", seed="43")],
+        completed,
+        lambda index, total: events.append((index, total)),
+        lambda: False,
+    )
+    assert events == [(1, 2), (1, "a red apple"), (2, 2), (2, "a blue cup")]
+    assert [response.image.seed for response in responses] == [42, 43]
+    assert [response.next_run for response in responses] == [None, None]
+    assert [response.position for response in responses] == ["1 of 2", "2 of 2"]
+    assert not use_case._engine_lock.locked()
+    assert len(backend.jobs) == 2
+
+
+def test_native_batch_validates_every_job_before_any_engine_work(studio):
+    use_case, backend, _, _ = studio
+    with pytest.raises(MissingPrompt):
+        use_case.execute_batch([request(), request(prompt=" ")], lambda *_: None, lambda *_: None, lambda: False)
+    assert backend.jobs == []
+    assert not use_case._engine_lock.locked()
+
+
+def test_native_batch_keeps_partial_results_after_cancel(studio):
+    use_case, backend, _, _ = studio
+    completed = []
+    with pytest.raises(Cancelled):
+        use_case.execute_batch(
+            [request(), request()], lambda *values: completed.append(values), lambda *_: None, lambda: bool(completed)
+        )
+    assert len(completed) == 1
+    assert len(backend.jobs) == 1
+    assert not use_case._engine_lock.locked()
+
+
+@pytest.mark.parametrize(
+    "changes", [dict(total=2), dict(index=2), dict(reference_token="old"), dict(each_reference=True)]
+)
+def test_native_batch_refuses_legacy_chain_fields(studio, changes):
+    use_case, backend, _, _ = studio
+    with pytest.raises(InvalidJob, match="one image"):
+        use_case.execute_batch([request(**changes)], lambda *_: None, lambda *_: None, lambda: False)
+    assert not backend.jobs
+
+
+def test_native_batch_refuses_a_busy_engine(studio):
+    use_case, _, _, _ = studio
+    use_case._engine_lock.acquire()
+    with pytest.raises(BackendBusy):
+        use_case.execute_batch([request()], lambda *_: None, lambda *_: None, lambda: False)
+    use_case._engine_lock.release()
+
+
+def test_native_batch_rejects_a_changed_backend(studio):
+    use_case, backend, _, _ = studio
+    with pytest.raises(BackendChanged):
+        use_case.execute_batch([request(backend="other")], lambda *_: None, lambda *_: None, lambda: False)
+    assert backend.jobs == []
+
+
+def test_native_batch_prepares_all_jobs_before_the_first_image(studio):
+    from unittest.mock import Mock
+
+    use_case, backend, _, _ = studio
+    backend.prepare_batch = Mock(side_effect=lambda jobs, stop: (assert_unstarted(backend), stop()))
+    use_case.execute_batch([request(seed=""), request(prompt="dog")], lambda *_: None, lambda *_: None, lambda: False)
+    prepared, stop = backend.prepare_batch.call_args.args
+    assert prepared == backend.jobs
+    assert prepared[0].seed == 7
+    assert stop() is False
+
+
+def assert_unstarted(backend):
+    assert backend.jobs == []
+
+
+def test_native_batch_converts_prepare_failure_after_cancel_to_cancelled(studio):
+    use_case, backend, progress, _ = studio
+
+    def prepare(jobs, stop):
+        progress.request_cancel()
+        raise RuntimeError("encoder interrupted")
+
+    backend.prepare_batch = prepare
+    with pytest.raises(Cancelled):
+        use_case.execute_batch([request()], lambda *_: None, lambda *_: None, lambda: False)
+    assert not use_case._engine_lock.locked()
+
+
+def test_native_batch_refuses_an_empty_request(studio):
+    use_case, backend, _, _ = studio
+    with pytest.raises(InvalidJob, match="at least one"):
+        use_case.execute_batch([], lambda *_: None, lambda *_: None, lambda: False)
+    assert backend.jobs == []
+
+
+def test_native_batch_passes_external_cancel_into_the_engine(studio):
+    use_case, backend, _, _ = studio
+    stopped = []
+    with pytest.raises(Cancelled):
+        use_case.execute_batch([request()], lambda *_: None, lambda *_: stopped.append(True), lambda: bool(stopped))
+    assert len(backend.jobs) == 1
+
+
+def test_native_batch_frees_the_rewriter_before_preparation(studio):
+    use_case, _, _, _ = studio
+    events = []
+    use_case._rewriter = RecordingRewriter(events)
+    use_case.execute_batch([request()], lambda *_: None, lambda *_: None, lambda: False)
+    assert events[0] == "rewriter release"
+
+
+def test_native_batch_reports_engine_failure_after_external_cancel_as_cancelled(studio):
+    use_case, backend, _, _ = studio
+    stopped = []
+
+    def run(*arguments):
+        stopped.append(True)
+        raise RuntimeError("engine interrupted")
+
+    backend.run = run
+    with pytest.raises(Cancelled):
+        use_case.execute_batch([request()], lambda *_: None, lambda *_: None, lambda: bool(stopped))
+
+
+def test_native_batch_drops_stale_cancel_before_validation(studio):
+    use_case, _, progress, _ = studio
+    progress.request_cancel()
+    with pytest.raises(MissingPrompt):
+        use_case.execute_batch([request(prompt=" ")], lambda *_: None, lambda *_: None, lambda: False)
+
+
+def test_native_batch_publishes_fresh_item_progress_before_the_start_callback(studio):
+    use_case, _, progress, _ = studio
+    snapshots = []
+
+    def started(index, total):
+        state = progress.snapshot()
+        snapshots.append((state.running, state.stage, state.step, state.total, state.label))
+
+    use_case.execute_batch([request(), request()], lambda *_: None, started, lambda: False)
+    assert snapshots == [(True, "preparing", 0, 0, "1 of 2"), (True, "preparing", 0, 0, "2 of 2")]
+
+
+def test_a_cancel_at_the_item_start_survives_the_progress_reset(studio):
+    use_case, backend, progress, _ = studio
+
+    def started(index, total):
+        if index == 2:
+            progress.request_cancel()
+
+    with pytest.raises(Cancelled):
+        use_case.execute_batch([request(), request()], lambda *_: None, started, lambda: False)
+    assert len(backend.jobs) == 1

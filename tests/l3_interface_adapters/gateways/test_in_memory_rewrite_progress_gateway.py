@@ -61,3 +61,13 @@ def test_a_cancel_asked_for_before_a_rewrite_starts_does_not_stop_that_rewrite(p
     progress.begin()
     assert progress.cancel_requested() is False
     assert progress.snapshot().stopping is False
+
+
+def test_operation_cancel_survives_a_fresh_rewrite_begin():
+    stopped = [False]
+    gateway = InMemoryRewriteProgressGateway(external_cancel=lambda: stopped[0])
+    assert not gateway.cancel_requested()
+    stopped[0] = True
+    gateway.clear_cancel()
+    gateway.begin()
+    assert gateway.cancel_requested()

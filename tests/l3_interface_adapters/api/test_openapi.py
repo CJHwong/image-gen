@@ -1,0 +1,192 @@
+"""The published reference must offer usable examples and typed discovery records."""
+
+import base64
+from dataclasses import asdict, fields
+
+from studio.l1_entities.capabilities import Capabilities, ModeSpec, ParamSpec, Template
+from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities
+from studio.l3_interface_adapters.api.openapi import openapi_document
+from studio.l3_interface_adapters.api.prompt_builder import prepare_prompt
+from studio.l3_interface_adapters.controllers.video_controller import video_job
+from studio.l3_interface_adapters.gateways.mlx_video.capabilities import ltx25_mlx_capabilities
+from studio.l3_interface_adapters.gateways.qwen21_turbo.capabilities import qwen21_turbo_capabilities
+
+
+def test_generate_routes_offer_named_payloads_instead_of_generated_defaults():
+    document = openapi_document()
+    for route in (
+        "images/generate",
+        "images/edit",
+        "videos/generate",
+        "videos/edit",
+        "images/rewrite",
+        "videos/rewrite",
+        "operations",
+    ):
+        media = document["paths"]["/api/v1/" + route]["post"]["requestBody"]["content"]["application/json"]
+        assert media["examples"], route
+        assert all(example["summary"] and isinstance(example["value"], dict) for example in media["examples"].values())
+
+
+def test_structured_video_example_uses_the_measured_template():
+    document = openapi_document()
+    examples = document["paths"]["/api/v1/videos/generate"]["post"]["requestBody"]["content"]["application/json"][
+        "examples"
+    ]
+    body = examples["slow_push_in"]["value"]
+    capabilities = ltx25_mlx_capabilities()
+    mode = {**asdict(capabilities.mode("generate")), "templates": asdict(capabilities)["templates"]}
+    prepared = prepare_prompt(body, mode, video=True)
+    job = video_job(prepared, capabilities)
+    assert "slowly moves toward the teapot" in job.prompt
+    assert job.width == 384 and job.num_frames == 121
+
+
+def test_image_example_uses_the_official_turbo_schedule():
+    document = openapi_document()
+    examples = document["paths"]["/api/v1/images/generate"]["post"]["requestBody"]["content"]["application/json"][
+        "examples"
+    ]
+    body = examples["product_photo"]["value"]
+    capabilities = qwen21_turbo_capabilities()
+    options = capabilities.mode("generate").parse_options({key: str(value) for key, value in body.items()})
+    assert options["steps"] == 8
+
+
+def test_discovery_schemas_describe_fields_clients_need_to_build_a_request():
+    schemas = openapi_document()["components"]["schemas"]
+    for name, record in [
+        ("ImageCapabilities", Capabilities),
+        ("ImageMode", ModeSpec),
+        ("Parameter", ParamSpec),
+        ("Template", Template),
+        ("VideoCapabilities", VideoCapabilities),
+        ("VideoAdapter", VideoAdapter),
+    ]:
+        assert set(field.name for field in fields(record)) <= set(schemas[name]["properties"]), name
+    assert schemas["Studio"]["properties"]["image"]["properties"]["capabilities"]["$ref"].endswith("/ImageCapabilities")
+    assert schemas["Studio"]["properties"]["video"]["properties"]["capabilities"]["$ref"].endswith("/VideoCapabilities")
+
+
+def test_media_examples_identify_replacements_and_keyframe_image_bytes_are_real():
+    examples = openapi_document()["paths"]["/api/v1/videos/generate"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["examples"]
+    encoded = examples["first_keyframe"]["value"]["references"][0]["image"]
+    assert base64.b64decode(encoded, validate=True).startswith(b"\x89PNG")
+    supplied = examples["supplied_speech"]
+    assert "replace" in supplied["description"].lower()
+    assert supplied["value"]["audio"]["data"].startswith("<")
+
+
+def test_voice_discovery_describes_actual_records():
+    from studio.l1_entities import voice_capabilities as voice
+
+    schemas = openapi_document()["components"]["schemas"]
+    for name, record in [
+        ("VoiceCapabilities", voice.Capabilities),
+        ("VoiceMode", voice.ModeSpec),
+        ("VoiceParameter", voice.ParamSpec),
+        ("VoiceTemplate", voice.Template),
+        ("LoadingPolicy", voice.LoadingPolicy),
+    ]:
+        assert {field.name for field in fields(record)} <= set(schemas[name]["properties"]), name
+
+
+def test_voice_examples_cover_design_clone_and_edit_with_explicit_media_replacements():
+    examples = openapi_document()["paths"]["/api/v1/voice/generate"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["examples"]
+    assert {item["value"]["mode"] for item in examples.values()} == {"generate", "design", "clone", "edit"}
+    assert len(examples["designed_narration"]["value"]["voice"]) > 120
+    assert examples["clone_reference"]["value"]["reference"]["wav_base64"].startswith("<replace")
+
+
+def test_batch_examples_obey_the_shared_batch_contract():
+    from studio.l3_interface_adapters.api.batch_api import normalize_batch
+
+    document = openapi_document()
+    examples = document["paths"]["/api/v1/operations"]["post"]["requestBody"]["content"]["application/json"]["examples"]
+    for name, kind in [("image_storyboard", "image"), ("video_shots", "video"), ("voice_segments", "voice")]:
+        payload = examples[name]["value"]
+        items = normalize_batch(payload)
+        assert len(items) == 2
+        assert all(item["kind"] == kind for item in items)
+    assert "reference" in normalize_batch(examples["voice_segments"]["value"])[1]
+    schemas = document["components"]["schemas"]
+    assert schemas["BatchRequest"]["properties"]["items"]["maxItems"] == 16
+    route = document["paths"]["/api/v1/operations/{id}/items/{index}/result"]["get"]
+    assert "audio/wav" in route["responses"]["200"]["content"]
+
+
+def test_inactive_model_discovery_needs_no_model_switch():
+    paths = openapi_document()["paths"]
+    for workspace, schema in [("images", "ImageCapabilities"), ("videos", "VideoCapabilities")]:
+        route = paths["/api/v1/" + workspace + "/backends/{id}"]["get"]
+        assert route["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith("/" + schema)
+        assert route["parameters"][0]["name"] == "id"
+
+
+def test_voice_template_request_preserves_typed_values_and_automatic_speed_duration():
+    document = openapi_document()
+    schema = document["components"]["schemas"]["VoiceRequest"]
+    assert schema["anyOf"] == [{"required": ["text"]}, {"required": ["template"]}]
+    assert schema["properties"]["template"]["type"] == "string"
+    values = schema["properties"]["template_values"]["additionalProperties"]
+    assert values == {"type": ["string", "number"]}
+    examples = document["paths"]["/api/v1/voice/generate"]["post"]["requestBody"]["content"]["application/json"][
+        "examples"
+    ]
+    request = examples["change_speed"]["value"]
+    assert request["template"] == "Speed"
+    assert request["template_values"] == {"speed": "1.5"}
+    assert request["seconds"] == 0
+    assert "text" not in request
+    batch_values = document["components"]["schemas"]["BatchRequest"]["properties"]["items"]["items"]["properties"][
+        "template_values"
+    ]
+    assert batch_values["additionalProperties"] == {"type": ["string", "number"]}
+
+
+def test_audio_trim_example_is_a_complete_pcm_request():
+    import io
+    import wave
+
+    from studio.l3_interface_adapters.api.audio_trim import trim_audio
+
+    operation = openapi_document()["paths"]["/api/v1/audio/trim"]["post"]
+    example = operation["requestBody"]["content"]["application/json"]["examples"]["middle_second"]
+    selected, duration = trim_audio(example["value"])
+    assert duration == 1
+    with wave.open(io.BytesIO(selected), "rb") as stream:
+        assert stream.getnframes() == 8
+    assert "audio/wav" in operation["responses"]["200"]["content"]
+    assert "400" in operation["responses"]
+
+
+def test_voice_model_examples_name_flash_and_base_without_loading():
+    paths = openapi_document()["paths"]
+    examples = paths["/api/v1/voice/backend"]["post"]["requestBody"]["content"]["application/json"]["examples"]
+    assert {item["value"]["backend"] for item in examples.values()} == {"auk", "auk_base"}
+    examples = paths["/api/v1/voice/generate"]["post"]["requestBody"]["content"]["application/json"]["examples"]
+    assert examples["clone_with_auk"]["value"]["backend"] == "auk_base"
+
+
+def test_design_template_examples_keep_spoken_text_separate_from_voice_fields():
+    document = openapi_document()
+    examples = document["paths"]["/api/v1/voice/generate"]["post"]["requestBody"]["content"]["application/json"][
+        "examples"
+    ]
+    request = examples["design_template"]["value"]
+    assert request["template"] == "Narration" and request["text"]
+    assert "voice" not in request
+    assert request["template_values"]["tone"] == "warm and thoughtful"
+    schema = document["components"]["schemas"]["VoiceRequest"]
+    condition = schema["allOf"][0]["then"]
+    assert condition["required"] == ["text"]
+    assert condition["anyOf"] == [{"required": ["voice"]}, {"required": ["template"]}]
+    batch = document["paths"]["/api/v1/operations"]["post"]["requestBody"]["content"]["application/json"]["examples"][
+        "voice_design_templates"
+    ]["value"]
+    assert batch["kind"] == "voice" and len(batch["items"]) == 2
+    assert all(item["template"] and item["text"] for item in batch["items"])

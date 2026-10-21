@@ -32,9 +32,13 @@
 <script type="module" src="/page/components/toast-host.js"></script>
 <script type="module" src="/page/components/progress-card.js"></script>
 <script type="module" src="/page/components/video-studio.js"></script>
+<script type="module" src="/page/components/voice-studio.js"></script>
 <script type="module" src="/page/lib/store.js"></script>
+<script type="module" src="/page/lib/drafts.js"></script>
+<script type="module" src="/page/lib/operations.js"></script>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <link rel="stylesheet" href="/page/page.css">
+<link rel="stylesheet" href="/page/lib/audio-preview.css">
 </head>
 <body>
 <svg width="0" height="0" style="position: absolute" aria-hidden="true">
@@ -76,6 +80,7 @@
       <nav class="workspace-tabs" id="workspace-tabs" role="group" aria-label="Workspace">
         <button type="button" id="media-image-mode" aria-pressed="true">Image</button>
         <button type="button" id="media-video-mode" aria-pressed="false">Video</button>
+        <button type="button" id="media-voice-mode" aria-pressed="false" hidden>Voice</button>
       </nav>
       <div class="readout">
         <span class="status" id="status" role="status" aria-live="polite" hidden><span class="dot"></span><span id="status-text"></span></span>
@@ -88,6 +93,16 @@
         </div>
       </div>
     </header>
+    <section id="shared-operation" class="shared-operation" role="status" hidden>
+      <span id="shared-operation-label"></span>
+      <progress id="shared-operation-progress" max="100" hidden aria-label="Operation progress"></progress>
+      <button id="shared-operation-cancel" type="button" class="pill">Cancel</button>
+    </section>
+    <section id="shared-rewrite-result" class="shared-operation" hidden>
+      <label for="shared-rewrite-text">Rewritten prompt</label>
+      <textarea id="shared-rewrite-text" readonly rows="3"></textarea>
+      <button id="shared-rewrite-use" type="button" class="pill">Use prompt</button>
+    </section>
 
     <section class="stage" id="image-stage">
       <div class="canvas" id="canvas"></div>
@@ -95,6 +110,7 @@
     </section>
 
     <video-studio id="video-studio" hidden></video-studio>
+    <voice-studio id="voice-studio" hidden></voice-studio>
 
     <section class="strip-wrap" id="strip-wrap" hidden>
       <div class="strip-head">
@@ -125,6 +141,7 @@
     <form id="form" class="mode-generate" data-media-mode="image" hx-post="/generate" hx-target="#incoming" hx-swap="beforeend">
       <input type="hidden" name="backend" value="__BACKEND__">
       <div class="controls">
+        <div id="voice-controls" class="mode-controls" hidden></div>
         <div id="image-controls" class="mode-controls">
         <div class="modes" role="radiogroup" aria-label="Image mode">
           <input type="radio" name="mode" id="mode-generate" value="generate" checked>
@@ -403,7 +420,7 @@
 
       <div class="footer" id="image-footer">
         <div class="run menu-anchor">
-        <button id="go" type="submit" data-state="idle">
+        <button id="go" class="run-button" type="submit" data-state="idle">
           <run-button id="run-labels" data-state="idle"></run-button>
           <span class="sub num" id="go-sub"></span>
         </button>
@@ -416,12 +433,13 @@
         <input type="hidden" id="count" name="count" value="1">
       </div>
       <div class="footer video-footer" id="video-footer" hidden>
-        <button id="video-generate" type="button" disabled>
+        <button id="video-generate" class="run-button" type="button" disabled>
           <run-button id="video-run-labels" data-state="idle"></run-button>
           <span class="sub num" id="video-go-sub"></span>
         </button>
         <span class="visually-hidden" id="video-request-status" role="status" aria-live="polite"></span>
       </div>
+      <div class="footer voice-footer" id="voice-footer" hidden></div>
     </form>
   </aside>
 </div>
@@ -430,6 +448,31 @@
   // What the backend offers. The page reads every mode, param, limit, Look,
   // template and estimate from here, and hides or disables what is missing.
   const STUDIO = __STUDIO__;
+  let sharedOperation = null;
+  let drafts = null;
+  let observedVideo = false;
+  let observedImageResult = null;
+  let sharedRewriteWorkspace = 'image';
+  const CLIENT_ID = crypto.randomUUID();
+  const LIBRARY_ID = (() => {
+    try {
+      const id = localStorage.getItem('studio-library-id') || crypto.randomUUID();
+      localStorage.setItem('studio-library-id', id);
+      return id;
+    } catch (error) {
+      console.warn('The browser library identity was not saved:', error);
+      return CLIENT_ID;
+    }
+  })();
+  function sharedBusy() { return Boolean(sharedOperation && sharedOperation.client_id !== CLIENT_ID); }
+  document.body.addEventListener('htmx:configRequest', function (event) {
+    event.detail.headers['X-Studio-Client'] = CLIENT_ID;
+    event.detail.headers['X-Studio-Library'] = LIBRARY_ID;
+    if (event.detail.elt === form && drafts) event.detail.parameters.draft_id = drafts.submit('image');
+  });
+  document.body.addEventListener('htmx:confirm', function (event) {
+    if (sharedBusy() && event.detail.path !== '/cancel') event.preventDefault();
+  });
   const MAX_BATCH = STUDIO.backend.max_batch;
   const MODES = {};
   STUDIO.modes.forEach(function (mode) { MODES[mode.id] = mode; });
@@ -456,7 +499,7 @@
   const templatesMenu = document.getElementById('templates');
 
   function busy() {
-    return document.body.classList.contains('busy');
+    return document.body.classList.contains('busy') || Boolean(sharedOperation?.kind === 'image');
   }
 
   // The run button carries the run state as an attribute of its own, so anything
@@ -473,6 +516,7 @@
       go.dataset.state = busy() ? 'busy' : 'idle';
     }
     document.getElementById('run-labels').dataset.state = go.dataset.state;
+    setWorkspaceControlsDisabled();
   }
 
   // ---- The form ---------------------------------------------------------------
@@ -488,7 +532,9 @@
   const referenceInput = document.getElementById('reference');
   const refsZone = document.getElementById('refs');
   const videoStudio = document.getElementById('video-studio');
-  let mediaMode = new URLSearchParams(location.search).get('workspace') === 'video' ? 'video' : 'image';
+  const voiceStudio = document.getElementById('voice-studio');
+  const requestedWorkspace = new URLSearchParams(location.search).get('workspace');
+  let mediaMode = ['video', 'voice'].includes(requestedWorkspace) ? requestedWorkspace : 'image';
   let workspaceSwitchPending = false;
   let videoRunState = 'idle';
   let videoRunRequestId = null;
@@ -504,9 +550,10 @@
   }
 
   function setWorkspaceControlsDisabled() {
-    const disabled = workspaceSwitchPending || videoRunState !== 'idle';
+    const disabled = workspaceSwitchPending || Boolean(sharedOperation) || busy() || videoRunState !== 'idle' || Boolean(voiceStudio.busy);
     document.getElementById('media-image-mode').disabled = disabled;
     document.getElementById('media-video-mode').disabled = disabled;
+    document.getElementById('media-voice-mode').disabled = disabled;
   }
 
   // Why the button is off, in the second line of it, the way the image form says it. Empty
@@ -544,7 +591,7 @@
     const ready = mode.needs_clip
       ? Boolean(prompt && !unfilled && videoClip.id && !videoClip.stub && videoAdapterInForce())
       : Boolean(prompt && !unfilled);
-    button.disabled = waiting || rewriting || (videoRunState === 'idle' && !ready);
+    button.disabled = sharedBusy() || waiting || rewriting || (videoRunState === 'idle' && !ready);
     document.getElementById('video-go-sub').textContent =
       videoRunState !== 'idle' ? ''
         : rewriting ? 'Wait for the rewrite to finish'
@@ -589,6 +636,7 @@
   // in the video one. A run's progress goes in front of it, so a run can be watched from
   // another tab.
   function workspaceTitle() {
+    if (mediaMode === 'voice') return 'Voice - ' + (STUDIO.voice?.backend?.name || 'AuK Flash');
     const video = mediaMode === 'video';
     const family = video ? STUDIO.video : STUDIO;
     const model = family && family.backend ? family.backend.name : '';
@@ -600,18 +648,27 @@
   }
 
   function applyMediaMode(next) {
+    if (mediaMode === 'voice' && next !== 'voice') {
+      voiceStudio.stopRecording?.();
+      voiceStudio.pausePlayback?.();
+    }
     mediaMode = next;
     form.dataset.mediaMode = mediaMode;
     const video = mediaMode === 'video';
-    document.getElementById('media-image-mode').setAttribute('aria-pressed', String(!video));
+    const voice = mediaMode === 'voice';
+    document.getElementById('media-image-mode').setAttribute('aria-pressed', String(!video && !voice));
     document.getElementById('media-video-mode').setAttribute('aria-pressed', String(video));
-    document.getElementById('image-stage').hidden = video;
+    document.getElementById('media-voice-mode').setAttribute('aria-pressed', String(voice));
+    document.getElementById('image-stage').hidden = video || voice;
     videoStudio.hidden = !video;
-    document.getElementById('image-footer').hidden = video;
+    voiceStudio.hidden = !voice;
+    document.getElementById('image-footer').hidden = video || voice;
     document.getElementById('video-footer').hidden = !video;
-    document.getElementById('strip-wrap').hidden = video || (!gallery.length && !busy());
+    document.getElementById('voice-footer').hidden = !voice;
+    document.getElementById('strip-wrap').hidden = video || voice || (!gallery.length && !busy());
     document.getElementById('video-controls').hidden = !video;
-    document.getElementById('image-controls').hidden = video;
+    document.getElementById('voice-controls').hidden = !voice;
+    document.getElementById('image-controls').hidden = video || voice;
     setWorkspaceControlsDisabled();
     renderMediaActions();
     renderBackendSelector();
@@ -626,7 +683,7 @@
       applyMediaMode(next);
       return;
     }
-    if (workspaceSwitchPending || videoRunState !== 'idle') return;
+    if (workspaceSwitchPending || sharedOperation || busy() || videoRunState !== 'idle' || voiceStudio.busy) return;
     workspaceSwitchPending = true;
     setWorkspaceControlsDisabled();
     try {
@@ -640,12 +697,29 @@
         throw new Error(message || 'Model is busy.');
       }
       applyMediaMode(next);
+      if (keeping && !sharedOperation) localStorage.setItem('studio-draft-workspace', next);
     } catch (error) {
       showToast('info', error.message);
     } finally {
       workspaceSwitchPending = false;
       setWorkspaceControlsDisabled();
     }
+  }
+
+  async function sendVoiceToVideo(selection) {
+    if (sharedBusy() || busy() || videoRunState !== 'idle' || workspaceSwitchPending) {
+      throw new Error('Another operation is active.');
+    }
+    if (!STUDIO.video) throw new Error('Video studio is not available.');
+    if (videoStudio.audio) throw new Error('Remove the current Video audio track first.');
+    const epoch = videoStudio.captureInputEpoch();
+    if (!videoStudio.canCommitInput(epoch)) throw new Error('Video studio is busy.');
+    chooseVideoMode('generate');
+    if (!videoStudio.addAudioFile(new File([selection.blob], selection.name, {type: 'audio/wav'}), epoch)) {
+      throw new Error('The audio could not be added to Video.');
+    }
+    voiceStudio.pausePlayback();
+    await setMediaMode('video');
   }
 
   function dataUrlFor(entry) {
@@ -844,6 +918,7 @@
       box.dispatchEvent(new Event('input', { bubbles: true }));
     }
     syncVideoMode();
+    if (drafts) drafts.changed('video');
   }
 
   // The list the selector opens: one item per adapter, with the hint that says what it does.
@@ -940,6 +1015,13 @@
 
   document.getElementById('media-image-mode').addEventListener('click', function () { setMediaMode('image'); });
   document.getElementById('media-video-mode').addEventListener('click', function () { setMediaMode('video'); });
+  document.getElementById('media-voice-mode').addEventListener('click', function () { setMediaMode('voice'); });
+  form.addEventListener('submit', function (event) {
+    if (mediaMode !== 'voice') return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    voiceStudio.generate();
+  }, true);
   document.getElementById('share-references-video').addEventListener('click', shareReferencesWithVideo);
   document.addEventListener('video-frame-captured', function (event) {
     const reader = new FileReader();
@@ -1270,7 +1352,7 @@
   // The clip an edit changes, as the bytes the runner writes down. The tab holds it as an
   // object URL, so it is fetched rather than copied, and a stub has no bytes to fetch.
   async function selectedClipPayload() {
-    if (!videoClip.id) throw new Error('Pick a clip in the strip to change.');
+    if (!videoClip.id) throw new Error('Add a clip or use Edit this clip.');
     const clip = videoStudio.clips.find(function (one) { return one.id === videoClip.id; });
     if (!clip || !clip.url) throw new Error('That clip is not in this tab any more.');
     const blob = await (await fetch(clip.url)).blob();
@@ -1290,10 +1372,10 @@
   // for that adapter and no other.
   function editGeometry() {
     const capabilities = videoCapabilities();
-    const preview = document.getElementById('video-preview');
-    const clipWidth = preview ? preview.videoWidth : 0;
-    const clipHeight = preview ? preview.videoHeight : 0;
-    const clipSeconds = preview && Number.isFinite(preview.duration) ? preview.duration : 0;
+    const target = videoStudio.clips.find(function (clip) { return clip.id === videoStudio.editTargetId; });
+    const clipWidth = target ? target.width || target.metadata?.width || 0 : 0;
+    const clipHeight = target ? target.height || target.metadata?.height || 0 : 0;
+    const clipSeconds = target && Number.isFinite(target.duration) ? target.duration : 0;
     if (!capabilities || !clipWidth || !clipHeight) return null;
     const step = capabilities.frame_step;
     const offset = capabilities.min_frames % step;
@@ -1368,6 +1450,7 @@
         : selectedVideoShape();
       seed = selectedVideoSeed();
       settings = {
+        nativeMetadata: true,
         backend: STUDIO.video.backend.id,
         modelName: STUDIO.video.backend.name,
         prompt: prompt,
@@ -1414,6 +1497,7 @@
     videoStudio.clearError();
     status.textContent = '';
     videoRunRequestId = newVideoRequestId();
+    const submittedDraftId = drafts?.submit('video');
     setVideoRunState('starting');
     let progressTimer = null;
     let progressRequestPending = false;
@@ -1456,8 +1540,8 @@
     try {
       const response = await fetch('/video/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(videoStudio.requestPayload({
+        headers: { 'Content-Type': 'application/json', 'X-Studio-Client': CLIENT_ID, 'X-Studio-Library': LIBRARY_ID },
+        body: JSON.stringify({...videoStudio.requestPayload({
           mode: videoModeInForce().id,
           adapter: videoAdapter,
           adapterStrength: videoAdapterStrength(),
@@ -1475,8 +1559,10 @@
           backend: STUDIO.video.backend.id,
           enhance: true,
           requestId: videoRunRequestId,
-        })),
+        }), draft_id: submittedDraftId}),
       });
+      settings.operationId = response.headers.get('X-Studio-Operation') || '';
+      settings.createdAt = Number(response.headers.get('X-Studio-Completed')) * 1000 || Date.now();
       const contentType = response.headers.get('content-type') || '';
       if (!response.ok) {
         const failure = await response.json();
@@ -1488,6 +1574,7 @@
         if (actualSeed !== null && /^\d+$/.test(actualSeed)) settings.seed = Number(actualSeed);
         settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
         await videoStudio.addGeneratedClip(video, settings);
+        document.dispatchEvent(new CustomEvent('operation-imported', {detail: settings.operationId}));
         status.textContent = 'Video added to the gallery.';
       } else {
         const output = await response.json();
@@ -1499,6 +1586,7 @@
         if (!output.stub) throw new Error('The video server returned an unknown response.');
         settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
         videoStudio.addStubClip(output, settings);
+        document.dispatchEvent(new CustomEvent('operation-imported', {detail: settings.operationId}));
         status.textContent = 'Stub response added. No video file was generated.';
       }
       setVideoPrompt('');
@@ -1540,6 +1628,9 @@
       },
       notify: showToast,
       busy: busy,
+      sharedBusy: sharedBusy,
+      clientId: CLIENT_ID,
+      libraryId: LIBRARY_ID,
       syncVideoGenerate: syncVideoGenerateButton,
       region: function () { return region; },
       menus: function () { return menus; },
@@ -1634,6 +1725,10 @@
   let view = null;          // an image id, or 'progress' while a run is shown
   let arrivedId = null;     // the image to fade in once, on arrival
   let nextId = 1;
+  function takeFrameId(id) {
+    const existing = gallery.find(function (entry) { return entry.id === id; });
+    return existing?.number || nextId++;
+  }
 
   // The strip's frames, the wipe and the ways out of the gallery belong to
   // components/image-strip.js. The gallery array stays here, because a run's
@@ -1683,6 +1778,7 @@
   // stage bar's edge print and the strip all read them.
 
   function show(id) {
+    if (id !== 'progress') observedImageResult = null;
     view = id;
     renderStrip();
     renderStage();
@@ -1880,15 +1976,28 @@
   // numbers past it. The record is lib/store.js's to rebuild and this array is
   // the page's to hold, so the module builds the entry and the page files it.
   function admit(entry) {
-    if (gallery.some(function (other) { return other.id === entry.id; })) return;
+    if (kept?.wasRemoved(entry)) {
+      URL.revokeObjectURL(entry.src);
+      return null;
+    }
+    const existing = gallery.find(function (other) { return other.id === entry.id; });
+    if (existing) {
+      if (entry.nativeMetadata && !existing.nativeMetadata) {
+        URL.revokeObjectURL(existing.src);
+        Object.assign(existing, entry, {number: existing.number || entry.number});
+      } else if (existing.src !== entry.src) URL.revokeObjectURL(entry.src);
+      return existing;
+    }
+    if (!entry.number) entry.number = entry.operationId ? takeFrameId(entry.id) : entry.id;
     const later = gallery.findIndex(function (other) { return other.id < entry.id; });
     gallery.splice(later < 0 ? gallery.length : later, 0, entry);
-    nextId = Math.max(nextId, entry.id + 1);
+    nextId = Math.max(nextId, entry.number + 1);
+    return entry;
   }
 
   // With nothing on the stage, the newest image takes it.
   function showNewest() {
-    if (view === null && gallery.length) view = gallery[0].id;
+    if (view === null && gallery.length && !references.length) view = gallery[0].id;
     renderStrip();
     renderStage();
   }
@@ -1899,7 +2008,7 @@
     const hasVideoResults = videoStudio.clips.some(function (clip) {
       return clip.kind === 'generated' && !clip.stub;
     });
-    if (!on && (gallery.length || hasVideoResults)
+    if (!on && (gallery.length || hasVideoResults || voiceStudio.takesCount)
       && !confirm('Stop keeping media? Saved images and videos leave this browser. Open tabs show them until a reload.')) {
       return;
     }
@@ -1909,8 +2018,11 @@
     } catch (error) {
       showToast('error', 'The keep setting applies to this tab only: ' + error.message);
     }
+    if (drafts) drafts.keep(on);
+    if (!on) localStorage.removeItem('studio-draft-workspace');
     kept.announce(on);
     videoStudio.setKeeping(on);
+    if (voiceStudio.setKeeping) voiceStudio.setKeeping(on);
     markKeep();
     renderStrip();
     if (on) gallery.slice().reverse().forEach(kept.keep);
@@ -1928,6 +2040,8 @@
   // does to the strip. Nothing is asked of it before it arrives: the kept
   // images of a reload are its own first job, and it is asked for them here.
   let kept = null;
+  let imageGalleryReady = Promise.resolve();
+  let videoGalleryReady = Promise.resolve();
   document.addEventListener('store-ready', function (event) {
     kept = event.detail.configure({
       admit: admit,
@@ -1938,11 +2052,16 @@
       // here. An image the other tab made travels by its own path, because the
       // picture is too big for a message.
       heard: function (message) {
+        if (message.kind === 'video-add') videoStudio.setGalleryStore(kept, keeping);
+        if (message.kind === 'video-remove') videoStudio.removeClip(message.id, false);
+        if (message.kind === 'video-clear') videoStudio.clearVideoGallery(false);
         if (message.kind === 'remove') strip.drop(message.id);
-        if (message.kind === 'clear') strip.dropAll();
+        if (message.kind === 'clear') gallery.slice().filter(kept.wasRemoved).forEach(entry => strip.drop(entry.id));
         if (message.kind === 'keep') {
           keeping = message.on;
+          if (drafts) drafts.keep(keeping);
           videoStudio.setKeeping(keeping);
+          if (voiceStudio.setKeeping) voiceStudio.setKeeping(keeping);
           markKeep();
           renderStrip();
         }
@@ -1955,8 +2074,8 @@
           || Boolean(studio && studio.clips && studio.clips.some(function (clip) { return clip.keptInBrowser; }));
       },
     });
-    kept.load();
-    customElements.whenDefined('video-studio').then(function () {
+    imageGalleryReady = kept.load();
+    videoGalleryReady = customElements.whenDefined('video-studio').then(function () {
       return videoStudio.setGalleryStore(kept, keeping);
     }).then(function () {
       // Best-effort storage can be evicted. The answer goes to the gallery note, which is
@@ -1967,6 +2086,203 @@
         videoStudio.setStoragePersisted(kept.persisted());
       }
     });
+  });
+
+
+  function imageDraft() {
+    return {...run.snapshotInputs(), mode: formApi.currentMode().id, eachText: formApi.eachText(),
+      eachReference: form.querySelector('input[name=each_reference]:checked')?.value || '1'};
+  }
+
+  function videoDraft() {
+    return {mode: videoMode, prompt: document.getElementById('video-prompt').value,
+      seed: document.getElementById('video-seed').value, frames: document.getElementById('video-duration').value,
+      ratio: videoShapeInFront(), rung: videoResolutionRung, adapter: videoAdapter, adapterSeed: videoAdapterSeed,
+      look: formApi.videoLook(), assets: videoStudio.inputSnapshot()};
+  }
+
+  function restoreImageDraft(snapshot) {
+    formApi.observeMode(snapshot.mode);
+    formApi.reserveReferenceIds(snapshot.references);
+    const restoredView = snapshot.references.length ? snapshot.view : view;
+    run.restoreInputs({...snapshot, view: busy() ? 'progress' : restoredView});
+    const each = form.querySelector('input[name=each_reference][value="' + snapshot.eachReference + '"]');
+    if (each) each.checked = true;
+    formApi.setEachText(snapshot.eachText || {});
+    if (sharedOperation?.kind === 'image') formApi.observeMode(sharedOperation.mode);
+    formApi.refreshForm();
+  }
+
+  function restoreVideoDraft(snapshot) {
+    chooseVideoMode(snapshot.mode);
+    videoAdapter = snapshot.adapter;
+    videoAdapterSeed = snapshot.adapterSeed;
+    document.getElementById('video-prompt').value = snapshot.prompt;
+    document.getElementById('video-seed').value = snapshot.seed;
+    document.getElementById('video-duration').value = snapshot.frames;
+    document.querySelectorAll('.video-ratios button').forEach(button => {
+      button.setAttribute('aria-pressed', String(button.dataset.ratio === snapshot.ratio));
+    });
+    videoResolutionRung = snapshot.rung;
+    renderVideoResolutions();
+    formApi.setVideoLook(snapshot.look);
+    videoStudio.restoreInputs(snapshot.assets);
+    if (sharedOperation?.kind === 'video') chooseVideoMode(sharedOperation.mode);
+    syncVideoMode();
+    syncVideoFrameCount();
+    syncVideoSeedSummary();
+    growVideoPrompt();
+  }
+
+  document.addEventListener('drafts-ready', function (event) {
+    drafts = event.detail.configure({
+      clientId: CLIENT_ID, keeping: function () { return keeping; }, notify: showToast,
+      ready: function (workspace) { return workspace === 'image' ? imageGalleryReady : videoGalleryReady; },
+      blocked: function () { return Boolean(sharedOperation) || busy() || videoRunState !== 'idle'; },
+      backend: function (workspace) { return workspace === 'image' ? STUDIO.backend.id : STUDIO.video?.backend?.id; },
+      snapshot: function (workspace) { return workspace === 'image' ? imageDraft() : videoDraft(); },
+      restore: function (workspace, snapshot) {
+        if (workspace === 'image') restoreImageDraft(snapshot); else restoreVideoDraft(snapshot);
+      },
+      empty: function (workspace, snapshot) {
+        if (workspace === 'video') return {...snapshot, prompt: '', assets: {...snapshot.assets, imageReferences: [], audio: null}};
+        const params = {...snapshot.params};
+        (MODES[snapshot.mode]?.params || []).forEach(param => { params[param.id] = String(param.default); });
+        return {...snapshot, view: null, prompt: '', negative: '', seed: '', count: '1', params, look: {}, references: [],
+          eachReference: '1', eachText: {}, region: {strokes: null, text: {}}};
+      },
+    });
+    const savedWorkspace = keeping && localStorage.getItem('studio-draft-workspace');
+    if (!requestedWorkspace && !sharedOperation && ['image', 'video', 'voice'].includes(savedWorkspace)) applyMediaMode(savedWorkspace);
+  });
+
+  // Shared state never replaces a draft. Results enter the existing browser libraries.
+  document.addEventListener('operations-ready', function (event) {
+    event.detail.configure({
+      clientId: CLIENT_ID,
+      libraryId: LIBRARY_ID,
+      notify: showToast,
+      video: function () { return videoStudio; },
+      voice: function () { return voiceStudio; },
+      setActive: function (operation) {
+        const previous = sharedOperation;
+        sharedOperation = operation;
+        const fresh = operation && previous?.id !== operation.id;
+        if (fresh) {
+          observedImageResult = operation.kind === 'image' ? operation.id : null;
+          const workspace = operation.workspace || operation.kind;
+          if (['image', 'video', 'voice'].includes(workspace)) applyMediaMode(workspace);
+          const mode = operation.mode || operation.settings?.mode;
+          if (workspace === 'image' && mode) formApi.observeMode(mode);
+          if (workspace === 'video' && mode) chooseVideoMode(mode);
+        }
+        if (run) run.observeOperation(operation);
+        if (voiceStudio.setOperation) voiceStudio.setOperation(operation);
+        setWorkspaceControlsDisabled();
+        document.body.dataset.sharedBusy = String(sharedBusy());
+        form.inert = sharedBusy();
+        form.setAttribute('aria-disabled', String(sharedBusy()));
+        if (formApi) {
+          formApi.holdPanel('Locked while another client runs an operation.', sharedBusy());
+          formApi.holdPanel('Locked while the image is being made.', busy());
+        }
+        if (operation && operation.kind === 'video' && sharedBusy()) observedVideo = true;
+        if (observedVideo && (!operation || operation.kind !== 'video')) {
+          videoStudio.setGenerationProgress(null);
+          observedVideo = false;
+        }
+        if (previous?.id !== operation?.id || previous?.status !== operation?.status) {
+          syncRunState();
+          renderStrip();
+          renderStage();
+          if (formApi) {
+            formApi.renderRunButton();
+            formApi.renderRewriteButton();
+          }
+          syncVideoGenerateButton();
+          renderBackendSelector();
+        }
+      },
+      beforeState: function () { if (drafts) drafts.suspend(); },
+      afterState: function () { if (drafts) drafts.resume(); },
+      observeDrafts: function (operations) { if (drafts) drafts.observe(operations); },
+      syncModels: function (state) {
+        STUDIO.rewrite_modes = state.rewrite_modes || [];
+        let changed = false;
+        const voice = state.voice;
+        if (voice) {
+          if (!STUDIO.voice || STUDIO.voice.backend.id !== voice.active) changed = true;
+          STUDIO.voice = {backend: {id: voice.active, name: voice.capabilities.name, badge: voice.capabilities.badge},
+            backends: voice.backends.map(function (one) { return [one.id, one.name, one.description || '']; }),
+            capabilities: voice.capabilities};
+          document.getElementById('media-voice-mode').hidden = false;
+          if (voiceStudio.configure) voiceStudio.configure({capabilities: voice.capabilities, clientId: CLIENT_ID,
+            libraryId: LIBRARY_ID, keeping: function () { return keeping; }, notify: showToast,
+            onSendToVideo: sendVoiceToVideo,
+            onBusyChange: function () { setWorkspaceControlsDisabled(); renderBackendSelector(); }});
+        }
+        const image = state.image;
+        if (image && image.active !== STUDIO.backend.id) {
+          changed = true;
+          const capabilities = image.capabilities;
+          if (drafts) drafts.pause('image');
+          STUDIO.backend = {id: image.active, name: capabilities.name,
+            badge: capabilities.badge, max_batch: capabilities.max_batch};
+          STUDIO.modes = capabilities.modes;
+          STUDIO.backends = image.backends.map(function (one) { return [one.id, one.name, one.description]; });
+          Object.keys(MODES).forEach(function (key) { delete MODES[key]; });
+          capabilities.modes.forEach(function (mode) { MODES[mode.id] = mode; });
+          form.querySelector('[name="backend"]').value = image.active;
+          if (formApi) formApi.updateCapabilities(capabilities);
+          if (run) run.updateBackend(STUDIO.backend);
+          if (drafts) drafts.restore('image');
+        }
+        const video = state.video;
+        if (video && video.active !== STUDIO.video?.backend?.id) {
+          changed = true;
+          if (drafts) drafts.pause('video');
+          STUDIO.video = {backend: {id: video.active, name: video.capabilities.name, badge: video.capabilities.badge},
+            backends: video.backends.map(function (one) { return [one.id, one.name, one.description]; }),
+            capabilities: video.capabilities};
+          syncVideoMode();
+          if (drafts) drafts.restore('video');
+        }
+        if (changed) renderBackendSelector();
+      },
+      addImages: async function (operation, images, offset = 0) {
+        for (let index = 0; index < images.length; index += 1) {
+          const image = images[index];
+          const id = Math.floor(operation.started_at * 1000) * 16 + index + offset;
+          if (kept?.wasRemoved({id: id, at: (image.completed_at || operation.finished_at) * 1000})) continue;
+          if (gallery.some(function (entry) { return entry.id === id || (entry.operationId === operation.id && entry.position === image.position); })) continue;
+          const response = await fetch('data:image/png;base64,' + image.png_base64);
+          const blob = await response.blob();
+          const entry = Object.assign({}, image, {id: id, number: takeFrameId(id), operationId: operation.id,
+            src: URL.createObjectURL(blob), b64: image.png_base64, at: (image.completed_at || operation.finished_at) * 1000,
+            backend: operation.model, backendId: operation.backend, precision: operation.settings.precision || '',
+            typed: image.prompt, look: null, negative: operation.settings.negative || '', sources: [], before: null});
+          const admitted = admit(entry);
+          if (!admitted) continue;
+          if (view === null || (!sharedOperation && observedImageResult
+              && (operation.id === observedImageResult || operation.id.startsWith(observedImageResult + ':')))) view = id;
+          if (kept) await kept.keep(admitted);
+        }
+        renderStrip();
+        renderStage();
+      },
+      showRewrite: function (operation, result) {
+        if (result.cancelled || !result.prompt) return;
+        document.getElementById('shared-rewrite-text').value = result.prompt;
+        document.getElementById('shared-rewrite-result').hidden = false;
+        sharedRewriteWorkspace = operation.workspace;
+      },
+    });
+  });
+  document.getElementById('shared-rewrite-use').addEventListener('click', function () {
+    const text = document.getElementById('shared-rewrite-text').value;
+    if (sharedRewriteWorkspace === 'video') setVideoPrompt(text);
+    else { promptInput.value = text; promptInput.dispatchEvent(new Event('input', {bubbles: true})); }
+    document.getElementById('shared-rewrite-result').hidden = true;
   });
 
   // ---- Toasts -----------------------------------------------------------------
@@ -2049,7 +2365,8 @@
       keeping: function () { return keeping; },
       setRunRatio: function (ratio) { runRatio = ratio; },
       setArrived: function (id) { arrivedId = id; },
-      takeFrameId: function () { return nextId++; },
+      takeFrameId: takeFrameId,
+      admit: admit,
       // The model's name in the form the edge prints it. A frame records this at
       // the moment it arrives, so a frame made before a switch keeps the name of
       // the model that made it. The stage's handle carries a field of the same
@@ -2095,6 +2412,10 @@
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.target.closest('input, textarea, select, [contenteditable]')) return;
     if (document.querySelector('.menu:not([hidden])')) return;
+    if (mediaMode === 'voice') {
+      if (event.key === ' ') { event.preventDefault(); voiceStudio.querySelector('audio-preview')?.play(); }
+      return;
+    }
     if (event.key === 'f' && document.fullscreenEnabled && (gallery.length || busy())) {
       event.preventDefault();
       stage.toggleFullscreen();
@@ -2117,6 +2438,7 @@
   document.addEventListener('keydown', function (event) {
     if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return;
     event.preventDefault();
+    if (mediaMode === 'voice') { voiceStudio.generate(); return; }
     if (!go.disabled && !busy()) form.requestSubmit(go);
   });
 
@@ -2124,6 +2446,7 @@
   // backend, but the model itself waits until the next run to load its weights.
   function activeModelFamily() {
     if (mediaMode === 'video') return STUDIO.video;
+    if (mediaMode === 'voice') return STUDIO.voice;
     return { backend: STUDIO.backend, backends: STUDIO.backends };
   }
 
@@ -2139,7 +2462,7 @@
     const backend = family.backend;
     const backends = family.backends || [];
     toggle.querySelector('.name').textContent = backend.name;
-    toggle.disabled = backends.length < 2 || !menus || busy() || videoRunState !== 'idle';
+    toggle.disabled = sharedBusy() || backends.length < 2 || !menus || busy() || voiceStudio.locked || videoRunState !== 'idle';
     toggle.title = backends.length > 1 ? 'Switch the model' : backend.name;
     menu.replaceChildren();
     if (backends.length < 2 || !menus) return;
@@ -2177,11 +2500,11 @@
   }
 
   function switchBackend(id, name, workspace) {
-    const family = workspace === 'video' ? STUDIO.video : { backend: STUDIO.backend };
+    const family = workspace === 'voice' ? STUDIO.voice : workspace === 'video' ? STUDIO.video : { backend: STUDIO.backend };
     if (id === family.backend.id) return;
-    const endpoint = workspace === 'video' ? '/video/backend' : '/backend';
+    const endpoint = workspace === 'voice' ? '/voice/backend' : workspace === 'video' ? '/video/backend' : '/backend';
     const toggle = document.getElementById('backend-toggle');
-    if (busy() || videoRunState !== 'idle') return showToast('info', 'Wait for the run to finish, then switch.');
+    if (sharedBusy() || busy() || voiceStudio.locked || videoRunState !== 'idle') return showToast('info', 'Wait for the run to finish, then switch.');
     toggle.disabled = true;
     showToast('info', 'Selecting ' + name + '. It will load when you generate.');
     fetch(endpoint, { method: 'POST', body: new URLSearchParams({ backend: id }) })
@@ -2220,7 +2543,7 @@
     apiHead.className = 'menu-head';
     apiHead.textContent = 'API';
     const spec = menus.menuItem('', 'OpenAPI spec', function () {
-      window.open('/api/v1/openapi.json', '_blank', 'noreferrer');
+      window.open('/api/docs', '_blank', 'noreferrer');
     });
     spec.id = 'api-spec';
     menu.append(apiHead, spec);

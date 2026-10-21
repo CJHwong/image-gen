@@ -12,6 +12,8 @@
 // the form is drawn before the first click. This module is declared first of the
 // modules for the same reason, and every later door is handed on to it.
 
+import './focus-editor.js';
+
 const page = {};
 
 function editing() {
@@ -54,7 +56,7 @@ function fillSelect(select, id) {
 // that to a value that fits, such as 10 for a guidance of 1 to 10. A
 // choice param takes the mode's default on every switch, because a mode
 // switch starts over: an edit keeps the image's shape, a generate is square.
-function applyParams() {
+function applyParams(preserveValues = false) {
   const form = page.el.form;
   form.querySelectorAll('[data-param]').forEach(function (node) {
     node.hidden = !paramSpec(node.dataset.param);
@@ -69,9 +71,10 @@ function applyParams() {
     const value = Number(input.value);
     const fits = input.value !== '' && (param.minimum === null || value >= param.minimum)
       && (param.maximum === null || value <= param.maximum);
-    if (!fits || !input.dataset.applied) input.value = param.default;
+    if (!preserveValues && (!fits || !input.dataset.applied)) input.value = param.default;
     input.dataset.applied = '1';
   });
+  if (preserveValues) return;
   currentMode().params.filter(function (param) { return param.kind === 'choice'; }).forEach(function (param) {
     const select = document.getElementById(param.id);
     if (select) select.value = param.default;
@@ -615,6 +618,11 @@ function blocker() {
 
 function renderRunButton() {
   if (page.busy()) return;
+  if (page.sharedBusy()) {
+    page.el.go.disabled = true;
+    page.el.goSub.textContent = 'Another operation is active';
+    return;
+  }
   const reason = blocker();
   page.el.go.disabled = Boolean(reason);
   page.el.goSub.textContent = reason || estimate();
@@ -686,6 +694,7 @@ function refreshForm() {
   renderRunButton();
   renderRewriteButton();
   renderEachChoice();
+  document.dispatchEvent(new CustomEvent('draft-change', {detail: 'image'}));
 }
 
 // Every field the drawn components read is mirrored into the store here, in
@@ -863,6 +872,7 @@ function pickVideoLook(row, label) {
   const had = (videoLook[row.name] || []).includes(label);
   videoLook[row.name] = had ? [] : [label];
   page.store().set('video-looks', Object.assign({}, videoLook));
+  document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'}));
 }
 
 // A pick replaces the row's pick, so a second click on the chip in force
@@ -899,7 +909,7 @@ function withLook(prompt) {
   return (/[.!?。！？]$/.test(prompt) ? prompt : prompt + '.') + ' ' + added;
 }
 
-function applyMode() {
+function applyMode(preserveParams = false) {
   const form = page.el.form;
   form.classList.toggle('mode-edit', editing());
   form.classList.toggle('mode-generate', !editing());
@@ -909,7 +919,7 @@ function applyMode() {
   // The choice is drawn only where the mode declares it, and the caption says which way it is
   // set, so a mode that composes and nothing else never shows the control or its note.
   renderEachChoice();
-  applyParams();
+  applyParams(preserveParams);
   // The verb on the run button follows the mode. The store carries the mode to
   // the button's labels; `refreshForm`, a few lines below in every switch,
   // mirrors it.
@@ -1055,7 +1065,7 @@ function renderRewriteButton() {
   // same job, so they are drawn from the same state here rather than twice.
   const items = rewriteItems();
   const stage = rewriteStages[rewriteStage];
-  const busy = runInFlight();
+  const busy = runInFlight() || page.sharedBusy();
   ['rewrite-toggle', 'video-rewrite-toggle'].forEach(function (id) {
     const button = document.getElementById(id);
     if (!button) return;
@@ -1212,7 +1222,8 @@ async function askRewriter(prompt, pictures) {
   body.set('workspace', inVideo ? 'video' : 'image');
   body.set('prompt', prompt);
   body.set('references', JSON.stringify(inVideo ? [] : images));
-  const answer = await fetch('/rewrite', { method: 'POST', body: body });
+  const answer = await fetch('/rewrite', { method: 'POST',
+    headers: {'X-Studio-Client': page.clientId, 'X-Studio-Library': page.libraryId}, body: body });
   const text = await answer.text();
   let result;
   try {
@@ -1346,6 +1357,32 @@ function releaseHold() {
 }
 
 const handle = {
+  updateCapabilities: function (capabilities) {
+    page.maxBatch = capabilities.max_batch;
+    page.studio.modes = capabilities.modes;
+    if (!page.modes[editing() ? 'edit' : 'generate']) document.getElementById('mode-generate').checked = true;
+    page.el.form.querySelectorAll('[name="size"], [name="resolution"]').forEach(function (select) {
+      select.replaceChildren();
+      fillSelect(select, select.name);
+    });
+    setupModes();
+    readSizes();
+    applyMode();
+    look = picksHere(look) || {};
+    pushForm();
+    pushLook();
+    refreshForm();
+  },
+  observeMode: function (mode) {
+    const radio = page.el.form.querySelector('input[name=mode][value="' + mode + '"]');
+    if (!radio || radio.checked || !page.modes[mode]) return;
+    radio.checked = true;
+    applyMode(true);
+    renderStrength();
+    pushForm();
+    renderRunButton();
+    renderRewriteButton();
+  },
   holdPanel: holdPanel,
   editing: editing,
   currentMode: currentMode,
@@ -1357,6 +1394,18 @@ const handle = {
   addReference: addReference,
   probeSize: probeSize,
   renderReferences: renderReferences,
+  reserveReferenceIds: function (references) {
+    references.forEach(reference => { nextReferenceId = Math.max(nextReferenceId, Number(reference.id.split('-').at(-1)) + 1 || 1); });
+  },
+  eachText: function () { return structuredClone(eachText); },
+  setEachText: function (words) {
+    eachText = structuredClone(words);
+    const rows = document.getElementById('each-rows');
+    delete rows.dataset.wanted;
+    renderEachRows();
+  },
+  videoLook: function () { return structuredClone(videoLook); },
+  setVideoLook: function (picks) { videoLook = picks; page.store().set('video-looks', structuredClone(picks)); },
   look: function () { return look; },
   setLook: function (picks) { look = picks; pushLook(); },
   lookRows: lookRows,
@@ -1483,7 +1532,7 @@ function wire() {
     addFiles(event.dataTransfer.files);
   });
   document.addEventListener('paste', function (event) {
-    if (document.getElementById('form').dataset.mediaMode === 'video') return;
+    if (document.getElementById('form').dataset.mediaMode !== 'image') return;
     const files = event.clipboardData ? event.clipboardData.files : [];
     const images = Array.from(files || []).filter(function (file) {
       return file.type.startsWith('image/');
@@ -1513,6 +1562,7 @@ function wire() {
   el.form.addEventListener('input', refreshForm);
   el.form.addEventListener('change', refreshForm);
   el.promptInput.addEventListener('input', growPrompt);
+  el.promptInput.addEventListener('editor-collapse', growPrompt);
 
   el.form.querySelectorAll('input[name=mode]').forEach(function (radio) {
     radio.addEventListener('change', function () {

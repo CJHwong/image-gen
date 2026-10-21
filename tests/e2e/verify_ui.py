@@ -1626,9 +1626,7 @@ with sync_playwright() as playwright:
 
     # The badge on an edit names the frame it was made from, and that name is a way
     # back to it. The way back is read from what the stage says once it arrives,
-    # not from a file name: one download carries the model, the mode, the seed and
-    # the moment it was made, and only Download all puts the frame number in front
-    # of a name.
+    # not from a file name, which describes the prompt and creation time.
     source_link = page.get_by_role("button", name=re.compile("^Show frame "))
     wanted = source_link.get_attribute("aria-label").replace("Show frame ", "")
     check("an edit names the frame it was made from", source_link.count() == 1, wanted)
@@ -1726,8 +1724,9 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="Download all").click()
     page.wait_for_timeout(5000)
     check(
-        "Download all saves each image by frame number and one file of the prompts",
-        "studio-prompts.json" in downloads and len(downloads) >= frames(page),
+        "Download all saves each image and one file of the prompts",
+        any(re.fullmatch(r"image-metadata-\d{8}-\d{9}\.json", name) for name in downloads)
+        and len(downloads) >= frames(page),
         str(downloads),
     )
     # The prompts file is built by the browser as the images leave. A browser that
@@ -1893,6 +1892,7 @@ with sync_playwright() as playwright:
         page.locator("#toasts").inner_text().replace("\n", " ")[:100],
     )
     page.evaluate("() => { IDBObjectStore.prototype.get = window.__realGet; }")
+    kept_after_recovery = frames(page)
 
     # Picking the model the page is already on is not a switch: it must not reload
     # the page or empty the strip.
@@ -1902,12 +1902,14 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(1000)
     check(
         "picking the model the page is already on leaves the strip alone",
-        page.get_by_role("button", name=FIRST).is_visible() and frames(page) == kept + 1,
+        page.get_by_role("button", name=FIRST).is_visible() and frames(page) == kept_after_recovery,
         f"{frames(page)} images after picking the current model",
     )
 
     # A frame that arrived over the channel carries no base64, so it becomes a
     # reference by reading its blob. That is the path a reloaded page takes too.
+    page.reload()
+    frame_nodes(page).first.wait_for(state="visible", timeout=30000)
     frame_nodes(page).first.click()
     page.wait_for_timeout(250)
     page.get_by_role("button", name="More actions").click()
@@ -1960,7 +1962,7 @@ with sync_playwright() as playwright:
         "a switch that cannot reach the server says so and leaves the page as it was",
         "The switch failed" in page.locator("#toasts").inner_text()
         and page.get_by_role("button", name=FIRST).is_visible()
-        and frames(page) == kept + 1,
+        and frames(page) == kept_after_recovery,
         page.locator("#toasts").inner_text().strip()[:90],
     )
     page.unroute("**/backend")
@@ -1973,7 +1975,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(2000)
     check(
         "a switch the server refuses says why and leaves the page as it was",
-        "The model did not load." in page.locator("#toasts").inner_text() and frames(page) == kept + 1,
+        "The model did not load." in page.locator("#toasts").inner_text() and frames(page) == kept_after_recovery,
         page.locator("#toasts").inner_text().strip()[:90],
     )
     page.unroute("**/backend")
@@ -2145,21 +2147,17 @@ with sync_playwright() as playwright:
         frames(tab) == held + 1 and edge_model(tab) == edge_of(SECOND),
         f"{frames(tab)} images, edge {edge_model(tab)!r}",
     )
-    # And its file: a name carries the model that made the frame, so one batch of
-    # downloads names both models, where the older frame keeps its own while the page
-    # is on the newer one. Download all is a real button; the print's own Download is
-    # an anchor, which has no button role, and its name carries no frame number.
+    # Both models use the same descriptive filename format.
     downloads = []
     tab.on("download", lambda download: downloads.append(download.suggested_filename))
     tab.get_by_role("button", name="Download all").click()
     tab.wait_for_timeout(5000)
+    image_names = [name for name in downloads if name.endswith(".png") and not name.endswith("-before.png")]
     check(
-        "each frame downloads under the name of the model that made it",
-        any("-qwen21-generate-" in name for name in downloads)
-        and any("-viggle_turbo-generate-" in name for name in downloads)
-        # The moment it was made goes last, so two frames off one seed and one model do
-        # not land on one file name.
-        and any(re.search(r"-qwen21-generate-\d+-\d{8}-\d{6}\.png$", name) for name in downloads),
+        "each frame downloads with a descriptive unique filename",
+        len(image_names) == frames(tab)
+        and len(set(image_names)) == len(image_names)
+        and all(re.fullmatch(r"image-.+-\d{8}-\d{9}-[a-z0-9]+\.png", name) for name in image_names),
         str(downloads),
     )
     # The region tool is offered here too, on this model's own measurement. Its brush
@@ -2198,7 +2196,7 @@ with sync_playwright() as playwright:
                const request = read.getAll();
                request.onsuccess = function () { resolve(request.result); };
              });
-             const old = Object.assign({}, all[0], { id: all[0].id + 9000 });
+             const old = Object.assign({}, all[0], { id: Math.max(...all.map(record => record.id)) + 9000 });
              delete old.backend;
              db.transaction('images', 'readwrite').objectStore('images').add(old);
            }"""
@@ -2316,7 +2314,7 @@ with sync_playwright() as playwright:
         alerts.first.inner_text()[:90],
     )
     run_once(broken, "a pear", steps=1)
-    alerts = broken.get_by_role("alert")
+    alerts = broken.get_by_role("alert").filter(has_text="did not keep image 01")
     alerts.first.wait_for(state="visible", timeout=60000)
     check(
         "an image the browser cannot keep is reported with what to do about it",
@@ -2327,7 +2325,7 @@ with sync_playwright() as playwright:
 
     context, broken = broken_store_page(browser, STORE_WILL_NOT_WRITE)
     run_once(broken, "a pear", steps=1)
-    alerts = broken.get_by_role("alert")
+    alerts = broken.get_by_role("alert").filter(has_text="did not keep image 01")
     alerts.first.wait_for(state="visible", timeout=60000)
     check(
         "a write the store aborts is reported the same way",

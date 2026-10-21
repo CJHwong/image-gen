@@ -94,3 +94,10 @@ def test_the_video_model_list_is_separate_from_the_image_model_list():
         ("first-video", "First video", "A fake video model."),
         ("second-video", "Second video", "A fake video model."),
     )
+
+
+def test_describe_one_backend_without_switching_the_active_model():
+    selected = catalog()
+    use_case = DescribeStudioUseCase(selected, Rewriter(()))
+    assert use_case.capabilities("second").backend_id == "second"
+    assert selected.active_id() == "first"

@@ -249,3 +249,32 @@ def test_the_marker_for_a_mask_comes_off_the_form():
     without it is a form whose last reference is a picture."""
     assert run_request({"prompt": "p"}).mask is False
     assert run_request({"prompt": "p", "mask": "1"}).mask is True
+
+
+def test_capabilities_reads_the_named_backend(uses):
+    controller = FormController(**uses)
+    assert controller.capabilities("second") == uses["describe"].capabilities.return_value
+    uses["describe"].capabilities.assert_called_once_with("second")
+
+
+def test_targeted_cancel_watch_forwards_identity_and_callbacks():
+    from types import SimpleNamespace
+
+    calls = []
+    controller = object.__new__(FormController)
+    from typing import Any, cast
+
+    controller._cancel = cast(Any, SimpleNamespace(watch=lambda *arguments: calls.append(arguments)))
+    active, guard = lambda: True, lambda release: release()
+    controller.watch_cancel("operation", active, guard)
+    assert calls == [(active, guard, "operation")]
+
+
+def test_a_native_batch_parses_all_forms_before_the_use_case(controller, uses):
+    forms = [{"prompt": "cat", "seed": "7"}, {"prompt": "dog", "seed": "8"}]
+    completed, started, cancelled = (Mock() for _ in range(3))
+    uses["run"].execute_batch.return_value = ["results"]
+    assert controller.run_batch(forms, completed, started, cancelled) == ["results"]
+    requests, *callbacks = uses["run"].execute_batch.call_args.args
+    assert [item.prompt for item in requests] == ["cat", "dog"]
+    assert callbacks == [completed, started, cancelled]

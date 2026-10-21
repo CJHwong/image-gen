@@ -118,8 +118,12 @@ with sync_playwright() as playwright:
     page.click("#backend-toggle")
     # Exact: "Qwen-Image-2.1" is a prefix of Turbo's name, and a substring match would
     # land on Turbo's row and then wait for a switch that never comes.
-    page.get_by_role("menuitemradio", name="Qwen-Image-2.1", exact=True).click()
+    with page.expect_navigation(wait_until="domcontentloaded"):
+        page.get_by_role("menuitemradio", name="Qwen-Image-2.1", exact=True).click()
     page.wait_for_function("STUDIO.backend.id === 'qwen21'", timeout=600000)
+    page.wait_for_function(
+        "count => document.querySelectorAll('#strip .frame:not(.pending)').length === count", arg=held
+    )
     check("the switch reloads on qwen21", page.inner_text("h1") == "Qwen-Image-2.1")
     check("qwen21 brings back Look and templates", page.is_visible("#look") and page.is_visible("#templates-toggle"))
     # Keeping is on by default, so the reload the switch makes leaves the strip as it

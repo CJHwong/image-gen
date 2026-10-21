@@ -102,12 +102,12 @@ with sync_playwright() as playwright:
     check(
         "Download all saves each image and the prompts",
         len(images) == 2
-        and all(re.fullmatch(r"\d{2}-[a-z0-9_]+-generate-\d+\.png", name) for name in images)
+        and all(re.fullmatch(r"image-.+-\d{8}-\d{9}-[a-z0-9]+\.png", name) for name in images)
         and all((folder / name).read_bytes()[:4] == b"\x89PNG" for name in images)
-        and names[-1] == "studio-prompts.json",
+        and re.fullmatch(r"image-metadata-\d{8}-\d{9}\.json", names[-1]),
         str(names),
     )
-    facts = json.loads((folder / "studio-prompts.json").read_text()) if "studio-prompts.json" in names else []
+    facts = json.loads((folder / names[-1]).read_text()) if names and names[-1].endswith(".json") else []
     check(
         "the prompts come oldest first, each with its file",
         [fact["prompt"] for fact in facts] == ["A red apple on a wooden table.", "A green pear on a plate."]

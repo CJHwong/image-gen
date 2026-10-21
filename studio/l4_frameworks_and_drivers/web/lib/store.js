@@ -21,7 +21,7 @@
 
 // The fields a stored record carries besides its two pictures. A record is read
 // back into a gallery entry, so the list is the shape both ends agree on.
-const KEPT_FIELDS = ['id', 'seed', 'width', 'height', 'steps', 'elapsed', 'position', 'mode', 'prompt',
+const KEPT_FIELDS = ['id', 'number', 'operationId', 'nativeMetadata', 'seed', 'width', 'height', 'steps', 'elapsed', 'position', 'mode', 'prompt',
   'typed', 'look', 'negative', 'sources', 'backend', 'backendId', 'precision', 'at'];
 
 const channel = new BroadcastChannel('studio-gallery');
@@ -33,6 +33,64 @@ let page = null;
 // reachable at that first moment.
 let database = null;
 let videoDatabase = null;
+function mediaRemovals(kind) {
+  const removedIds = new Set();
+  let clearedAt = 0;
+  function remember(id) {
+    removedIds.add(id);
+    if (removedIds.size > 2048) removedIds.delete(removedIds.values().next().value);
+  }
+  function wasRemoved(entry) {
+    try {
+      JSON.parse(localStorage.getItem('studio-removed-' + kind) || '[]').forEach(remember);
+      clearedAt = Math.max(clearedAt, Number(localStorage.getItem('studio-' + kind + '-cleared-at')) || 0);
+    } catch (error) {
+      console.warn('Media removals were not read:', error);
+    }
+    const completedAt = entry.at || entry.createdAt;
+    return removedIds.has(String(entry.id)) || Boolean(clearedAt && (!completedAt || completedAt <= clearedAt));
+  }
+  function markRemoved(message) {
+    wasRemoved({});
+    if (message.kind.endsWith('remove')) remember(String(message.id));
+    if (message.kind.endsWith('clear')) {
+      (message.ids || []).forEach(id => remember(String(id)));
+      message.clearedAt = message.clearedAt || Date.now();
+      clearedAt = Math.max(clearedAt, message.clearedAt);
+    }
+    try {
+      localStorage.setItem('studio-removed-' + kind, JSON.stringify(Array.from(removedIds)));
+      localStorage.setItem('studio-' + kind + '-cleared-at', String(clearedAt));
+    } catch (error) {
+      console.warn('Media removals were not saved:', error);
+    }
+  }
+  return {wasRemoved, markRemoved};
+}
+const {wasRemoved, markRemoved} = mediaRemovals('images');
+const {wasRemoved: videoWasRemoved, markRemoved: markVideoRemoved} = mediaRemovals('videos');
+
+function keepPreferred(media, record, removed) {
+  if (!page.keeping() || removed(record)) return;
+  const request = media.get(record.id);
+  request.onsuccess = function () {
+    if (!page.keeping() || removed(record)) return;
+    if (!request.result) media.add(record);
+    else if (record.nativeMetadata && !request.result.nativeMetadata) media.put(record);
+  };
+  return request;
+}
+
+function clearRemoved(media, removed) {
+  const request = media.openCursor();
+  request.onsuccess = function () {
+    const cursor = request.result;
+    if (!cursor) return;
+    if (removed(cursor.value)) cursor.delete();
+    cursor.continue();
+  };
+  return request;
+}
 
 function openStore() {
   if (!database) {
@@ -99,11 +157,15 @@ function liveEntry(record) {
 }
 
 function keep(entry) {
-  if (!page.keeping()) return;
-  Promise.all([blobOf(entry.src), entry.before ? blobOf(entry.before) : null]).then(function ([png, before]) {
+  if (!page.keeping() || wasRemoved(entry)) return Promise.resolve();
+  return Promise.all([blobOf(entry.src), entry.before ? blobOf(entry.before) : null]).then(function ([png, before]) {
     const record = { png: png, before: before };
     KEPT_FIELDS.forEach(function (field) { record[field] = entry[field]; });
-    return inStore('readwrite', function (images) { return images.add(record); });
+    return inStore('readwrite', function (images) {
+      if (!page.keeping() || wasRemoved(entry)) return;
+      if (!entry.operationId) return images.add(record);
+      return keepPreferred(images, record, wasRemoved);
+    });
   }).then(function () {
     channel.postMessage({ kind: 'add', id: entry.id });
   }).catch(function (error) {
@@ -113,17 +175,19 @@ function keep(entry) {
 }
 
 function keepVideo(clip, mp4, thumbnail) {
-  if (!page.keeping()) return Promise.resolve(false);
+  if (!page.keeping() || videoWasRemoved(clip)) return Promise.resolve(false);
   const record = {
     id: clip.id,
     name: clip.name,
     duration: clip.duration,
     metadata: clip.metadata,
     createdAt: clip.createdAt,
+    nativeMetadata: clip.nativeMetadata,
     mp4: mp4,
     thumbnail: thumbnail || null,
   };
-  return inVideoStore('readwrite', function (clips) { return clips.put(record); }).then(function () {
+  return inVideoStore('readwrite', function (clips) { return keepPreferred(clips, record, videoWasRemoved); }).then(function () {
+    channel.postMessage({kind: 'video-add', id: clip.id});
     return true;
   }).catch(function (error) {
     page.notify('error', 'The browser did not keep video ' + clip.name + ': ' + error.message
@@ -153,7 +217,7 @@ function keepVideoThumbnail(id, thumbnail) {
 function loadVideos() {
   if (!page.keeping()) return Promise.resolve([]);
   return inVideoStore('readonly', function (clips) { return clips.getAll(); }).then(function (records) {
-    return records.sort(function (first, second) { return first.createdAt - second.createdAt; });
+    return records.filter(record => !videoWasRemoved(record)).sort(function (first, second) { return first.createdAt - second.createdAt; });
   }).catch(function (error) {
     page.notify('error', 'The saved videos did not load: ' + error.message);
     return [];
@@ -161,7 +225,10 @@ function loadVideos() {
 }
 
 function removeVideo(id) {
-  if (!page.keeping()) return Promise.resolve(false);
+  const message = {kind: 'video-remove', id: id};
+  markVideoRemoved(message);
+  channel.postMessage(message);
+  if (!page.keeping()) return Promise.resolve(true);
   return inVideoStore('readwrite', function (clips) { return clips.delete(id); }).then(function () {
     return true;
   }).catch(function (error) {
@@ -170,8 +237,12 @@ function removeVideo(id) {
   });
 }
 
-function clearVideos() {
-  return inVideoStore('readwrite', function (clips) { return clips.clear(); }).then(function () {
+function clearVideos(ids = []) {
+  const message = {kind: 'video-clear', ids: ids};
+  markVideoRemoved(message);
+  channel.postMessage(message);
+  if (!page.keeping()) return Promise.resolve(true);
+  return inVideoStore('readwrite', function (clips) { return clearRemoved(clips, videoWasRemoved); }).then(function () {
     return true;
   }).catch(function (error) {
     page.notify('error', 'The saved videos were not removed: ' + error.message);
@@ -183,8 +254,9 @@ function clearVideos() {
 // because what goes is the caller's to name. With keeping off there is nothing
 // stored, and each tab's strip is its own.
 function forget(work, message) {
+  markRemoved(message);
   if (!page.keeping()) return;
-  inStore('readwrite', work).then(function () {
+  inStore('readwrite', message.kind === 'clear' ? images => clearRemoved(images, wasRemoved) : work).then(function () {
     channel.postMessage(message);
   }).catch(function (error) {
     page.notify('error', 'The browser did not remove the image: ' + error.message);
@@ -193,8 +265,8 @@ function forget(work, message) {
 
 function load() {
   if (!page.keeping()) return;
-  inStore('readonly', function (images) { return images.getAll(); }).then(function (records) {
-    for (const record of records) page.admit(liveEntry(record));
+  return inStore('readonly', function (images) { return images.getAll(); }).then(function (records) {
+    for (const record of records) if (!wasRemoved(record)) page.admit(liveEntry(record));
     page.showNewest();
   }).catch(function (error) {
     page.notify('error', 'The kept images did not load: ' + error.message);
@@ -220,10 +292,12 @@ function announce(on) {
 // what another tab did to the strip, and they are the page's to carry out.
 channel.addEventListener('message', function (event) {
   const message = event.data;
+  if (message.kind === 'remove' || message.kind === 'clear') markRemoved(message);
+  if (message.kind === 'video-remove' || message.kind === 'video-clear') markVideoRemoved(message);
   if (message.kind !== 'add') return page.heard(message);
   if (!page.keeping()) return;
   inStore('readonly', function (images) { return images.get(message.id); }).then(function (record) {
-    if (!record) return;
+    if (!record || wasRemoved(record)) return;
     page.admit(liveEntry(record));
     page.showNewest();
   }).catch(function (error) {
@@ -264,6 +338,8 @@ const handle = {
   fields: function () { return KEPT_FIELDS; },
   persisted: function () { return durable; },
   askForDurableStorage: askForDurableStorage,
+  wasRemoved: wasRemoved,
+  videoWasRemoved: videoWasRemoved,
 };
 
 document.dispatchEvent(new CustomEvent('store-ready', {

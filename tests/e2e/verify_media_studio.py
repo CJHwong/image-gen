@@ -235,7 +235,7 @@ with sync_playwright() as playwright:
     page.keyboard.press("Escape")
     check(
         "the video picker opens on the 2.5 q8 pack and offers the 2.3 one",
-        video_default == "LTX-2.5 q8" and video_models == ["LTX-2.5 q8", "LTX-2.3 q8"],
+        video_default == "LTX-2.5" and video_models == ["LTX-2.5", "LTX-2.3"],
         str({"default": video_default, "models": video_models}),
     )
     narrow_video_head = page.evaluate(
@@ -383,7 +383,7 @@ with sync_playwright() as playwright:
     )
     check(
         "Video mode shows its own selected model and offers the other video models",
-        page.locator("#backend-toggle .name").inner_text() == "LTX-2.5 q8"
+        page.locator("#backend-toggle .name").inner_text() == "LTX-2.5"
         and page.locator("#backend-toggle").is_enabled(),
         page.locator("#backend-toggle").inner_text().replace("\n", " "),
     )
@@ -1602,7 +1602,7 @@ with sync_playwright() as playwright:
         run_meta is not None
         and run_meta["mode"] == "generate"
         and run_meta["precision"] == "int8"
-        and run_meta["model"] == "LTX-2.5 q8"
+        and run_meta["model"] == "LTX-2.5"
         and run_meta["effect"] == "",
         json.dumps(run_meta),
     )
@@ -1765,7 +1765,7 @@ with sync_playwright() as playwright:
           document.getElementById('video-studio').addGeneratedClip(
             new Blob([new Uint8Array(videoBytes)], {type: 'video/webm'}),
             {
-              backend: 'ltx25_mlx', modelName: 'LTX-2.5 q8',
+              backend: 'ltx25_mlx', modelName: 'LTX-2.5',
               prompt: 'An amber kite crosses a blue sky',
               width: 96, height: 64, numFrames: 12, frameRate: 12,
               duration: 1, seed: 7, elapsedSeconds: 83.2,
@@ -1881,7 +1881,7 @@ with sync_playwright() as playwright:
           const studio = document.getElementById('video-studio');
           studio.setGenerationProgress(
             {running: true, stage: 'running', step: 3, total: 11, phase: 1, stopping: false}, 12.5,
-            {width: 384, height: 384, modelName: 'LTX-2.5 q8'});
+            {width: 384, height: 384, modelName: 'LTX-2.5'});
           return {
             monitor: Boolean(document.querySelector('.video-render-placeholder')),
             tile: document.querySelector('#video-gallery .video-gallery-pending')?.getAttribute('aria-pressed'),
@@ -1995,7 +1995,7 @@ with sync_playwright() as playwright:
         and "LTX-2.5" not in (video_presentation.get("facts") or "")
         and video_presentation.get("isMonitorFrame")
         and video_presentation.get("detailsInStage")
-        and video_presentation.get("model") == "LTX-2.5 q8"
+        and video_presentation.get("model") == "LTX-2.5"
         and video_presentation.get("serial") == "02"
         and video_presentation.get("referenceDetailCount") == 0
         and video_presentation.get("directFrameAction") is False
@@ -2004,21 +2004,20 @@ with sync_playwright() as playwright:
             "Add reference",
             "More actions",
             "Download video",
-            "Remove video LTX-2.5 q8 1s",
+            "Remove video LTX-2.5 1s",
             "Full screen",
         ]
         and video_presentation.get("hasActionDivider")
         and video_presentation.get("directVideoFrameAction")
         and page.locator("#video-output-details .video-output-actions a[download]").count() == 1
-        # The clip's name, its length, and the moment it was made: no space, so a second
-        # render of the same length cannot land on the first one's file name.
+        # The download describes the prompt and preserves its actual format.
         and re.fullmatch(
-            r"LTX-2\.5-q8-1s-\d{8}-\d{6}\.webm",
+            r"video-.+-\d{8}-\d{9}-[a-z0-9]+\.webm",
             page.locator("#video-output-details .video-output-actions a[download]").get_attribute("download"),
         )
         is not None
         and page.locator("#video-output-details .video-output-actions [aria-label='More actions']").count() == 1
-        and page.get_by_role("button", name="Remove video LTX-2.5 q8 1s").is_visible()
+        and page.get_by_role("button", name="Remove video LTX-2.5 1s").is_visible()
         and page.get_by_role("button", name="Full screen").is_visible()
         and page.locator("#video-gallery .video-gallery-head").count() == 1
         and page.locator("#video-timeline").count() == 0,
@@ -2074,7 +2073,7 @@ with sync_playwright() as playwright:
         and page.get_by_role("menuitem", name="Edit this clip").is_visible()
         and page.get_by_role("button", name="Add reference").is_visible()
         and page.get_by_role("menuitem", name="Add reference").count() == 0
-        and page.get_by_role("menuitem", name="Remove video LTX-2.5 q8 1s").count() == 0,
+        and page.get_by_role("menuitem", name="Remove video LTX-2.5 1s").count() == 0,
         page.locator("#video-output-menu").inner_text(),
     )
     # The menu sends the clip itself to Edit: it is in hand, and the mode switches, so the next
@@ -2156,7 +2155,7 @@ with sync_playwright() as playwright:
     page.wait_for_function("() => document.querySelector('#media-image-mode').getAttribute('aria-pressed') === 'true'")
     check(
         "the more menu sends the current video frame to Image",
-        page.locator("#thumbs img[alt^='LTX-2.5 q8 1s frame']").count() == 1,
+        page.locator("#thumbs img[alt^='LTX-2.5 1s frame']").count() == 1,
     )
     switch_workspace(page, "video")
     progress_result = page.evaluate(
@@ -2165,7 +2164,7 @@ with sync_playwright() as playwright:
           if (typeof studio.setGenerationProgress !== 'function') return {supported: false};
           studio.setGenerationProgress(
             {running: true, stage: 'preparing', step: 0, total: 0}, 5.2,
-            {width: 512, height: 640, modelName: 'LTX-2.5 q8'});
+            {width: 512, height: 640, modelName: 'LTX-2.5'});
           const preparing = document.querySelector('#video-preview-root #video-render-progress');
           const preparingText = preparing && preparing.getAttribute('aria-valuetext');
           const preparingIndeterminate = Boolean(preparing && preparing.classList.contains('is-indeterminate'));
@@ -2211,12 +2210,23 @@ with sync_playwright() as playwright:
               && statusBox.top >= stageBox.top && statusBox.bottom <= stageBox.bottom),
             thumbnailRatio: statusBox && statusBox.width / statusBox.height,
           };
+          studio.setGenerationProgress({running: true, stage: 'running', step: 11, total: 11, phase: 2}, 7);
+          result.finishingHeadline = document.querySelector('#video-render-status strong')?.textContent;
+          result.finishingPercent = document.querySelector('#video-render-progress')?.getAttribute('aria-valuenow');
+          result.roundedPercent = studio.generationProgressDetails({step: 199, total: 200, elapsedSeconds: 7}).percent;
           studio.setGenerationProgress(null);
           result.previewStatusCleared = !document.querySelector('#video-preview-root #video-render-status');
           result.previewStillVisible = Boolean(document.querySelector('#video-preview')
             && !document.querySelector('#video-preview').hidden);
           return result;
         }"""
+    )
+    check(
+        "video keeps progress below 100 percent until the clip is ready",
+        progress_result.get("finishingHeadline") == "Finishing the clip"
+        and progress_result.get("finishingPercent") == "99"
+        and progress_result.get("roundedPercent") == 99,
+        str(progress_result),
     )
     check(
         "video loading uses one clear status and an elapsed timer",
@@ -2230,7 +2240,7 @@ with sync_playwright() as playwright:
         progress_result.get("supported")
         and progress_result.get("headline") == "Denoising, step 4 of 8"
         and progress_result.get("elapsed") == "00:06.4 elapsed"
-        and "LTX-2.5 q8" in progress_result.get("previewModel", "")
+        and "LTX-2.5" in progress_result.get("previewModel", "")
         and progress_result.get("previewSerial") == "03"
         and "Loading LTX-2.5" not in progress_result.get("previewStatus", "")
         and "Upscaling" not in progress_result.get("previewStatus", "")
@@ -2356,8 +2366,8 @@ with sync_playwright() as playwright:
     video_downloads = downloads[download_start:]
     check(
         "Download all saves each video and its useful metadata",
-        any(re.fullmatch(r"LTX-2\.5-q8-1s-\d{8}-\d{6}\.webm", name) for name in video_downloads)
-        and "studio-video-metadata.json" in video_downloads,
+        any(re.fullmatch(r"video-.+-\d{8}-\d{9}-[a-z0-9]+\.webm", name) for name in video_downloads)
+        and any(re.fullmatch(r"video-metadata-\d{8}-\d{9}\.json", name) for name in video_downloads),
         str(video_downloads),
     )
     page.get_by_role("button", name="Clear all").click()
@@ -2578,7 +2588,10 @@ with sync_playwright() as playwright:
     )
     # A stub clip has no media to change, so the run stays asleep and the form says why, the
     # way it waits for words rather than refusing after a press.
-    page.locator("#video-gallery .video-clip").first.click()
+    page.evaluate("""() => {
+      const studio = document.getElementById('video-studio');
+      studio.editThisClip(studio.clips.filter(clip => clip.kind === 'generated').slice(-1)[0].id);
+    }""")
     stub_clip = page.evaluate("""() => ({runDisabled: document.getElementById('video-generate').disabled})""")
     check(
         "an edit of a clip with no media leaves the run asleep",

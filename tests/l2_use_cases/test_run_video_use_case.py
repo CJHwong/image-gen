@@ -20,6 +20,127 @@ def job():
     return VideoJob("moving clouds", 960, 544, 145, 24, 7)
 
 
+def test_batch_publishes_cancellable_preparation_before_the_first_clip(monkeypatch):
+    use_case, _, _, video, progress, _, lock = setup()
+    events = []
+
+    def preparing(jobs, completed, started, report, cancelled):
+        assert progress.snapshot() == RunProgress(
+            running=True, stage="preparing", label="Preparing clips", kind="video", request_id="batch-a"
+        )
+        assert lock.locked()
+        assert use_case.cancel("batch-a")
+        assert cancelled()
+        raise Cancelled("cancelled during preparation")
+
+    monkeypatch.setattr(video, "run_batch", preparing)
+    with pytest.raises(Cancelled, match="cancelled"):
+        use_case.execute_batch(
+            [job(), job()], "video-fake", "batch-a", events.append, lambda *args: events.append(args), lambda: False
+        )
+    assert events == []
+    assert progress.snapshot() == RunProgress()
+    assert not progress.cancel_requested()
+    assert not lock.locked()
+
+
+def test_batch_keeps_one_model_and_lock_until_every_item_finishes():
+    use_case, _, image, video, progress, residency, lock = setup()
+    events = []
+
+    def started(index, total):
+        assert lock.locked()
+        events.append(("started", index, total))
+
+    def completed(index, result):
+        assert lock.locked()
+        events.append(("completed", index, result.seed))
+
+    results = use_case.execute_batch([job(), job()], "video-fake", "batch-a", completed, started, lambda: False)
+    assert len(results) == 2
+    assert events == [("started", 1, 2), ("completed", 1, 7), ("started", 2, 2), ("completed", 2, 7)]
+    assert video.jobs == [job(), job()]
+    assert image.events == ["release"]
+    assert residency.active_id() == "video-fake"
+    assert progress.snapshot() == RunProgress()
+    assert not lock.locked()
+
+
+def test_batch_cancel_between_items_keeps_first_output_and_releases_lock():
+    use_case, _, _, video, progress, _, lock = setup()
+    completed = []
+    with pytest.raises(Cancelled):
+        use_case.execute_batch(
+            [job(), job()],
+            "video-fake",
+            "batch-a",
+            lambda index, result: completed.append(result),
+            lambda index, total: None,
+            lambda: bool(completed),
+        )
+    assert len(completed) == 1
+    assert len(video.jobs) == 1
+    assert not lock.locked()
+    assert progress.snapshot() == RunProgress()
+
+
+def test_batch_refuses_a_busy_engine():
+    use_case, _, _, _, _, _, lock = setup()
+    lock.acquire()
+    with pytest.raises(BackendBusy):
+        use_case.execute_batch(
+            [job()], "video-fake", "batch-a", lambda index, result: None, lambda index, total: None, lambda: False
+        )
+    lock.release()
+
+
+def test_batch_refuses_a_changed_backend():
+    use_case, catalog, _, _, _, _, lock = setup()
+    catalog.set_active("other-video")
+    with pytest.raises(BackendChanged):
+        use_case.execute_batch(
+            [job()], "video-fake", "batch-a", lambda index, result: None, lambda index, total: None, lambda: False
+        )
+    assert not lock.locked()
+
+
+def test_batch_engine_failure_releases_lock_and_progress():
+    use_case, _, _, _, progress, _, lock = setup(RuntimeError("engine failed"))
+    with pytest.raises(RuntimeError, match="engine failed"):
+        use_case.execute_batch(
+            [job()], "video-fake", "batch-a", lambda index, result: None, lambda index, total: None, lambda: False
+        )
+    assert not lock.locked()
+    assert progress.snapshot() == RunProgress()
+
+
+def test_batch_reports_cancellation_when_it_causes_an_engine_failure():
+    use_case, _, _, _, progress, _, lock = setup(RuntimeError("child stopped"))
+
+    def started(index, total):
+        progress.request_cancel("batch-a")
+
+    with pytest.raises(Cancelled, match="cancelled"):
+        use_case.execute_batch([job()], "video-fake", "batch-a", lambda index, result: None, started, lambda: False)
+    assert not lock.locked()
+    assert not progress.cancel_requested()
+
+
+def test_batch_reports_external_cancellation_when_it_causes_an_engine_failure():
+    use_case, _, _, _, progress, _, lock = setup(RuntimeError("child stopped"))
+    stopping = []
+
+    def started(index, total):
+        stopping.append(True)
+
+    with pytest.raises(Cancelled, match="cancelled"):
+        use_case.execute_batch(
+            [job()], "video-fake", "batch-a", lambda index, result: None, started, lambda: bool(stopping)
+        )
+    assert not lock.locked()
+    assert not progress.cancel_requested()
+
+
 def setup(failure=None, progress=None):
     image = FakeBackendGateway()
     video = FakeVideoBackendGateway(failure=failure)

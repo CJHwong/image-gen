@@ -106,3 +106,10 @@ def test_a_backends_settings_are_a_copy(tmp_path: Path):
     config = load_config(write(tmp_path, SETTINGS))
     config.backend("qwen21")["quantize"] = 4
     assert config.backend("qwen21")["quantize"] is None
+
+
+def test_the_shipping_config_opens_voice_on_drama_and_keeps_auk():
+    config = load_config(Path(__file__).parents[2] / "studio.toml")
+
+    assert config.default_voice_backend == "drama3"
+    assert config.visible_voice_backends == ("drama3", "auk_base", "auk")

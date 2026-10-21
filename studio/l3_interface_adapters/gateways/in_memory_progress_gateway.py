@@ -1,4 +1,5 @@
 import threading
+from collections.abc import Callable
 
 from studio.l1_entities.run_progress import RunProgress
 from studio.l2_use_cases.boundaries.progress_gateway import ProgressGateway
@@ -11,10 +12,11 @@ class InMemoryProgressGateway(ProgressGateway):
     one lock.
     """
 
-    def __init__(self):
+    def __init__(self, external_cancel: Callable[[], bool] = lambda: False):
         self._lock = threading.Lock()
         self._state = RunProgress()
         self._cancel = False
+        self._external_cancel = external_cancel
 
     def begin(self, label, kind="image", request_id=None):
         with self._lock:
@@ -58,7 +60,7 @@ class InMemoryProgressGateway(ProgressGateway):
 
     def cancel_requested(self):
         with self._lock:
-            return self._cancel
+            return self._cancel or self._external_cancel()
 
     def consume_cancel(self):
         with self._lock:

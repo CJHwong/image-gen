@@ -27,6 +27,8 @@
 import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { repeat } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/directives/repeat.js/+esm';
 import { get, subscribe } from '../lib/state.js';
+import {pencilLoop} from './gallery-marker.js';
+import {mediaDownloadName} from '../lib/download-name.js';
 
 // The page's helpers, on `image-strip-ready`.
 let page = null;
@@ -40,12 +42,6 @@ const FIELDS = ['gallery', 'view', 'busy'];
 // on the three lines, so this draws a glyph exactly as `popup-menu.js` does.
 function glyph(name) {
   return html`<svg class="icon" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
-}
-
-// The pencil loop, one hand-drawn stroke that overlaps where it closes. It is
-// drawn once, on the redraw that picks a frame, and not on every redraw.
-function pencilLoop(draw) {
-  return html`<svg class="mark${draw ? ' draw' : ''}" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M58 5 C80 5 97 16 98 44 C99 74 84 95 52 96 C20 97 3 80 2 52 C1 24 18 7 44 4 C52 3 62 4 70 7"></path></svg>`;
 }
 
 class ImageStrip extends LitElement {
@@ -137,11 +133,11 @@ class ImageStrip extends LitElement {
 
   frame(row) {
     const entry = row.entry;
-    return html`<button type="button" class="frame${row.arrive ? ' arrive' : ''}${row.selected ? ' selected' : ''}" title=${'Seed ' + entry.seed} aria-label=${entry.mode + ', seed ' + entry.seed} @click=${() => page.show(entry.id)}><span class="still"><img alt="" src=${entry.src}>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}</span><span class="no">${row.number}</span>${row.selected ? pencilLoop(row.draw) : ''}</button>`;
+    return html`<button type="button" class="frame${row.arrive ? ' arrive' : ''}${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} title=${'Seed ' + entry.seed} aria-label=${entry.mode + ', seed ' + entry.seed} @click=${() => page.show(entry.id)}><span class="still"><img alt="" src=${entry.src}>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}</span><span class="no">${row.number}</span>${row.selected ? pencilLoop(row.draw) : ''}</button>`;
   }
 
   waiting(row) {
-    return html`<button type="button" class="frame pending${row.selected ? ' selected' : ''}" aria-label="Show the image in progress" @click=${() => page.show('progress')}><span class="still waiting"><span class="exposure"></span></span><span class="no">${row.number}</span>${row.selected ? pencilLoop(false) : ''}</button>`;
+    return html`<button type="button" class="frame pending${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} aria-label="Show the image in progress" @click=${() => page.show('progress')}><span class="still waiting"><span class="exposure"></span></span><span class="no">${row.number}</span>${row.selected ? pencilLoop(false) : ''}</button>`;
   }
 
   render() {
@@ -257,8 +253,7 @@ function saveFile(url, name) {
 }
 
 // Every image on the strip, oldest first, then one file with their prompts,
-// since an image file holds no prompt. Each name starts with the frame number:
-// two images can share a seed, and the browser would rename the second one.
+// since an image file holds no prompt.
 // The files leave one at a time, because a browser drops downloads that come
 // too close together. A batch of edits shares one source, saved once.
 function download() {
@@ -267,7 +262,7 @@ function download() {
   const pause = function () { return new Promise(function (resolve) { setTimeout(resolve, 300); }); };
   const saving = page.gallery().slice().reverse().reduce(function (previous, entry) {
     return previous.then(function () {
-      const file = page.frameNumber(entry.id) + '-' + page.fileName(entry);
+      const file = page.fileName(entry);
       saveFile(entry.src, file);
       const fact = { file: file, before: null };
       page.keptFields().forEach(function (field) { fact[field] = entry[field]; });
@@ -285,7 +280,7 @@ function download() {
   }, Promise.resolve());
   saving.then(function () {
     const url = URL.createObjectURL(new Blob([JSON.stringify(facts, null, 2)], { type: 'application/json' }));
-    saveFile(url, 'studio-prompts.json');
+    saveFile(url, mediaDownloadName({kind: 'image', text: 'metadata', at: Date.now(), extension: 'json'}));
     setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
   }).catch(function (error) {
     page.notify('error', 'Download all stopped: ' + error.message);
@@ -328,8 +323,9 @@ function clear() {
     ? 'Remove all ' + gallery.length + ' images from this browser? Every open tab clears too.'
     : 'Remove all ' + gallery.length + ' images from this tab?';
   if (!confirm(question)) return;
+  const ids = gallery.map(entry => entry.id);
   dropAll();
-  page.forget(function (images) { images.clear(); }, { kind: 'clear' });
+  page.forget(function (images) { images.clear(); }, { kind: 'clear', ids: ids });
 }
 
 const handle = {

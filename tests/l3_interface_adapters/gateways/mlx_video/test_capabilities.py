@@ -12,12 +12,17 @@ def test_the_2_5_pack_offers_generate_and_the_seven_effects():
     capabilities = ltx25_mlx_capabilities()
 
     assert capabilities.backend_id == "ltx25_mlx"
-    assert capabilities.name == "LTX-2.5 q8"
+    assert capabilities.name == "LTX-2.5"
     assert capabilities.precision == "int8"
     assert [mode.id for mode in capabilities.modes] == ["generate", "edit"]
     assert capabilities.modes[0].accepts_audio is True
     assert capabilities.modes[0].looks == VIDEO_LOOKS
-    assert capabilities.templates == VIDEO_TEMPLATES
+    assert capabilities.templates[: len(VIDEO_TEMPLATES)] == VIDEO_TEMPLATES
+    assert [template.name for template in capabilities.templates[len(VIDEO_TEMPLATES) :]] == [
+        "Speak to camera",
+        "Fixed composition",
+        "Slow push-in",
+    ]
     assert [adapter.id for adapter in capabilities.adapters] == [
         "day-to-night",
         "water-simulation",
@@ -47,9 +52,59 @@ def test_the_2_3_pack_offers_generate_only():
     capabilities = ltx23_mlx_capabilities()
 
     assert capabilities.backend_id == "ltx23_mlx"
-    assert capabilities.name == "LTX-2.3 q8"
+    assert capabilities.name == "LTX-2.3"
     assert [mode.id for mode in capabilities.modes] == ["generate"]
     assert capabilities.adapters == ()
+    assert capabilities.templates == VIDEO_TEMPLATES
+
+
+def test_new_camera_templates_keep_the_measured_scene_and_motion():
+    import re
+
+    templates = {template.name: template for template in ltx25_mlx_capabilities().templates}
+    values = {
+        "Subject": "A blue ceramic teapot",
+        "surface": "a wooden table",
+        "Foreground object": "A red cup",
+        "background object": "a green plant",
+        "subject name": "the teapot",
+        "light": "Soft daylight enters through a window",
+        "sound": "quiet room tone",
+    }
+    scene = (
+        "A blue ceramic teapot rests on a wooden table. A red cup stands closer to the camera, "
+        "and a green plant stands behind the teapot. Soft daylight enters through a window. "
+    )
+    endings = {
+        "Fixed composition": "The camera stays fixed, holding the same composition. ",
+        "Slow push-in": "The camera slowly moves toward the teapot, ending in a closer view while the teapot stays still. ",
+    }
+    for name, ending in endings.items():
+        prompt = re.sub(r"\[([^\]]+)\]", lambda match: values[match[1]], templates[name].text)
+        assert prompt == scene + ending + "One continuous shot with quiet room tone."
+
+
+def test_speech_template_keeps_the_measured_dialogue_and_single_speaker():
+    import re
+
+    template = next(item for item in ltx25_mlx_capabilities().templates if item.name == "Speak to camera")
+    values = {
+        "speaker": "a woman in a blue shirt",
+        "background": "a plain gray wall",
+        "light": "Soft window light illuminates her face",
+        "Subject pronoun": "She",
+        "Possessive pronoun": "Her",
+        "language": "English",
+        "dialogue": "Please bring my blue bag.",
+        "sound": "quiet room tone",
+    }
+    prompt = re.sub(r"\[([^\]]+)\]", lambda match: values[match[1]], template.text)
+    assert prompt == (
+        "A front-facing medium close-up shows a woman in a blue shirt against a plain gray wall. "
+        "Soft window light illuminates her face. She looks into the lens and clearly says in English, "
+        '"Please bring my blue bag." Her lips and jaw move naturally with each word. '
+        "The camera stays fixed throughout the continuous shot. Her voice is clear over quiet room tone."
+    )
 
 
 @pytest.mark.parametrize("build", [ltx25_mlx_capabilities, ltx23_mlx_capabilities])

@@ -56,7 +56,24 @@ export function toggleMenu(menu) {
   if (!opening) return;
   menu.hidden = false;
   toggleOf(menu).setAttribute('aria-expanded', 'true');
+  fitMenu(menu);
   menu.querySelector('button').focus();
+}
+
+function fitMenu(menu) {
+  menu.style.removeProperty('max-height');
+  const bounds = menu.getBoundingClientRect();
+  const viewportTop = window.visualViewport?.offsetTop || 0;
+  const viewportBottom = viewportTop + (window.visualViewport?.height || window.innerHeight);
+  const controls = menu.closest('.controls');
+  const clip = controls && getComputedStyle(controls).overflowY !== 'visible'
+    ? controls.getBoundingClientRect() : null;
+  const visibleTop = Math.max(viewportTop, clip?.top ?? viewportTop);
+  const visibleBottom = Math.min(viewportBottom, clip?.bottom ?? viewportBottom);
+  const room = menu.classList.contains('up') ? bounds.bottom - visibleTop - 6 : visibleBottom - bounds.top - 6;
+  const limit = parseFloat(getComputedStyle(menu).maxHeight);
+  menu.style.maxHeight = Math.max(0, Math.min(room, Number.isFinite(limit) ? limit : room)) + 'px';
+  menu.style.overflowY = 'auto';
 }
 
 export function closeMenus() {

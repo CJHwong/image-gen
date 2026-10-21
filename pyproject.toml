@@ -11,6 +11,8 @@ dependencies = [
     "mflux @ git+https://github.com/mflux-community/mflux@f63b4f0f00c8dba5de94f478c9e4be62dbc70ddc",
     "huggingface-hub",
     "pillow",
+    "numpy",
+    "soundfile",
     "safetensors",
     # The prompt rewriters, a second model per mode. MLX like mflux, so it shares
     # this process and needs no child; the import is deferred to the first
@@ -46,6 +48,8 @@ ignore = ["E501"]
 [tool.ty.src]
 exclude = [
     "tests/e2e/verify_*.py",
+    "studio/l3_interface_adapters/gateways/auk_voice/auk_child.py",
+    "studio/l3_interface_adapters/gateways/drama_voice/drama3_child.py",
 ]
 
 # Branch coverage as well as statement coverage. A statement can run while one side

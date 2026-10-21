@@ -4,7 +4,7 @@ import base64
 import binascii
 import io
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -46,17 +46,28 @@ class FormController:
         self._cancel_rewrite = cancel_rewrite
         self._release_model = release_model
 
+    def capabilities(self, backend_id: str):
+        return self._describe.capabilities(backend_id)
+
     def page(self) -> StudioView:
         return self._describe.execute()
 
     def run(self, form: Mapping[str, str]) -> RunImageResponse:
         return self._run.execute(run_request(form))
 
+    def run_batch(self, forms, completed, started, cancelled) -> list[RunImageResponse]:
+        return self._run.execute_batch([run_request(form) for form in forms], completed, started, cancelled)
+
     def rewrite(self, form: Mapping[str, str]) -> RewriteResponse:
         return self._rewrite.execute(rewrite_request(form))
 
     def progress(self) -> RunProgress:
         return self._read_progress.execute()
+
+    def watch_cancel(
+        self, identity: str, active: Callable[[], bool], guarded_release: Callable[[Callable[[], None]], None]
+    ) -> None:
+        self._cancel.watch(active, guarded_release, identity)
 
     def cancel(self) -> None:
         self._cancel.execute()

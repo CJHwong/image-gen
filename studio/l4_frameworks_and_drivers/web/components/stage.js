@@ -20,6 +20,8 @@
 // while the module is evaluated: after the markup, before any interaction, so
 // the handle is in place before the first draw asks for a stage.
 
+import {mediaDownloadName} from '../lib/download-name.js';
+
 // What the stage draws with. The DOM helpers live here because the stage and the
 // region module are the two that build buttons, and the region takes
 // `iconButton` off the handle below rather than keeping a second copy.
@@ -49,7 +51,8 @@ export function textButton(name, label, handler) {
 
 // A frame's number, as printed on the film's edge.
 export function frameNumber(id) {
-  return String(id).padStart(2, '0');
+  const entry = page.gallery?.().find(function (one) { return one.id === id; });
+  return String(entry?.number || id).padStart(2, '0');
 }
 
 const page = {};
@@ -499,27 +502,8 @@ export function toggleFullscreen() {
   change.catch(function (error) { page.notify('error', 'Full screen failed: ' + error.message); });
 }
 
-// The moment a frame or a clip was made, in the shape a file name can carry. The two
-// modules that name a download share it, so both names read the same way.
-export function fileStamp(at) {
-  const when = new Date(at);
-  const two = function (value) { return String(value).padStart(2, '0'); };
-  return when.getFullYear() + two(when.getMonth() + 1) + two(when.getDate())
-    + '-' + two(when.getHours()) + two(when.getMinutes()) + two(when.getSeconds());
-}
-
 function fileName(entry) {
-  // The model that made this frame, not the one selected now: downloading an older
-  // frame used to name the file after whatever model the page was on. The id, not
-  // the edge's name, because a file name cannot carry capitals and spaces. A record
-  // written before a frame carried its model falls back to the selected one, which
-  // is what every file name was before.
-  //
-  // The moment goes last, so two frames off the same model and seed do not land on one
-  // file name. A record stored before a frame carried its moment has none, and it keeps
-  // the name that every file name had before.
-  const stamp = entry.at ? '-' + fileStamp(entry.at) : '';
-  return (entry.backendId || page.backendId) + '-' + entry.mode + '-' + entry.seed + stamp + '.png';
+  return mediaDownloadName({kind: 'image', text: entry.prompt, at: entry.at, id: entry.id, extension: 'png'});
 }
 
 const handle = {

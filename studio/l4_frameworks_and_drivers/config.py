@@ -16,6 +16,8 @@ class Config:
     default_video_backend: str
     visible_video_backends: tuple[str, ...]
     sections: dict
+    default_voice_backend: str = "drama3"
+    visible_voice_backends: tuple[str, ...] = ("drama3", "auk_base", "auk")
 
     def backend(self, backend_id: str) -> dict:
         """One backend's settings. Paths are absolute, and a quantize of 0 means none."""
@@ -46,6 +48,10 @@ def load_config(
     visible_video = tuple(raw.get("visible_video_backends", [default_video]))
     if default_video not in visible_video:
         visible_video = (default_video, *visible_video)
+    default_voice = raw.get("default_voice_backend", "drama3")
+    visible_voice = tuple(raw.get("visible_voice_backends", ["drama3", "auk_base", "auk"]))
+    if default_voice not in visible_voice:
+        visible_voice = (default_voice, *visible_voice)
     sections = {name: _settings(value, path.parent) for name, value in raw.items() if isinstance(value, dict)}
     if quantize is not None:
         sections.setdefault(default, {})["quantize"] = quantize or None
@@ -55,6 +61,8 @@ def load_config(
         default_video_backend=default_video,
         visible_video_backends=visible_video,
         sections=sections,
+        default_voice_backend=default_voice,
+        visible_voice_backends=visible_voice,
     )
 
 

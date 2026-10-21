@@ -70,6 +70,52 @@ def build_video_controller(run=None, capabilities=None):
     return VideoController(selected_run, catalog, switch), catalog
 
 
+def test_video_batch_validates_every_item_before_any_engine_call():
+    controller, _ = build_video_controller(run=UnusedVideoRun())
+    with pytest.raises(InvalidJob, match="prompt"):
+        controller.run_batch(
+            [payload(), payload(prompt="")], lambda index, result: None, lambda index, total: None, lambda: False
+        )
+
+
+def test_video_batch_rejects_different_backends():
+    controller, _ = build_video_controller(run=UnusedVideoRun())
+    with pytest.raises(InvalidJob, match="same backend"):
+        controller.run_batch(
+            [payload(backend="video-fake"), payload(backend="video-other")],
+            lambda index, result: None,
+            lambda index, total: None,
+            lambda: False,
+        )
+
+
+def test_video_batch_returns_each_result_with_one_request_identity():
+    controller, _ = build_video_controller()
+    completed = []
+    started = []
+    results = controller.run_batch(
+        [payload(), payload(prompt="The dog runs", seed=7)],
+        lambda index, result: completed.append((index, result.seed)),
+        lambda index, total: started.append((index, total)),
+        lambda: False,
+    )
+    assert [result.seed for result in results] == [42, 7]
+    assert completed == [(1, 42), (2, 7)]
+    assert started == [(1, 2), (2, 2)]
+
+
+def test_video_batch_rejects_an_empty_list():
+    controller, _ = build_video_controller()
+    with pytest.raises(InvalidJob, match="empty"):
+        controller.run_batch([], lambda index, result: None, lambda index, total: None, lambda: False)
+
+
+def test_video_batch_rejects_a_backend_that_is_not_a_string():
+    controller, _ = build_video_controller()
+    with pytest.raises(InvalidJob, match="backend"):
+        controller.run_batch([payload(backend=5)], lambda index, result: None, lambda index, total: None, lambda: False)
+
+
 def test_controller_maps_shared_images_to_ltx_keyframes():
     class FakeRun(RunVideoUseCase):
         def __init__(self):
@@ -109,13 +155,9 @@ def test_controller_maps_shared_images_to_ltx_keyframes():
     assert submitted_job.references[0].png.startswith(b"\x89PNG")
 
 
-def test_the_payload_says_whether_the_run_lengthens_the_prompt_again():
-    """The video form's switch is the page's; the enhancer is the pipeline's. A payload that
-    carries it reaches the job, and one that says nothing does not turn it on."""
-    capabilities = fake_video_capabilities()
-
-    assert video_job(payload(enhance=True), capabilities).enhance is True
-    assert video_job(payload(), capabilities).enhance is False
+@pytest.mark.parametrize("settings", [{}, {"enhance": False}, {"enhance": True}])
+def test_generation_always_enables_the_pipeline_enhancer(settings):
+    assert video_job(payload(**settings), fake_video_capabilities()).enhance is True
 
 
 @pytest.mark.parametrize("request_id", [None, "", 17, "x" * 129])
@@ -531,3 +573,9 @@ def test_an_effect_runs_at_the_geometry_its_card_trained_at():
             payload(mode="edit", adapter="relight", clip=clip_payload(), width=960, height=544, num_frames=121),
             capabilities,
         )
+
+
+def test_controller_reads_capabilities_without_switching():
+    selected, catalog = build_video_controller()
+    assert selected.capabilities().backend_id == catalog.active_id()
+    assert selected.capabilities(catalog.active_id()) == catalog.get(catalog.active_id()).capabilities()

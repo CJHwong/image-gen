@@ -30,6 +30,9 @@ class ImageBackendGateway(ModelLifecycleGateway, ABC):
         current step ends.
         """
 
+    def prepare_batch(self, jobs: list[ImageJob], should_stop: Callable[[], bool]) -> None:
+        """Prepare shared model work before the first image, when the engine supports it."""
+
     @abstractmethod
     def release(self) -> None:
         """Free the model memory. The next load or run brings it back."""

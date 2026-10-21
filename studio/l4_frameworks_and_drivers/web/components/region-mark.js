@@ -205,6 +205,7 @@ function regionTools(host) {
   const size = page.iconButton('brush', 'Brush width', function () {
     markWidth = (markWidth + 1) % MARK_WIDTHS.length;
     syncMarkToggle();
+    page.refresh();
   });
   size.id = 'mark-size';
   bar.append(undo, clear, size);
@@ -218,6 +219,7 @@ function regionTools(host) {
     swatch.title = 'Mark in ' + pair[1] + '. A region per colour: the prompt names the ' + pair[1] + ' area.';
     swatch.addEventListener('click', function () {
       markColour = pair[0];
+      page.refresh();
       bar.querySelectorAll('.swatch').forEach(function (other) {
         other.setAttribute('aria-pressed', String(other === swatch));
       });
@@ -585,6 +587,8 @@ const handle = {
   snapshot: function () {
     return {
       strokes: marks ? marks.strokes.slice() : null,
+      colour: markColour,
+      width: markWidth,
       text: JSON.parse(JSON.stringify(regionText)),
     };
   },
@@ -602,7 +606,9 @@ const handle = {
     }
     renderRegionPreview();
   },
-  setStrokes: function (strokes) {
+  setStrokes: function (strokes, tools = {}) {
+    if (MARK_COLOURS.some(pair => pair[0] === tools.colour)) markColour = tools.colour;
+    if (Number.isInteger(tools.width) && MARK_WIDTHS[tools.width]) markWidth = tools.width;
     if (!marks || !strokes) return;
     // The arming above started the stroke list empty, so the strokes go back now.
     marks.strokes = strokes.slice();

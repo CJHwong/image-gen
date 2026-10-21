@@ -38,30 +38,40 @@ class CancelRunUseCase:
         self._patience = patience
         self._clock = clock
         self._wait = wait
-        self._escalating = False
+        self._watching: set[object] = set()
         self._lock = threading.Lock()
 
     def execute(self) -> None:
         if not self._progress.request_cancel():
             return
-        with self._lock:
-            if self._escalating:
-                return  # one watch per cancel is enough
-            self._escalating = True
-        threading.Thread(target=self._free_if_unseen, daemon=True).start()
+        self.watch(lambda: self._progress.snapshot().running, lambda action: action())
 
-    def _free_if_unseen(self) -> None:
+    def watch(
+        self,
+        active: Callable[[], bool],
+        guarded_release: Callable[[Callable[[], None]], None],
+        identity: object = None,
+    ) -> None:
+        with self._lock:
+            if identity in self._watching:
+                return
+            self._watching.add(identity)
+        threading.Thread(target=self._free_if_unseen, args=(active, guarded_release, identity), daemon=True).start()
+
+    def _free_if_unseen(
+        self, active: Callable[[], bool], guarded_release: Callable[[Callable[[], None]], None], identity: object
+    ) -> None:
         try:
             began = self._clock()
             while self._clock() - began < self._patience:
-                if not self._progress.snapshot().running:
+                if not active():
                     return  # it stopped, so the engine stays warm
                 self._wait(0.25)
-            if not self._progress.snapshot().running:
+            if not active():
                 return
             # Free the engine. A child is killed outright; an engine inside this process
             # frees its model, and the flag stops it at the next step either way.
-            self._residency.release()
+            guarded_release(self._residency.release)
         finally:
             with self._lock:
-                self._escalating = False
+                self._watching.remove(identity)

@@ -29,6 +29,9 @@ class DescribeStudioUseCase:
         self._rewriter = rewriter
         self._video_catalog = video_catalog
 
+    def capabilities(self, backend_id: str) -> Capabilities:
+        return self._catalog.get(backend_id).capabilities()
+
     def execute(self) -> StudioView:
         active = self._catalog.get(self._catalog.active_id()).capabilities()
         # The description travels with the name, so the picker can say what each

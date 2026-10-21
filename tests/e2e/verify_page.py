@@ -543,8 +543,8 @@ with sync_playwright() as playwright:
     check("tab title shows progress", page.title().startswith("("), page.title())
     check(
         "the run button turns into Cancel",
-        page.is_enabled("#go") and page.get_by_role("button", name=RUNNING).count() == 1,
-        page.get_by_role("button", name=RUNNING).inner_text(),
+        page.is_enabled("#go") and page.locator("#image-footer").get_by_role("button", name=RUNNING).count() == 1,
+        page.locator("#image-footer").get_by_role("button", name=RUNNING).inner_text(),
     )
     check("the run button shows no step text", page.inner_text("#go-sub") == "", page.inner_text("#go-sub"))
     # LEFT: the fill bar has no role, and the claim is that it is absent.
@@ -952,8 +952,8 @@ with sync_playwright() as playwright:
     page.click("#go")
     check(
         "Cancel reads Stopping while it stops",
-        page.get_by_role("button", name=STOPPING).count() == 1,
-        page.get_by_role("button", name=STOPPING).inner_text(),
+        page.locator("#image-footer").get_by_role("button", name=STOPPING).count() == 1,
+        page.locator("#image-footer").get_by_role("button", name=STOPPING).inner_text(),
     )
     wait_idle(page)
     check("cancel ends the run, no new image", frames(page).count() == 4)
@@ -1417,8 +1417,8 @@ with sync_playwright() as playwright:
     page.click("#go")
     check(
         "Cancel reads Stopping while it stops",
-        page.get_by_role("button", name=STOPPING).count() == 1,
-        page.get_by_role("button", name=STOPPING).inner_text(),
+        page.locator("#image-footer").get_by_role("button", name=STOPPING).count() == 1,
+        page.locator("#image-footer").get_by_role("button", name=STOPPING).inner_text(),
     )
     wait_idle(page)
     check(

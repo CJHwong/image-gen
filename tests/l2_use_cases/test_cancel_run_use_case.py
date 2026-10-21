@@ -167,3 +167,43 @@ def test_a_cancel_an_engine_obeys_leaves_the_engine_warm():
     # test even if it always fired.
     time.sleep(0.3)
     assert "release" not in events, f"the net fired on a cancel that worked: {events}"
+
+
+def test_targeted_watch_preserves_the_escalation_and_uses_its_release_guard():
+    residency = FakeModelResidencyGateway()
+    cancel = CancelRunUseCase(InMemoryProgressGateway(), residency, patience=0)
+    residency.activate("fake")
+    guarded = threading.Event()
+    known = {thread.ident for thread in threading.enumerate()}
+
+    def guard(release):
+        release()
+        guarded.set()
+
+    cancel.watch(lambda: True, guard, "operation")
+    assert guarded.wait(2)
+    _join_watch_threads(known)
+    assert residency.events == ["activate fake", "release fake"]
+
+
+def test_separate_operations_can_each_have_a_cancel_watch():
+    residency = FakeModelResidencyGateway()
+    entered, finish = threading.Event(), threading.Event()
+    calls = []
+    cancel = CancelRunUseCase(InMemoryProgressGateway(), residency, patience=0)
+
+    def guard(release):
+        calls.append("release")
+        entered.set()
+        finish.wait(2)
+
+    known = {thread.ident for thread in threading.enumerate()}
+    cancel.watch(lambda: True, guard, "first")
+    assert entered.wait(2)
+    cancel.watch(lambda: True, guard, "second")
+    deadline = time.monotonic() + 2
+    while len(calls) < 2 and time.monotonic() < deadline:
+        time.sleep(0.005)
+    finish.set()
+    _join_watch_threads(known)
+    assert calls == ["release", "release"]

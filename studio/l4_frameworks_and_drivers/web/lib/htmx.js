@@ -25,12 +25,14 @@ const POLLER = '<div hx-get="/progress" hx-trigger="load"'
   + ' hx-target="#progress" hx-swap="innerHTML"></div>';
 
 let progressState = null;
+let observedOperationId = null;
 let pace = null;            // how fast this run's steps arrive, for the time left
 let cleared = null;         // what Run emptied, kept for Cancel
 let cancelRestore = null;   // the copy Cancel asked for, applied once the run ends
 
 // The run's own facts, apart from the form the next run will read.
 let runKey = null;
+let nativeOperationId = null;
 let runPixels = 0;
 let runEstimate = null;     // the estimate model of the mode in flight
 let runStepSeconds = 0;     // the pre-run guess per step, until real steps arrive
@@ -131,7 +133,7 @@ function restoreInputs(snapshot) {
   // This arms the brush again, because a mark belongs to one reference on the
   // stage. Its stroke list starts empty, so the strokes go back after it.
   page.renderReferences();
-  region.setStrokes(snapshot.region.strokes);
+  region.setStrokes(snapshot.region.strokes, snapshot.region);
   page.renderStrip();
   page.renderStage();
   page.refreshForm();
@@ -347,14 +349,14 @@ function harvest() {
   incoming.querySelectorAll('.item').forEach(function (node) {
     const data = node.dataset;
     const source = node.querySelector('img').src;
+    const id = data.operationStarted ? Math.floor(Number(data.operationStarted) * 1000) * 16 + Math.max(0, parseInt(data.position, 10) - 1) : page.takeFrameId();
     const entry = {
-      id: page.takeFrameId(), src: blobUrl(source), b64: source.split(',')[1], seed: data.seed,
+      id: id, number: data.operationStarted ? page.takeFrameId(id) : id, nativeMetadata: true,
+      operationId: data.operationId || '', src: blobUrl(source), b64: source.split(',')[1], seed: data.seed,
       width: data.width, height: data.height, steps: data.steps, elapsed: data.elapsed,
       position: data.position, mode: data.mode, prompt: data.prompt, look: null, negative: '',
-      // The moment it arrived, which a download carries in its file name. Read here
-      // because this is the only point that knows it: the record that comes back from
-      // the store is written later, and a name built from that would be the store's time.
-      at: Date.now(),
+      // A delayed response must not restore an image completed before Clear all.
+      at: Number(data.operationCompleted) * 1000 || Date.now(),
       // Which model made this one, taken now because the page knows it now. A
       // switch reloads the page but keeps the strip, so without this every frame
       // would wear whichever model was selected last. `edgeName` is the active
@@ -395,12 +397,22 @@ function harvest() {
       entry.negative = runLook ? runLook.negative : '';
       if (runLook && runLook.labels.length) entry.look = runLook;
     }
-    page.gallery().unshift(entry);
-    page.keep(entry);
+    if (entry.operationId) nativeOperationId = entry.operationId;
+    if (entry.operationId && !incoming.querySelector('.chain')) document.dispatchEvent(new CustomEvent('operation-imported', {detail: entry.operationId}));
+    const admitted = page.admit(entry);
+    if (!admitted) {
+      node.remove();
+      return;
+    }
+    page.keep(admitted);
     page.setArrived(entry.id);
     if (page.view() !== 'progress') page.setView(entry.id);
     node.remove();
   });
+  const terminalNotice = incoming.querySelector(':scope > .err, :scope > .hint');
+  if (terminalNotice && nativeOperationId) {
+    document.dispatchEvent(new CustomEvent('operation-imported', {detail: nativeOperationId}));
+  }
   incoming.querySelectorAll(':scope > .err, :scope > .hint').forEach(function (node) {
     page.notify(node.classList.contains('err') ? 'error' : 'info', node.textContent);
     node.remove();
@@ -415,8 +427,35 @@ function harvest() {
 }
 
 const handle = {
+  updateBackend: function (backend) {
+    page.backendId = backend.id;
+    page.edgeName = backend.name.toUpperCase().replace(/-/g, ' ');
+    page.precision = backend.badge;
+  },
+  snapshotInputs: snapshotInputs,
+  restoreInputs: restoreInputs,
   renderProgress: renderProgress,
   release: release,
+  observeOperation: function (operation) {
+    if (operation?.kind === 'image') {
+      if (observedOperationId !== operation.id && !document.body.classList.contains('busy')) {
+        page.el.go.dataset.started = String(operation.started_at * 1000);
+        const settings = operation.settings || {};
+        page.setRunRatio((operation.width || settings.width || 1) / (operation.height || settings.height || 1));
+        page.setView('progress');
+      }
+      observedOperationId = operation.id;
+      progressState = operation.progress || null;
+      renderProgress();
+    } else if (observedOperationId) {
+      observedOperationId = null;
+      if (!document.body.classList.contains('busy')) {
+        progressState = null;
+        document.title = page.workspaceTitle();
+        if (page.view() === 'progress') page.setView(page.gallery()[0]?.id ?? null);
+      }
+    }
+  },
   progressState: function () { return progressState; },
 };
 
@@ -483,6 +522,7 @@ function listen() {
       if (place >= 0 && runPrompts.length > place) event.detail.parameters.prompt = runPrompts[place];
       return;
     }
+    nativeOperationId = null;
     const references = page.references();
     const region = page.region();
     // Only a one-image edit changes that image in place. An edit from several

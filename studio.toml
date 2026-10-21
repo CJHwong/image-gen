@@ -8,8 +8,15 @@ visible_backends = ["qwen21_turbo"]
 # MLX q8 pack; the PyTorch engine was removed on 2026-10-20.
 default_video_backend = "ltx25_mlx"
 visible_video_backends = ["ltx25_mlx", "ltx23_mlx"]
+default_voice_backend = "drama3"
+visible_voice_backends = ["drama3", "auk_base", "auk"]
 
 [mlx_video]
+# Auto selects a measured reuse profile by output geometry, length, and physical memory.
+# Auto shares prompt enhancement before eligible video reuse.
+# Enhance_only shares enhancement but creates a fresh video pipeline for each clip.
+# Sequential disables cross-clip reuse, including enhancement, for a baseline.
+batch_policy = "auto"
 # The third-party MLX port, its two 8-bit packs, and ffmpeg for padding a short track. The
 # paths are the office machine's; a laptop runs the stub and never reads them.
 cli_path = "~/ltx-experiments/ltx-2-mlx/.venv/bin/ltx-2-mlx"
@@ -56,3 +63,16 @@ lora_path = "~/Library/Caches/models/viggle-turbo/Qwen-Image-2.1-viggle-turbo-v0
 # depend on which weights draw the image.
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
+
+[auk]
+# AuK Flash runs its pinned environment in a lazy resident child.
+child_script = "studio/l3_interface_adapters/gateways/auk_voice/auk_child.py"
+
+[auk_base]
+# AuK uses the same pinned child and shared encoder, with its 32-step Base weights.
+
+[drama3]
+# Eight-bit Drama-3 in its separate pinned MLX Audio script environment.
+child_script = "studio/l3_interface_adapters/gateways/drama_voice/drama3_child.py"
+# Optional: an existing environment with the exact versions declared by the child.
+# python_path = "~/ltx-experiments/drama3-env/bin/python"

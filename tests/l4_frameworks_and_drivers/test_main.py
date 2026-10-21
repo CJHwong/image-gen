@@ -209,9 +209,9 @@ def test_the_two_mlx_packs_are_separate_video_backends(tmp_path: Path):
     video = build_video_backends(config)
 
     assert list(video) == ["ltx25_mlx", "ltx23_mlx"]
-    assert video["ltx25_mlx"].capabilities().name == "LTX-2.5 q8"
-    assert video["ltx23_mlx"].capabilities().name == "LTX-2.3 q8"
-    assert video["ltx25_mlx"]._runner._enhances is False
+    assert video["ltx25_mlx"].capabilities().name == "LTX-2.5"
+    assert video["ltx23_mlx"].capabilities().name == "LTX-2.3"
+    assert video["ltx25_mlx"]._runner._enhances is True
     assert video["ltx23_mlx"]._runner._enhances is True
     assert video["ltx25_mlx"]._runner._keyframe_two_stage is False
     assert video["ltx23_mlx"]._runner._keyframe_two_stage is True
@@ -233,3 +233,54 @@ def test_a_pack_without_its_model_setting_fails_when_it_runs(tmp_path: Path):
 
     with pytest.raises(StudioError, match="model_ltx25"):
         backend.run(VideoJob("a cat", 384, 384, 121, 24, 7))
+
+
+def test_voice_models_open_drama_by_default_and_keep_both_auk_models(tmp_path):
+    from studio.l4_frameworks_and_drivers.main import build_voice_backends
+
+    config = settings(tmp_path, 'default_backend="qwen21"\n[qwen21]\nquantize=0\n')
+    assert config.default_voice_backend == "drama3"
+    assert config.visible_voice_backends == ("drama3", "auk_base", "auk")
+    backends = build_voice_backends(config)
+    assert [backend.capabilities().name for backend in backends.values()] == ["Drama-3", "AuK", "AuK Flash"]
+    assert backends["auk"]._child._command[-1] == "flash"
+    assert backends["auk_base"]._child._command[-1] == "base"
+    config = settings(
+        tmp_path,
+        'default_backend="qwen21"\ndefault_voice_backend="auk_base"\nvisible_voice_backends=["auk"]\n[qwen21]\nquantize=0\n',
+    )
+    assert config.visible_voice_backends == ("auk_base", "auk")
+    with pytest.raises(ConfigError):
+        build_voice_backends(replace(config, visible_voice_backends=("missing",)))
+
+
+def test_singular_voice_backend_assembly_still_uses_shared_residency():
+    from studio.l3_interface_adapters.gateways.stub_voice_backend_gateway import StubVoiceBackendGateway
+
+    studio = assemble_studio(
+        {"fake": FakeBackendGateway()},
+        {"fake": NoPromptRewriter()},
+        "fake",
+        ("fake",),
+        voice_backend=StubVoiceBackendGateway(),
+    )
+    studio.residency.activate("auk")
+    assert studio.residency.active_id() == "auk"
+    studio.shutdown()
+
+
+@pytest.mark.parametrize("dedicated", [False, True])
+def test_drama_builder_keeps_the_engine_environment_separate(tmp_path, dedicated):
+    from studio.l4_frameworks_and_drivers.main import build_voice_backends
+
+    text = 'default_backend="qwen21"\nvisible_voice_backends=["auk_base", "drama3"]\n[qwen21]\nquantize=0\n[drama3]\n'
+    if dedicated:
+        text += 'python_path="runtime/bin/python"\nchild_script="drama.py"\n'
+    config = settings(tmp_path, text)
+    gateway = build_voice_backends(config)["drama3"]
+    assert gateway.capabilities().default_mode == "generate"
+    command = gateway._child._command
+    if dedicated:
+        assert command == [str(tmp_path / "runtime/bin/python"), str(tmp_path / "drama.py")]
+    else:
+        assert command[:3] == ["uv", "run", "--script"] and command[-1].endswith("drama3_child.py")

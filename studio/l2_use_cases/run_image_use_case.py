@@ -1,10 +1,8 @@
-"""Make one image of a batch.
+"""Make one image, a legacy request chain, or one server-side batch.
 
-A batch is a chain of requests, one per image, each carrying what the next one
-needs. The server holds no batch state apart from the reference images, so a
-page reload ends the batch instead of leaving the server generating into a void.
-Batches are sequential because no engine here has batched inference: N images
-cost N times one.
+A native batch holds the engine lock across its items and prepares shared work once.
+The page's existing image-count flow still sends one request per image.
+Inference stays sequential because these engines do not benefit from parallel images.
 """
 
 import random
@@ -113,6 +111,66 @@ class RunImageUseCase:
         finally:
             self._engine_lock.release()
 
+    def execute_batch(self, requests, completed, started, cancelled) -> list[RunImageResponse]:
+        if not self._engine_lock.acquire(blocking=False):
+            raise BackendBusy("The model is busy with a run in another tab. Wait for it, or cancel it there.")
+        try:
+            self._progress.clear_cancel()
+            return self._execute_batch(requests, completed, started, cancelled)
+        except Exception:
+            if cancelled() or self._progress.cancel_requested():
+                self._progress.clear_cancel()
+                raise Cancelled("The image batch was cancelled.") from None
+            raise
+        finally:
+            self._progress.finish()
+            self._engine_lock.release()
+
+    def _execute_batch(self, requests, completed, started, cancelled) -> list[RunImageResponse]:
+        if not requests:
+            raise InvalidJob("A batch needs at least one image.")
+        backend_id = self._catalog.active_id()
+        backend = self._catalog.get(backend_id)
+        jobs = [self._batch_job(request, backend_id, backend) for request in requests]
+        self._check_batch_cancel(cancelled)
+        if self._rewriter is not None:
+            self._rewriter.release()
+        self._residency.activate(backend_id)
+        self._progress.begin("Preparing batch")
+        backend.prepare_batch(jobs, lambda: cancelled() or self._progress.cancel_requested())
+        results = []
+        for index, job in enumerate(jobs, 1):
+            self._check_batch_cancel(cancelled)
+            self._progress.begin(f"{index} of {len(jobs)}")
+            started(index, len(jobs))
+            began = self._clock()
+            image = self._run(backend, backend_id, job, f"{index} of {len(jobs)}", cancelled)
+            response = RunImageResponse(
+                image, job.mode, job.prompt, f"{index} of {len(jobs)}", self._clock() - began, None
+            )
+            completed(index, response)
+            results.append(response)
+        return results
+
+    def _check_batch_cancel(self, cancelled) -> None:
+        if cancelled() or self._progress.cancel_requested():
+            raise Cancelled("The image batch was cancelled.")
+
+    def _batch_job(self, request, backend_id, backend) -> ImageJob:
+        if request.total != 1 or request.index != 1 or request.reference_token or request.each_reference:
+            raise InvalidJob("Each batch item must request one image without a legacy reference token.")
+        if request.backend and request.backend != backend_id:
+            raise BackendChanged("The model changed in another tab. Reload the page.")
+        mode = backend.capabilities().mode(request.mode)
+        images, token = self._load_references(request, mode)
+        self._drop(token)
+        job = ImageJob(
+            mode.id, request.prompt.strip(), self._seed(request.seed), mode.parse_options(request.options), images
+        )
+        if not job.prompt:
+            raise MissingPrompt(mode.prompt_required)
+        return job
+
     def _execute(self, request: RunImageRequest, started: float) -> RunImageResponse:
         backend_id = self._catalog.active_id()
         if request.backend and request.backend != backend_id:
@@ -183,7 +241,9 @@ class RunImageUseCase:
             raise InvalidJob("seed must be a whole number")
         return int(text)
 
-    def _run(self, backend: ImageBackendGateway, backend_id: str, job: ImageJob, label: str) -> ImageResult:
+    def _run(
+        self, backend: ImageBackendGateway, backend_id: str, job: ImageJob, label: str, cancelled=None
+    ) -> ImageResult:
         if self._progress.consume_cancel():
             raise Cancelled("stopped before this image started")
         # The rewriter is a second model and does not fit beside an engine on a
@@ -193,8 +253,11 @@ class RunImageUseCase:
             self._rewriter.release()
         self._residency.activate(backend_id)
         self._progress.begin(label)
+        should_stop = (
+            (lambda: cancelled() or self._progress.cancel_requested()) if cancelled else self._progress.cancel_requested
+        )
         try:
-            return backend.run(job, self._progress.set_step, self._progress.cancel_requested)
+            return backend.run(job, self._progress.set_step, should_stop)
         except Cancelled:
             # Only a cancel this run obeyed is spent. One that lands after the
             # engine's last look must still stop the next image of the batch.
@@ -204,7 +267,7 @@ class RunImageUseCase:
             # A stop that the engine never saw is enforced by freeing it, and the engine
             # dying is how that reads here. The user asked to stop, so this reports a
             # stop rather than the engine's own account of dying.
-            if self._progress.cancel_requested():
+            if should_stop():
                 self._progress.clear_cancel()
                 raise Cancelled("stopped by freeing the engine") from None
             raise

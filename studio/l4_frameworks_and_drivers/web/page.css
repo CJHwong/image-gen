@@ -124,6 +124,47 @@
   #strip-wrap { grid-column: 1; grid-row: 3; }
   #video-studio { grid-column: 1; grid-row: 2 / span 2; display: grid; min-width: 0; min-height: 0; }
   #video-studio[hidden] { display: none; }
+  #voice-studio { grid-column: 1; grid-row: 2 / span 2; display: grid; min-height: 0; min-width: 0; }
+  #voice-studio[hidden] { display: none; }
+  .voice-studio-shell { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; min-height: 0; min-width: 0; overflow: hidden; }
+  .voice-preview-area.stage { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+  #voice-preview-pane { display: grid; align-items: center; justify-items: center; padding: 28px; min-height: 0; min-width: 0; overflow: auto; }
+  #voice-audio-preview { width: min(900px, 100%); }
+  .voice-output-details { position: relative; flex-wrap: nowrap; padding-top: 12px; background: transparent; border: 0; }
+  .voice-output-details .prompt-line { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+  .voice-output-details .about { min-width: 0; }
+  .voice-preview-area .sheet dd { min-width: 0; overflow-wrap: anywhere; }
+  .voice-output-description { margin-top: 5px; font-size: 12px; color: var(--text-2); }
+  .voice-output-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 60%; margin-left: auto; }
+  .voice-waveform { display: block; width: 100%; height: 40px; margin: 0; }
+  .voice-waveform line { stroke: var(--accent); stroke-width: 2; stroke-linecap: round; }
+  .voice-gallery { min-width: 0; }
+  .voice-clips .voice-clip-thumb { display: flex; width: 132px; height: 60px; align-items: center; justify-content: center; color: var(--text-2); }
+  .voice-render-pending.frame.pending .still { display: grid; justify-items: center; align-content: center; gap: 7px; }
+  .voice-clip-thumb .voice-waveform { padding: 5px 8px 15px; }
+  .voice-clip-duration { position: absolute; bottom: 3px; right: 5px; font-size: 9px; }
+  .voice-empty.video-empty { justify-content: center; width: min(360px, 100%); height: 100%; margin: auto; color: var(--text); }
+  .voice-empty.video-empty > span { color: var(--text-2); }
+  .voice-empty .video-empty-mark { border-color: var(--text-3); color: var(--text-3); }
+  .voice-track-menu.menu { width: min(240px, calc(100vw - 48px)); right: 0; left: auto; }
+  .voice-panel { display: flex; flex-direction: column; gap: 22px; }
+  .modes.voice-mode-picker { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+  .voice-note { line-height: 1.5; margin: 0; }
+  .voice-reference-card .video-audio-name { display: block; }
+  .voice-reference-card > .pill { align-self: flex-start; }
+  .voice-template-field { margin-top: 4px; }
+  .voice-error { color: var(--accent); font-size: 12px; }
+  @media (max-width: 900px) {
+    .voice-output-details { flex-wrap: wrap; }
+    .voice-output-actions { max-width: none; }
+  }
+  @media (max-width: 760px) {
+    #voice-preview-pane { padding: 18px; }
+    #voice-studio { min-height: 650px; }
+    .voice-studio-shell { min-height: 650px; }
+    .voice-output-details { padding: 12px 18px; gap: 12px; }
+    .voice-output-actions { gap: 4px; }
+  }
   /* The camera's top plate: the model dial on the left, the status readout on
      the right. The readout is the one place that says how a run is going. */
   .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; height: 52px; min-width: 0;
@@ -447,7 +488,7 @@
      sit in the field and not in an anchor of their own, so their containing block is the
      field and they are as wide as it: a long template keeps its sentence on one line. In a
      short window each one scrolls instead of running off the bottom. */
-  #templates, #video-templates, #video-adapters { top: 30px; width: min(310px, 100%);
+  #templates, #video-templates, #video-adapters, #voice-templates { top: 30px; width: min(310px, 100%);
     max-height: calc(100dvh - 140px); overflow-y: auto; overscroll-behavior: contain; }
   .menu button { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 7px 10px;
     border: 0; border-radius: 6px; background: none; color: var(--text); text-align: left;
@@ -583,7 +624,6 @@
   .video-clip-thumb { position: relative; display: grid; place-items: center; width: 108px; height: 60px; min-height: 0;
     overflow: hidden; border-radius: 1px; background: #211f1d; color: #e0d5cb; font: 10px var(--mono); }
   .video-clip-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; background: #0b0b0b; }
-  .video-clip.selected .video-clip-thumb { outline: 1px solid var(--accent-fill); outline-offset: 2px; }
   .video-clip-placeholder { color: #d8d0c8; font: 10px var(--mono); }
   .video-clip-duration { position: absolute; right: 5px; bottom: 5px; padding: 2px 4px;
     border-radius: 3px; background: rgba(0, 0, 0, .76); color: #fff; font: 10px var(--mono); }
@@ -598,8 +638,6 @@
      the ring is blockified into its 16px box. */
   .video-gallery-item.video-gallery-pending.frame.pending .still { display: grid; align-content: center;
     justify-items: center; gap: 7px; border: 1px dashed var(--line-strong); color: var(--text-2); }
-  /* The render tile reads as current while it owns the screen, the way a clip does. */
-  .video-gallery-pending.selected .video-clip-thumb { outline: 1px solid var(--accent-fill); outline-offset: 2px; }
   .video-pending-indicator { width: 16px; height: 16px; border: 2px solid var(--line-strong); border-top-color: var(--accent-fill);
     border-radius: 50%; animation: video-pending-spin .9s linear infinite; }
   .video-clip-state { padding: 0 4px; color: var(--text-3); font-size: 9px; }
@@ -772,6 +810,8 @@
      in the serif, like the caption it becomes under the frame. */
   textarea { min-height: 104px; max-height: 320px; resize: none; padding: 10px 12px;
     font: 15px/1.5 var(--serif); }
+  /* Writing gets more room; leaving the field restores the compact sidebar. */
+  .prompt-field textarea:focus, .prompt-field textarea.expanded-editor { min-height: clamp(160px, 40dvh, 320px); scroll-margin-block: 16px; }
   input[type=range] { width: 100%; margin: 0; accent-color: var(--accent-fill); }
   ::placeholder { color: var(--text-3); }
 
@@ -815,11 +855,6 @@
   /* The video run button is the image form's two lines: the verb, and the reason it is off.
      The component's box carries nothing, as it does on `#go`, so the lines stay the button's
      own flex items. */
-  #video-generate { display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 1px; }
-  #video-generate run-button { display: contents; }
-  #video-generate .main { font-size: 14px; font-weight: 600; }
-  #video-generate .sub { font-size: 11px; opacity: .7; }
   /* Edit's clip zone is the image form's zone, box for box: the image form draws `.refs`
      with 12px of padding around a `.refs-empty` centred at 16px 8px, and this is that sum.
      The two doors then read as the same control in the same sidebar. */
@@ -944,7 +979,7 @@
   /* The run button's labels are a component, and the button is a column of two
      lines. The component's own box carries nothing, so the two lines stay the
      flex items of the button and the layout does not move. */
-  #go run-button { display: contents; }
+  .run-button run-button { display: contents; }
   #count-toggle { display: flex; align-items: center; gap: 3px; padding: 0 10px 0 13px;
     border: 1px solid transparent; border-left-color: rgba(128, 128, 128, .4); border-radius: 0 9px 9px 0;
     background: var(--accent-fill); color: var(--on-accent); cursor: pointer; font-size: 13px; font-weight: 600;
@@ -960,22 +995,25 @@
   /* The run button only starts a run. While one is in flight it is disabled
      and reads Generating or Editing, with the step count below; Cancel sits on
      the progress card. The second line carries the estimate when idle. */
-  #go { position: relative; overflow: hidden; flex: 1; min-width: 0; min-height: 50px; border: 1px solid transparent;
+  .run-button { position: relative; overflow: hidden; flex: 1; min-width: 0; min-height: 50px; border: 1px solid transparent;
     border-radius: 9px; background: var(--accent-fill); color: var(--on-accent); cursor: pointer;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
     transition: opacity .15s, transform .08s, background-color .15s; }
-  #go:hover:not(:disabled) { opacity: .9; }
-  #go:active:not(:disabled) { transform: scale(.995); }
-  #go:disabled { background: var(--chrome-3); color: var(--text-3); cursor: not-allowed; }
-  #go .main { font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
-  #go .sub { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .7; }
+  .run-button:hover:not(:disabled) { opacity: .9; }
+  .run-button:active:not(:disabled) { transform: scale(.995); }
+  .run-button:disabled { background: var(--chrome-3); color: var(--text-3); cursor: not-allowed; }
+  .run-button .main { font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
+  .run-button .sub { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .7; }
   /* Which label the run button shows is the DOM's, not the cascade's: the page
      sets `hidden` on the three it is not using. A stylesheet that fails to load
      must leave one label in the name, so no rule here sets `display` on them. */
   body.busy #go { background: var(--chrome-2); border-color: var(--line-strong); color: var(--text); opacity: 1; }
   body.busy #go:hover:not(:disabled) { background: var(--chrome-3); }
   body.stopping #go { color: var(--text-3); cursor: progress; }
-  #go .sub { color: inherit; }
+  #voice-generate[data-state=busy], #voice-generate[data-state=stopping] {
+    background: var(--chrome-2); border-color: var(--line-strong); color: var(--text); }
+  #voice-generate[data-state=stopping] { color: var(--text-3); cursor: progress; }
+  .run-button .sub { color: inherit; }
   body.busy #go .sub { color: var(--text-2); opacity: 1; }
 
   #progress, #incoming { display: none; }
@@ -1018,3 +1056,29 @@
     *, *::before, *::after { animation: none !important; transition: none !important; }
     .mark.draw path { stroke-dashoffset: 0; }
   }
+
+/* Shared work stays visible in either workspace. */
+.shared-operation { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.shared-operation[hidden] { display: none; }
+.shared-operation > span { flex: 1; }
+.shared-operation progress { width: 90px; accent-color: var(--accent); }
+#shared-rewrite-result { flex-wrap: wrap; }
+#shared-rewrite-text { width: 100%; }
+
+.voice-generation { width: min(680px, 100%); display: grid; gap: 14px; padding: 28px 0; }
+.voice-generation-wave { width: 100%; overflow: hidden; }
+.voice-generation-wave svg { display: block; width: 100%; height: auto; }
+.voice-generation-bars line { stroke: var(--text); opacity: .22; stroke-width: 5px; stroke-linecap: round;
+  transform-box: fill-box; transform-origin: center; animation: voice-generation-pulse 1.3s ease-in-out infinite alternate;
+  animation-delay: var(--bar-delay); }
+.voice-generation-fill line { stroke: var(--accent); opacity: 1; }
+.voice-generation-scan { animation: voice-generation-scan 2s ease-in-out infinite; }
+.voice-generation-status { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.voice-generation-status strong { font: 18px var(--serif); }
+.voice-generation-status .num { color: var(--text-2); font-size: 12px; }
+.voice-generation > p { margin: 0; color: var(--text-3); }
+@keyframes voice-generation-pulse { from { transform: scaleY(.55); } to { transform: scaleY(1); } }
+@keyframes voice-generation-scan { from { transform: translateX(-160px); } to { transform: translateX(640px); } }
+@media (prefers-reduced-motion: reduce) {
+  .voice-generation-bars line, .voice-generation-scan { animation: none; }
+}

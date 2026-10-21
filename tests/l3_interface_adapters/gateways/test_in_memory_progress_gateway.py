@@ -89,3 +89,13 @@ def test_a_fresh_batch_clears_a_stale_cancel(progress):
     progress.request_cancel()
     progress.clear_cancel()
     assert progress.cancel_requested() is False
+
+
+def test_operation_cancel_survives_a_fresh_progress_begin():
+    stopped = [False]
+    gateway = InMemoryProgressGateway(external_cancel=lambda: stopped[0])
+    assert not gateway.cancel_requested()
+    stopped[0] = True
+    gateway.clear_cancel()
+    gateway.begin("")
+    assert gateway.cancel_requested()

@@ -36,10 +36,11 @@ class RunLabels extends LitElement {
   }
 
   render() {
+    const starting = this.state === 'starting';
     const stopping = this.state === 'stopping';
-    const running = this.state === 'busy' || stopping;
+    const running = this.state === 'busy' || stopping || starting;
     const editing = (this.mode || get('mode')) === 'edit';
-    return html`<span class="main"><span class="idle-label" ?hidden=${running}><span class="generate-only" ?hidden=${editing}>Generate</span><span class="edit-only" ?hidden=${!editing}>Edit</span></span><span class="busy-label" ?hidden=${!running || stopping}>Cancel</span><span class="stopping-label" ?hidden=${!stopping}>Stopping&hellip;</span></span>`;
+    return html`<span class="main"><span class="idle-label" ?hidden=${running}><span class="generate-only" ?hidden=${editing}>Generate</span><span class="edit-only" ?hidden=${!editing}>Edit</span></span><span class="busy-label" ?hidden=${!running || stopping || starting}>Cancel</span><span class="starting-label" ?hidden=${!starting}>Starting&hellip;</span><span class="stopping-label" ?hidden=${!stopping}>Stopping&hellip;</span></span>`;
   }
 }
 

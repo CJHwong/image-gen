@@ -4,7 +4,7 @@ import base64
 import binascii
 import io
 import secrets
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -27,6 +27,9 @@ class VideoController:
         self._catalog = catalog
         self._switch = switch
 
+    def capabilities(self, backend_id: str = "") -> VideoCapabilities:
+        return self._catalog.get(backend_id or self._catalog.active_id()).capabilities()
+
     def run(self, payload: Mapping) -> VideoResult:
         request_id = _request_id(payload.get("request_id"))
         backend_id = payload.get("backend") or self._catalog.active_id()
@@ -37,6 +40,25 @@ class VideoController:
 
     def cancel(self, payload: Mapping) -> bool:
         return self._run.cancel(_request_id(payload.get("request_id")))
+
+    def run_batch(
+        self,
+        payloads: list[Mapping],
+        completed: Callable[[int, VideoResult], None],
+        started: Callable[[int, int], None],
+        cancelled: Callable[[], bool],
+    ) -> list[VideoResult]:
+        if not payloads:
+            raise InvalidJob("The video batch cannot be empty.")
+        backend_id = payloads[0].get("backend") or self._catalog.active_id()
+        if not isinstance(backend_id, str):
+            raise InvalidJob("backend must be a video model id")
+        if any((payload.get("backend") or self._catalog.active_id()) != backend_id for payload in payloads):
+            raise InvalidJob("Each video batch item must use the same backend.")
+        capabilities = self._catalog.get(backend_id).capabilities()
+        jobs = [video_job(payload, capabilities) for payload in payloads]
+        request_id = _request_id(payloads[0].get("request_id"))
+        return self._run.execute_batch(jobs, backend_id, request_id, completed, started, cancelled)
 
     def switch(self, form: Mapping[str, str]) -> None:
         self._switch.execute(form.get("backend", ""))
@@ -66,7 +88,7 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
         frame_rate,
         seed,
         references,
-        enhance=bool(payload.get("enhance")),
+        enhance=not mode.needs_clip,
         edit=_edit(payload, adapter, capabilities) if adapter else None,
         audio=_audio(payload.get("audio"), mode, capabilities),
     )
