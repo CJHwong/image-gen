@@ -1,0 +1,4 @@
+reports/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+reports/**/*.wav filter=lfs diff=lfs merge=lfs -text
+reports/**/*.png filter=lfs diff=lfs merge=lfs -text
+reports/**/*.jpg filter=lfs diff=lfs merge=lfs -text

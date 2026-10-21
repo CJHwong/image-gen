@@ -1,0 +1,13 @@
+[extend]
+useDefault = true
+
+# Benchmark manifests map repository paths to SHA-256 file digests. A path
+# containing "api" is not an API credential. Both constraints must match;
+# ordinary credential fields and findings outside report JSON remain scanned.
+[[allowlists]]
+description = "Repository file digests in benchmark evidence"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^reports/.*\.json$''']
+regexes = ['''^\s*"(?:API\.md|(?:studio|tests|reports)/[^"\r\n]+\.(?:py|js|html|css|log))"\s*:\s*"[0-9a-f]{64}",?\s*$''']

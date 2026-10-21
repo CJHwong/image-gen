@@ -1175,7 +1175,7 @@ An effect renders at the size and length its card trained at. Clean plate at 384
 the crowd; at 1024 x 576 and 49 frames it emptied the street. Each adapter carries its own
 `width`, `height` and `num_frames`, and the controller and the form use them.
 
-| Effect | Card size | Verdict |
+| Effect | Measured output | Verdict |
 | --- | --- | --- |
 | Day to night | 768 x 448, 97 | A daylight room becomes night: blue moonlight, lit windows, the dancer and the room held. 273.3 s through the API |
 | Water simulation | 1280 x 704, 97 | A dry room floods: water across the floor and a splash at the feet. 958.8 s through the API. At 960 x 544 the same prompt added no water |
@@ -1188,9 +1188,23 @@ the crowd; at 1024 x 576 and 49 frames it emptied the street. Each adapter carri
 The times are the studio's own run on the office M5 Pro, with no other GPU job on the
 machine: one clip, seed 7, one effect per request through `/api/v1/videos/edit`.
 
-Water's card asks for 1920 x 1088. The form's largest rung is 1280 x 704, and water shows
-there, so that pair ships. Deblur and decompression were trained at 960 x 544; their cards
-name 1920 x 1088 for production, and the trained pair shows the effect, so it ships.
+Water's card asks for 1920 x 1088. On the office M5 Pro with 64 GB, that single-stage edit fails with insufficient Metal memory during reference encoding. The `--upsample-only` alternative writes a clip, but its frames contain dense noise and tiles. Neither run validates water at that size. Water stays at the measured 1280 x 704 pair.
+
+The form offers 1920 x 1088 for generation. That does not validate edits at the same size. Deblur and decompression were trained at 960 x 544. Their cards name 1920 x 1088 for production, but only the trained pair has a valid measured result here.
+
+With `fetch_loras = true`, the current runner fetched Deblur into an empty directory through `/api/v1/videos/edit`. The downloaded file matches the existing verified adapter byte for byte. Cancel returned 204, the edit returned `{"cancelled": true}`, and the engine child exited in 0.163 seconds. A separate server check confirms that Cancel stops a stalled download and releases the shared run lock.
+
+Portrait checks use `/api/v1/videos/edit` on the office M5 Pro with 64 GB, seed 7. Each check compares its first, middle and last frames with the input.
+
+| Effect | Portrait output | Seconds | Visual result |
+| --- | --- | --- | --- |
+| Day to night | 448 x 768, 97 frames | 338.0 | Blue window light and darker walls replace daylight; the dancer and framing remain |
+| Deblur | 544 x 960, 121 frames | 850.9 | The softened face, clothing edges and floor regain detail; the shot remains |
+| Clean plate | 576 x 1024, 49 frames | 324.5 | The dancer disappears; the room, window light and floor remain |
+| Decompression | 544 x 960, 121 frames | 544.0 | Blocks disappear from the damaged input; the face, hands and floor regain detail |
+| Restore | 544 x 960, 97 frames | 633.1 | Noise falls and edges sharpen, but colour restoration is weak: the shot stays mostly grey, with pink hands |
+| Upscale 2x | 768 x 1280, 121 frames | 986.1 | A 384 x 640 input gains sharper edges and floor detail at twice its width and height |
+| Water simulation | 704 x 1280, 97 frames | 1376.9 | The dry floor floods, with standing water and splashes around the dancer's feet |
 
 The day-to-night card asks 768 x 448 and 97 frames, which is what ships. Its first MLX run
 looked like a failure because the test clip was already a torch-lit night street. On a
@@ -1205,3 +1219,26 @@ above are the evidence.
 timing rather than retiming it. The MLX port has no Dub-It task; its LipDub entry is
 experimental and re-syncs to source audio. Removing the PyTorch engine removed the only Dub-It
 path, so Dub is deferred and would need that engine restored.
+
+
+### LTX-2.5 speech and camera probes (2026-10-20)
+
+Six sequential asynchronous API operations use seed 7, 384 x 384, 121 frames, and 24 fps.
+The office M5 Pro runs one GPU job at a time. Source digests match before and after every run.
+
+| Probe | Seconds | Verdict |
+| --- | --- | --- |
+| Generated speech | 52.5 | Speech recognition returns the exact quoted sentence; mouth movement broadly follows the voice |
+| Supplied speech | 396.9 | The supplied voice and timing remain; mouth movement broadly follows the voice |
+| Fixed composition | 66.6 | Mostly stable, with small background drift |
+| Slow push-in | 66.3 | Clear enlargement and foreground parallax |
+| Sideways move | 66.9 | Partial: forward movement appears too, and the subject leaves the center |
+| Clockwise orbit | 66.5 | Unproven: no clear new side of the object appears |
+
+Only Speak to camera, Fixed composition, and Slow push-in become new LTX-2.5 templates.
+LTX-2.3 keeps its existing templates. Tests reproduce the exact measured prompts from the new template fields.
+The supplied audio correlates at 0.999686 with the padded input, with zero sample lag at 16 kHz mono.
+This proves audio preservation, not exact lip alignment. No phoneme alignment score was measured.
+Each prompt has one seed, so these results do not establish reliability across seeds.
+The full prompts, clips, contacts, and manifest are in
+[the experiment report](../../../reports/ltx25-prompt-probes-2026-10-20/README.md).
