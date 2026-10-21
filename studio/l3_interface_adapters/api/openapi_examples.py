@@ -299,7 +299,7 @@ def voice_examples() -> dict[str, Any]:
                 "temperature": 0.7,
                 "top_p": 0.7,
                 "top_k": 30,
-                "max_tokens": 1024,
+                "max_tokens": 2048,
                 "seed": 7,
             },
         },

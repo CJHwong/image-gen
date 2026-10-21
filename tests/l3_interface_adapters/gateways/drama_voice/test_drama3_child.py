@@ -120,7 +120,7 @@ def test_failed_generation_does_not_publish_a_partial_clip_and_resets_codec(runt
     if kind == "empty":
         engine.generate.return_value = []
     elif kind in ("cap", "default_cap"):
-        engine.generate.return_value = [result([0.1], tokens=1024)]
+        engine.generate.return_value = [result([0.1], tokens=1024 if kind == "cap" else 2048)]
         if kind == "cap":
             job["max_tokens"] = 1024
     elif kind == "nonfinite":
@@ -129,8 +129,11 @@ def test_failed_generation_does_not_publish_a_partial_clip_and_resets_codec(runt
     else:
         engine.generate.side_effect = RuntimeError("engine failure")
         error = RuntimeError
-    with pytest.raises(error):
+    with pytest.raises(error) as caught:
         load_child().answer(engine, job)
+    if kind == "default_cap":
+        assert "Shorten the script" in str(caught.value)
+        assert "up to 2048" in str(caught.value)
     engine.codec.reset_streaming_state.assert_called_once_with()
     assert runtime.clear.called
 
@@ -174,3 +177,10 @@ def test_multiple_productive_internal_chunks_form_one_continuous_clip(runtime, e
     engine.generate.return_value = [result([0.1, 0.2]), result([0.3], segment=1), result([], tokens=0, segment=1)]
     answer = load_child().answer(engine, {"text": "First chunk|Second chunk", "seed": 7})
     assert len(read(base64.b64decode(answer["wav"]))[0]) == 3
+
+
+def test_omitted_token_limit_forwards_2048_and_allows_output_past_old_default(runtime, engine):
+    engine.generate.return_value = [result([0.1], tokens=1500)]
+    answer = load_child().answer(engine, {"text": "Hello", "seed": 7})
+    assert answer["steps"] == 1500
+    assert engine.generate.call_args.kwargs["max_tokens"] == 2048

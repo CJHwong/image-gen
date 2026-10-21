@@ -63,7 +63,7 @@ def answer(engine, job):
     mx.random.seed(job["seed"])
     mx.reset_peak_memory()
     options = {name: job[name] for name in ("max_tokens", "temperature", "top_k", "top_p") if name in job}
-    limit = options.get("max_tokens", 1024)
+    limit = options.setdefault("max_tokens", 2048)
     if job.get("audio"):
         options.update(ref_audio=reference_samples(job["audio"], engine.sample_rate), ref_text=job["ref_text"])
     chunks, tokens, per_segment, samples_per_segment = [], 0, {}, {}
@@ -74,7 +74,7 @@ def answer(engine, job):
             per_segment[result.segment_idx] = count
             if count >= limit:
                 raise ValueError(
-                    "The audio reached max_tokens before completing. Increase max_tokens or shorten the script."
+                    "The audio reached max_tokens before completing. Shorten the script, simplify delivery cues, or try another seed or a reference voice. Lower max_tokens values can be raised up to 2048."
                 )
             samples = np.array(result.audio, dtype=np.float32, copy=True)
             samples_per_segment[result.segment_idx] = samples_per_segment.get(result.segment_idx, 0) + len(samples)

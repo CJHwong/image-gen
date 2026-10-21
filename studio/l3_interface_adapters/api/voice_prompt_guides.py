@@ -194,8 +194,10 @@ VOICE_API_CONTRACT = """Choose backend explicitly, then use only its discovered 
 | Reference / native WAV rate | at most 15 seconds / 44.1 kHz | at most 120 seconds / 24 kHz |
 | Duration / progress | script-driven / indeterminate during synthesis | seconds=0 selects automatically / sampler steps |
 
-Drama sampling defaults match the pinned MLX Audio implementation: temperature=0.7, top_p=0.7,
-top_k=30 and max_tokens=1024 per internal chunk. These are implementation defaults, not a Fish Audio
+Drama sampling defaults match the pinned MLX Audio implementation: temperature=0.7, top_p=0.7
+and top_k=30. Studio sets max_tokens=2048 per internal chunk, increased from the engine default of
+1024 to allow more completion headroom. It remains a ceiling, not a target length; looping output may
+run longer before failing. These are implementation and product defaults, not a Fish Audio
 recommendation established as best for every task. See the [pinned MLX source](https://github.com/Blaizzy/mlx-audio/blob/2209e6d76c18d0a24f7ff64d35b4176258acd909/mlx_audio/tts/models/fish_drama3/drama3.py).
 AuK uses the upstream 32-step setting; Flash uses its fixed 4-step path. See the
 [AuK inference implementation](https://github.com/Tencent-Hunyuan/AuK/blob/9481474f107ee4d8dec959b3aed05b0627cebbf8/src/auk/infer/infer_gradio.py)

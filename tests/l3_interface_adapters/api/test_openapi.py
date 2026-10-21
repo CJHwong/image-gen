@@ -241,3 +241,19 @@ def test_visual_prompt_guides_are_available_at_model_discovery_and_generation():
         assert image_link in operations[name]["description"]
     for name in ("generateVideo", "editVideo", "readVideoBackend"):
         assert video_link in operations[name]["description"]
+
+
+def test_drama_token_default_matches_capabilities_and_named_example():
+    from studio.l3_interface_adapters.gateways.drama_voice.capabilities import drama_capabilities
+
+    document = openapi_document()
+    default = document["components"]["schemas"]["VoiceRequest"]["properties"]["max_tokens"]["default"]
+    example = document["paths"]["/api/v1/voice/generate"]["post"]["requestBody"]["content"]["application/json"][
+        "examples"
+    ]["drama_delivery"]["value"]
+    assert (
+        default
+        == example["max_tokens"]
+        == drama_capabilities().mode("generate").parse_options({})["max_tokens"]
+        == 2048
+    )

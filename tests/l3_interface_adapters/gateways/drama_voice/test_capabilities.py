@@ -17,6 +17,14 @@ def test_drama_declares_only_the_checked_engine_contract():
     transcript = next(param for param in clone.params if param.id == "ref_text")
     assert transcript.required
     defaults = caps.mode("generate").parse_options({})
-    assert defaults == {"temperature": 0.7, "top_p": 0.7, "top_k": 30, "max_tokens": 1024}
+    assert defaults == {"temperature": 0.7, "top_p": 0.7, "top_k": 30, "max_tokens": 2048}
     assert all(template.target == "text" for template in clone.templates)
     assert caps.loading.repository == "mlx-community/fish-audio-drama-3-8bit"
+
+
+def test_both_drama_modes_use_2048_tokens_by_default_and_accept_lower_caps():
+    caps = drama_capabilities()
+    for mode in caps.modes:
+        inputs = {"ref_text": "Recorded words."} if mode.id == "clone" else {}
+        assert mode.parse_options(inputs)["max_tokens"] == 2048
+        assert mode.parse_options({**inputs, "max_tokens": "1024"})["max_tokens"] == 1024

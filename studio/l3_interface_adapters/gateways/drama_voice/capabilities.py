@@ -27,7 +27,7 @@ SAMPLING = (
     ParamSpec(
         "max_tokens",
         "number",
-        1024,
+        2048,
         minimum=64,
         maximum=2048,
         integer=True,

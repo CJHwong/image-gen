@@ -959,7 +959,7 @@ def voice_schemas() -> dict[str, Any]:
                     "description": "Drama-3 candidate count; ignored by AuK/AuK Flash.",
                 },
                 "max_tokens": {
-                    "default": 1024,
+                    "default": 2048,
                     "description": "Drama-3 only; ignored by AuK/AuK Flash. Audio-token safety limit per internal text chunk, not words, duration, or percent complete. A cap hit fails instead of publishing partial audio. Try another seed, simpler cues, or Clone with a clean reference if the model does not finish; a higher cap can prolong looping.",
                 },
                 "seed": {"type": "integer", "minimum": 0, "maximum": 4294967295},
