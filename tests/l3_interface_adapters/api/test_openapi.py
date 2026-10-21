@@ -190,3 +190,54 @@ def test_design_template_examples_keep_spoken_text_separate_from_voice_fields():
     ]["value"]
     assert batch["kind"] == "voice" and len(batch["items"]) == 2
     assert all(item["template"] and item["text"] for item in batch["items"])
+
+
+def test_voice_prompt_references_are_discoverable_and_do_not_claim_upstream_api_features():
+    from urllib.parse import urlsplit
+
+    document = openapi_document()
+    guides = document["x-voice-prompt-guides"]
+    assert len(guides) >= 20
+    assert {backend for guide in guides for backend in guide["models"]} == {"drama3", "auk", "auk_base"}
+    assert all(urlsplit(guide["url"]).scheme == "https" and guide["scope"] and guide["topics"] for guide in guides)
+    assert {urlsplit(guide["url"]).hostname for guide in guides} <= {
+        "docs.fish.audio",
+        "huggingface.co",
+        "speech.fish.audio",
+        "sgl-project.github.io",
+        "recipes.vllm.ai",
+        "github.com",
+        "auk-project.github.io",
+    }
+    voice = next(tag for tag in document["tags"] if tag["name"] == "voice")
+    for guide in guides:
+        assert guide["url"] in voice["description"]
+    assert "Studio does not expose" in voice["description"]
+    assert "previous_takes" in voice["description"] and "multi-reference speaker casting" in voice["description"]
+    assert "Unknown top-level fields" in voice["description"] and "ignored, not rejected" in voice["description"]
+    for path in ["/api/v1/voice/generate", "/api/v1/voice/backends/{id}", "/api/v1/voice/capabilities"]:
+        operation = next(iter(document["paths"][path].values()))
+        assert "https://docs.fish.audio/features/text-to-speech/drama-3" in operation["description"]
+        assert "https://github.com/Tencent-Hunyuan/AuK/blob/main/docs/COOKBOOK.md" in operation["description"]
+    guides[0]["models"].clear()
+    assert openapi_document()["x-voice-prompt-guides"][0]["models"] == ["drama3"]
+
+
+def test_visual_prompt_guides_are_available_at_model_discovery_and_generation():
+    document = openapi_document()
+    tags = {tag["name"]: tag["description"] for tag in document["tags"]}
+    image_link = "https://huggingface.co/Qwen/Qwen-Image-2.1"
+    video_link = "https://docs.ltx.io/api-documentation/implementation-guides/prompting-guide"
+    assert image_link in tags["images"]
+    assert video_link in tags["videos"]
+    assert "not a separate comprehensive 2.1 prompt manual" in tags["images"]
+    assert "multi-shot section is explicitly about LTX-2.5" in tags["videos"]
+    assert "discovered modes" in tags["videos"]
+    assert "automatically enhances LTX Generate" in tags["videos"]
+    operations = {
+        operation["operationId"]: operation for path in document["paths"].values() for operation in path.values()
+    }
+    for name in ("generateImage", "editImage", "readImageBackend"):
+        assert image_link in operations[name]["description"]
+    for name in ("generateVideo", "editVideo", "readVideoBackend"):
+        assert video_link in operations[name]["description"]

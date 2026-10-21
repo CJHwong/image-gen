@@ -1,5 +1,8 @@
 """Task-oriented endpoint guidance: choose a tool, prepare inputs, then use its output."""
 
+from studio.l3_interface_adapters.api.visual_prompt_guides import IMAGE_PROMPT_REFERENCES, VIDEO_PROMPT_REFERENCES
+from studio.l3_interface_adapters.api.voice_prompt_guides import VOICE_START_HERE
+
 GUIDANCE = {
     "readOpenApi": (
         "Read this reference to choose an endpoint and a named request example. Start with readStudio for model IDs, "
@@ -185,3 +188,15 @@ GUIDANCE = {
         "cancelling a rewrite does not generate an image or video."
     ),
 }
+
+for _operation in ("generateVoice", "readVoiceBackend", "readVoiceCapabilities"):
+    GUIDANCE[_operation] += (
+        " Unknown or inapplicable top-level parameters are currently ignored; unsupported modes and unknown template fields reject the request. "
+        + VOICE_START_HERE
+    )
+
+for _operation in ("generateImage", "editImage", "readImageBackend"):
+    GUIDANCE[_operation] += "\n\n" + IMAGE_PROMPT_REFERENCES
+
+for _operation in ("generateVideo", "editVideo", "readVideoBackend"):
+    GUIDANCE[_operation] += "\n\n" + VIDEO_PROMPT_REFERENCES

@@ -6,6 +6,7 @@ A test walks the routes in http_server and the paths here, and fails when one is
 missing from the other, which is the part a generator would otherwise guarantee.
 """
 
+from copy import deepcopy
 from typing import Any, cast
 
 from studio.l3_interface_adapters.api.api_guidance import GUIDANCE
@@ -16,6 +17,13 @@ from studio.l3_interface_adapters.api.openapi_examples import (
     rewrite_examples,
     video_examples,
     voice_examples,
+)
+from studio.l3_interface_adapters.api.visual_prompt_guides import IMAGE_PROMPT_REFERENCES, VIDEO_PROMPT_REFERENCES
+from studio.l3_interface_adapters.api.voice_prompt_guides import (
+    VOICE_API_CONTRACT,
+    VOICE_PROMPT_GUIDES,
+    VOICE_PROMPT_REFERENCES,
+    VOICE_START_HERE,
 )
 
 DESCRIPTION = """Use the same model controls as the Studio page through JSON.
@@ -72,16 +80,17 @@ def openapi_document() -> dict[str, Any]:
         "info": {
             "title": "Image Gen Studio",
             "version": "1.0.0",
-            "description": DESCRIPTION,
+            "description": DESCRIPTION + "\n" + VOICE_START_HERE,
         },
+        "x-voice-prompt-guides": deepcopy(VOICE_PROMPT_GUIDES),
         "servers": [{"url": "/", "description": "This studio"}],
         "tags": [
             {"name": "studio", "description": "What this server can run"},
-            {"name": "images", "description": "Stills: generate, edit, rewrite"},
-            {"name": "videos", "description": "Clips: generate, edit, rewrite"},
+            {"name": "images", "description": "Stills: generate, edit, rewrite\n\n" + IMAGE_PROMPT_REFERENCES},
+            {"name": "videos", "description": "Clips: generate, edit, rewrite\n\n" + VIDEO_PROMPT_REFERENCES},
             {
                 "name": "voice",
-                "description": "Speech: generate, design, clone, and edit as supported by the chosen model",
+                "description": VOICE_API_CONTRACT + "\n" + VOICE_PROMPT_REFERENCES,
             },
         ],
         "paths": {
@@ -896,6 +905,8 @@ def voice_schemas() -> dict[str, Any]:
     return {
         "VoiceRequest": {
             "type": "object",
+            "description": VOICE_API_CONTRACT + "\n" + VOICE_START_HERE,
+            "additionalProperties": True,
             "anyOf": [{"required": ["text"]}, {"required": ["template"]}],
             "properties": {
                 "backend": {
@@ -913,7 +924,7 @@ def voice_schemas() -> dict[str, Any]:
                 },
                 "mode": {
                     "enum": ["generate", "clone", "design", "edit"],
-                    "description": "Omitted mode uses the model default: design for AuK, generate for Drama-3.",
+                    "description": "AuK/AuK Flash allow design, clone and edit; Drama-3 allows generate and clone. Omitted mode uses the model default: design for AuK, generate for Drama-3. Unsupported modes reject the request.",
                 },
                 "text": {
                     "type": "string",
@@ -922,53 +933,34 @@ def voice_schemas() -> dict[str, Any]:
                     "description": "Words to speak for generate/clone/design; an edit instruction for edit. Drama accepts inline [delivery cues] and paired delivery tags.",
                 },
                 "voice": {
-                    "type": "string",
-                    "description": "Required for custom design without a template. Describe the speaker, voice texture, pace and delivery. A Design template supplies this description.",
+                    "description": "AuK Design only; ignored in other modes. Required for custom design without a template. Describe speaker attributes here and keep spoken words in text. A Design template supplies this description.",
                 },
                 "seconds": {
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 120,
                     "default": 0,
-                    "description": "Zero chooses duration from text for clone/design, or from the reference for edit. Structured templates with length_by divide the reference duration by that field. A positive seconds value overrides this rule.",
+                    "description": "AuK only; ignored by Drama-3, whose duration follows its script. Zero chooses duration from text for clone/design, or from the reference for edit. Templates with length_by divide reference duration by that field. Positive seconds overrides this rule.",
                 },
                 "convert": {
-                    "enum": ["tw2s", "off"],
                     "default": "tw2s",
-                    "description": "AuK only: tw2s converts Traditional Chinese characters before synthesis. Vocabulary stays unchanged. Drama preserves the script as written.",
+                    "description": "AuK only; ignored by Drama-3. tw2s converts Traditional Chinese characters before synthesis. Vocabulary stays unchanged. Drama preserves the script as written.",
                 },
                 "ref_text": {
-                    "type": "string",
-                    "minLength": 1,
                     "description": "Required for Drama-3 Clone: exact words spoken in the supplied WAV excerpt, not the new script. Transcribe only the retained audio after trimming to 15 seconds. The API does not run speech recognition. AuK Clone does not need this field.",
                 },
                 "temperature": {
-                    "type": "number",
-                    "minimum": 0.1,
-                    "maximum": 1.5,
                     "default": 0.7,
-                    "description": "Drama-3 sampling temperature.",
+                    "description": "Drama-3 sampling temperature; ignored by AuK/AuK Flash.",
                 },
                 "top_p": {
-                    "type": "number",
-                    "minimum": 0.1,
-                    "maximum": 1,
                     "default": 0.7,
-                    "description": "Drama-3 nucleus sampling.",
+                    "description": "Drama-3 nucleus sampling; ignored by AuK/AuK Flash.",
                 },
                 "top_k": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 100,
                     "default": 30,
-                    "description": "Drama-3 candidate count.",
+                    "description": "Drama-3 candidate count; ignored by AuK/AuK Flash.",
                 },
                 "max_tokens": {
-                    "type": "integer",
-                    "minimum": 64,
-                    "maximum": 2048,
                     "default": 1024,
-                    "description": "Drama-3 audio-token safety limit per internal text chunk, not words, duration, or percent complete. A cap hit fails instead of publishing partial audio. Try another seed, simpler cues, or Clone with a clean reference if the model does not finish; a higher cap can prolong looping.",
+                    "description": "Drama-3 only; ignored by AuK/AuK Flash. Audio-token safety limit per internal text chunk, not words, duration, or percent complete. A cap hit fails instead of publishing partial audio. Try another seed, simpler cues, or Clone with a clean reference if the model does not finish; a higher cap can prolong looping.",
                 },
                 "seed": {"type": "integer", "minimum": 0, "maximum": 4294967295},
                 "reference": {
@@ -993,7 +985,11 @@ def voice_schemas() -> dict[str, Any]:
                             },
                         ]
                     },
-                    "then": {"required": ["text"], "anyOf": [{"required": ["voice"]}, {"required": ["template"]}]},
+                    "then": {
+                        "required": ["text"],
+                        "anyOf": [{"required": ["voice"]}, {"required": ["template"]}],
+                        "properties": {"voice": {"type": "string"}},
+                    },
                 },
                 {
                     "if": {"required": ["mode"], "properties": {"mode": {"enum": ["clone", "edit"]}}},
@@ -1001,14 +997,45 @@ def voice_schemas() -> dict[str, Any]:
                 },
                 {
                     "if": {"required": ["backend"], "properties": {"backend": {"const": "drama3"}}},
-                    "then": {"properties": {"mode": {"enum": ["generate", "clone"]}}},
+                    "then": {
+                        "properties": {
+                            "mode": {"enum": ["generate", "clone"]},
+                            "temperature": {"type": "number", "minimum": 0.1, "maximum": 1.5},
+                            "top_p": {"type": "number", "minimum": 0.1, "maximum": 1},
+                            "top_k": {"type": "integer", "minimum": 1, "maximum": 100},
+                            "max_tokens": {"type": "integer", "minimum": 64, "maximum": 2048},
+                        }
+                    },
                 },
                 {
                     "if": {
                         "required": ["backend", "mode"],
                         "properties": {"backend": {"const": "drama3"}, "mode": {"const": "clone"}},
                     },
-                    "then": {"required": ["ref_text"]},
+                    "then": {"required": ["ref_text"], "properties": {"ref_text": {"type": "string", "minLength": 1}}},
+                },
+                {
+                    "if": {"required": ["backend"], "properties": {"backend": {"enum": ["auk", "auk_base"]}}},
+                    "then": {
+                        "properties": {
+                            "mode": {"enum": ["design", "clone", "edit"]},
+                            "seconds": {"type": "number", "minimum": 0, "maximum": 120},
+                            "convert": {"enum": ["tw2s", "off"]},
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "anyOf": [
+                            {"required": ["mode"], "properties": {"mode": {"enum": ["generate", "design"]}}},
+                            {
+                                "not": {"required": ["mode"]},
+                                "required": ["backend"],
+                                "properties": {"backend": {"enum": ["auk", "auk_base", "drama3"]}},
+                            },
+                        ]
+                    },
+                    "then": {"properties": {"reference": False}},
                 },
             ],
         }

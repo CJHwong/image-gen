@@ -460,3 +460,124 @@ Drama-3 is the default Voice model and uses the pinned eight-bit MLX checkpoint.
 LTX Generate always applies the pipeline's Gemma-3 prompt enhancer before video encoding, for both LTX-2.3 and LTX-2.5 and for audio-conditioned generation. LTX-2.5 still uses its Gemma-4 tower for text encoding. The compatibility `enhance` request field cannot disable this pass. The separate Rewrite endpoint/button remains available to edit the prompt beforehand. Edit adapters retain their supplied prompt unchanged. Eligible Generate batches enhance their prompts in one model load, release the enhancement process, then render. Auto retains per-item generation for measured regressions, including the enhanced LTX-2.5 two-item 1920×1088, 17-frame, 24-fps text case. Eligible LTX-2.5 text batches reuse the video pipeline within its measured geometry/memory limits. Other Generate batches render clips sequentially after shared enhancement. Mixed Edit batches retain per-item execution. One operation reserves the engine throughout both phases; enhancement is preparation, not a completed result.
 
 Each endpoint description now explains when to choose it, required discovery, how to use its output, and recovery choices. Start with `/api/v1/studio`, inspect a candidate's capabilities without switching models, then submit an operation and poll its status URL. Named template and adapter recipes are preferred when they match the task.
+
+## Voice model contract and validation
+
+Choose backend explicitly, then use only its discovered modes and parameters.
+
+| Contract | Drama-3 (drama3) | AuK (auk_base) / AuK Flash (auk) |
+|---|---|---|
+| Modes / default | generate, clone / generate | design, clone, edit / design |
+| No-reference speech | text with optional inline direction | text plus voice or a Design template |
+| Clone | text, reference, exact ref_text | text and reference; no transcript required |
+| Controls | temperature, top_p, top_k, max_tokens | seconds, convert; voice for Design |
+| Reference / native WAV rate | at most 15 seconds / 44.1 kHz | at most 120 seconds / 24 kHz |
+| Duration / progress | script-driven / indeterminate during synthesis | seconds=0 selects automatically / sampler steps |
+
+Drama sampling defaults match the pinned MLX Audio implementation: temperature=0.7, top_p=0.7,
+top_k=30 and max_tokens=1024 per internal chunk. These are implementation defaults, not a Fish Audio
+recommendation established as best for every task. See the [pinned MLX source](https://github.com/Blaizzy/mlx-audio/blob/2209e6d76c18d0a24f7ff64d35b4176258acd909/mlx_audio/tts/models/fish_drama3/drama3.py).
+AuK uses the upstream 32-step setting; Flash uses its fixed 4-step path. See the
+[AuK inference implementation](https://github.com/Tencent-Hunyuan/AuK/blob/9481474f107ee4d8dec959b3aed05b0627cebbf8/src/auk/infer/infer_gradio.py)
+and [official Flash setup](https://github.com/Tencent-Hunyuan/AuK/blob/main/docs/COMFYUI.md).
+These settings have real-run coverage but have not been proven optimal by a systematic quality sweep.
+Adapter chunking, voice-description wording and Chinese character conversion have targeted experimental
+evidence; this does not establish universally best model settings.
+
+Both use one model per ordered batch, at most 16 items, and the same operation/result/cancel contract.
+The API checks supported modes, required inputs, declared parameter values, templates, seeds and decoded WAV limits.
+Unknown top-level fields and parameters not declared by the selected mode are currently ignored, not rejected.
+For example, seconds does not set Drama duration and temperature does not tune AuK. Do not rely on ignored fields.
+Unknown template fields do reject the request. A supplied reference is rejected in modes that accept none.
+Send backend and mode explicitly for schema validation: an omitted backend depends on server state and cannot
+be fully checked by a static schema. Batch items inherit defaults; validate each merged item as a VoiceRequest.
+Synchronous invalid requests return 400. Async 202 only acknowledges acceptance; inspect terminal status/error
+for validation failures in the worker. API references over the model limit must be trimmed explicitly;
+UI trimming is not applied to API payloads.
+
+## Official Voice prompting references
+
+Read the primary model guide first, then discover the selected Studio model/mode.
+For Drama put spoken words and inline directions in text. For AuK Design put only spoken words in text and
+speaker attributes in voice, or select an offered template. For AuK Edit put the change instruction in text
+and supply reference.wav_base64. Never paste upstream ChatML, CLI commands, or hosted request envelopes into text.
+
+The guides describe upstream systems too. Studio does not expose Fish hosted voice IDs/reference_id arrays,
+multi-reference speaker casting, previous_takes/continuation editing, streaming responses, pronunciation
+dictionary management, or an AuK Prompt Enhancer flag. Additional fields are ignored rather than enabling them.
+Delivery/phoneme markup stays in the script passed to the local engine, but every upstream tag/language has
+not been tested on the pinned MLX checkpoint. Language-switch markup is experimental upstream; local
+unconditioned Chinese has measured completion failures. Prefer short probes and a clean reference where needed.
+Upstream reference lengths, normalization controls, duration budgets and serving speeds do not override
+Studio discovery. Links were checked 2026-10-22; current upstream pages may evolve beyond our pinned engines.
+
+| Model | Reference | Scope and use |
+|---|---|---|
+| drama3 | [Drama-3 direction guide](https://docs.fish.audio/features/text-to-speech/drama-3) | primary: Delivery, sounds, pauses, word-scoped tags, language changes and phonemes. |
+| drama3 | [Drama-3 model examples](https://huggingface.co/fishaudio/drama-3#example-usage) | upstream examples: Point cues and continuation editing; Studio does not expose continuation history. |
+| drama3 | [English pronunciation](https://docs.fish.audio/developer-guide/core-features/fine-grained-control/english) | upstream syntax: CMU Arpabet notation; test the desired pronunciation on the pinned MLX model. |
+| drama3 | [Chinese pronunciation](https://docs.fish.audio/developer-guide/core-features/fine-grained-control/chinese) | upstream syntax: Tone-number pinyin; local unconditioned Chinese has measured completion limitations. |
+| drama3 | [Japanese pronunciation](https://docs.fish.audio/developer-guide/core-features/fine-grained-control/japanese) | upstream syntax: Romaji and pitch notation; not independently certified by Studio. |
+| drama3 | [Recording a clone reference](https://docs.fish.audio/developer-guide/best-practices/voice-cloning) | shared recording advice: Recording quality; its hosted recording lengths do not override Studio's 15-second limit. |
+| drama3 | [Emotion vocabulary](https://docs.fish.audio/developer-guide/core-features/emotions) | S2 background: Additional cue ideas. This page describes S2 and legacy S1; prefer the Drama-3 guide for syntax. |
+| drama3 | [Fine control background](https://docs.fish.audio/developer-guide/core-features/fine-grained-control) | mixed-version background: Pronunciation and older control forms; avoid copying legacy parenthesis syntax into Drama scripts. |
+| drama3 | [Fish documentation index](https://docs.fish.audio/llms.txt) | publisher index: Discover current canonical documentation; hosted API fields are not Studio fields. |
+| drama3 | [Open-weight inference](https://speech.fish.audio/inference/#drama-3) | upstream runtime: Reference/transcript examples for the official runtime; Studio uses a separate MLX adapter. |
+| drama3 | [Drama-3 serving cookbook](https://sgl-project.github.io/sglang-omni/cookbook/fishaudio_drama3.html) | model-card-linked integration: More request examples; reference limits, streaming and performance are specific to that runtime. |
+| drama3 | [Drama-3 vLLM recipe](https://recipes.vllm.ai/fishaudio/drama-3) | model-card-linked integration: Alternative serving examples, not parameters accepted by this Studio. |
+| auk, auk_base | [AuK instruction cookbook](https://github.com/Tencent-Hunyuan/AuK/blob/main/docs/COOKBOOK.md) | primary: Bilingual instructions across generation, editing, restoration and separation. |
+| auk, auk_base | [AuK cloning and voice design](https://github.com/Tencent-Hunyuan/AuK/blob/main/docs/COOKBOOK.md#1-speech-generation) | task instructions: Map the target script to text and the designed speaker to voice; Studio builds the model instruction. |
+| auk, auk_base | [AuK word and lyric edits](https://github.com/Tencent-Hunyuan/AuK/blob/main/docs/COOKBOOK.md#2-content-editing) | task instructions: Edit instructions; upstream lyric recipes have input requirements and are not all locally validated. |
+| auk, auk_base | [AuK acoustic edits](https://github.com/Tencent-Hunyuan/AuK/blob/main/docs/COOKBOOK.md#3-acoustic-editing) | task instructions: Pitch, speed and volume instructions for Edit. |
+| auk, auk_base | [AuK expressive edits](https://github.com/Tencent-Hunyuan/AuK/blob/main/docs/COOKBOOK.md#4-paralinguistic-editing) | task instructions: Emotion, timbre, accent, nonverbal sounds and whisper conversion. |
+| auk, auk_base | [AuK restoration and isolation](https://github.com/Tencent-Hunyuan/AuK/blob/main/docs/COOKBOOK.md#5-enhancement--separation) | task instructions: Cleanup and source-isolation recipes; use an offered Edit template when available. |
+| auk, auk_base | [AuK demo prompts](https://github.com/Tencent-Hunyuan/AuK/blob/main/src/auk/infer/infer_gradio.py) | publisher examples: Concrete English/Chinese instructions paired with example source audio and durations. |
+| auk, auk_base | [AuK Prompt Enhancer](https://github.com/Tencent-Hunyuan/AuK#prompt-enhancer) | upstream tooling: Optional upstream instruction preparation; Studio does not expose this CLI tool or a PE request flag. |
+| auk, auk_base | [AuK ComfyUI notes](https://github.com/Tencent-Hunyuan/AuK/blob/main/docs/COMFYUI.md) | upstream integration: Duration and Flash examples; ComfyUI's shared 30-second budget is not Studio's duration contract. |
+| auk, auk_base | [AuK authors' audio demos](https://auk-project.github.io/) | authors' demonstrations: Listen to task examples; the site is maintained by the paper authors. |
+| auk_base | [AuK model card](https://huggingface.co/tencent/AuK) | publisher model card: Base-model context and links; use Studio's pinned MLX settings rather than copying inference flags. |
+| auk | [AuK Flash model card](https://huggingface.co/tencent/AuK-Flash) | publisher model card: Distilled variant context; Studio fixes the Flash sampler to four steps. |
+
+## Official Image prompting references
+
+For Qwen-Image-2.1 start with the [publisher model card](https://huggingface.co/Qwen/Qwen-Image-2.1),
+[2.1 release examples](https://qwen.ai/blog?id=qwen-image-2.1), and
+[official repository](https://github.com/QwenLM/Qwen-Image). These provide generation, editing,
+text-rendering and transparency examples; they are not a separate comprehensive 2.1 prompt manual.
+Describe the desired image concretely. In Edit, identify what changes and what should remain consistent;
+when supplying multiple references, explain each image's role. For lettering, specify the exact words
+and their placement. Use the model card's transparency wording only if the discovered local output path
+supports the required alpha behavior; a prompt alone is not an output-format guarantee.
+
+These sources describe the full upstream model. Studio's selected backend capabilities determine reference
+counts, dimensions, alpha output and available controls. Turbo is a separate accelerated checkpoint:
+do not copy the full-model step count into Turbo requests. Use discovered defaults and named API examples.
+Prompt examples are guidance, not proof that every upstream task works on the pinned MLX engine.
+References checked 2026-10-22.
+
+## Official Video prompting references
+
+Start with Lightricks' [prompting guide](https://docs.ltx.io/api-documentation/implementation-guides/prompting-guide)
+for shot framing, visible action, characters, camera movement, lighting and audio. Describe action in time,
+make camera movement relative to the subject explicit, and put spoken dialogue in quotation marks.
+For one take use a flowing present-tense description; match the amount of action to the requested length.
+The guide's multi-shot section is explicitly about LTX-2.5. Use a continuous shot for uninterrupted camera
+movement or dialogue in one framing; do not assume 2.5-specific behavior transfers to 2.3.
+
+| Reference | Scope and use |
+|---|---|
+| [LTX-2.3 model card](https://huggingface.co/Lightricks/LTX-2.3) | Version-specific upstream assets and examples. |
+| [LTX-2.5 model card](https://huggingface.co/Lightricks/LTX-2.5) | Version-specific upstream assets and examples. |
+| [Text-to-Video](https://docs.ltx.io/open-source-model/usage-guides/text-to-video) | LTX-2.5 workflow and prompting examples. |
+| [Image-to-Video](https://docs.ltx.io/open-source-model/usage-guides/image-to-video) | LTX-2.5 motion from an opening image; upstream first/last-frame controls are not automatically Studio controls. |
+| [Audio-to-Video](https://docs.ltx.io/open-source-model/usage-guides/audio-to-video) | LTX-2.5 supplied-audio conditioning; describe compatible visible action rather than contradictory dialogue. |
+| [Workflow and asset compatibility](https://docs.ltx.io/open-source-model/reference/workflow-asset-compatibility) | Check 2.3 versus 2.5 compatibility before choosing an adapter. |
+| [Publisher documentation index](https://docs.ltx.io/llms.txt) | Discover current guides and task-specific adapter instructions. |
+
+The publisher covers hosted services, ComfyUI and native PyTorch. Studio uses pinned MLX pipelines:
+its discovered modes, adapters, reference formats, frame counts and size limits are the API contract.
+Hosted retake/extend/reframe, duration prediction, HDR and other upstream workflows are not enabled by
+adding their fields to a Studio payload. Multi-shot prose does not create an API batch or guarantee cuts
+on the pinned checkpoint. Studio automatically enhances LTX Generate prompts, including 2.3 and 2.5;
+the upstream enhancer toggle and implementation do not override that product behavior. Rewrite remains
+a separate API operation. References checked 2026-10-22.
