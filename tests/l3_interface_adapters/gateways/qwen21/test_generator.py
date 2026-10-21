@@ -260,6 +260,31 @@ def test_an_uncached_prompt_rebuilds_the_model():
     assert builder.built[1].kwargs["prompt"] == "a pear"
 
 
+def test_a_configured_restore_keeps_the_model_for_a_new_prompt():
+    engine = FakeEngine(text_encoder=None)
+    builder = EngineBuilder([engine])
+    restore = Mock(side_effect=lambda model: setattr(model, "text_encoder", "restored"))
+    generator = Qwen21Generator(None, build=builder, restore_encoder=restore)
+    generator.run(job(), no_steps, never_stop)
+    restore.assert_called_once_with(engine)
+    assert builder.built == [engine]
+    assert engine.kwargs is not None
+    assert engine.kwargs["prompt"] == "a pear"
+
+
+def test_batch_preparation_restores_the_encoder_without_rebuilding(monkeypatch):
+    engine = FakeEngine(text_encoder=None)
+    builder = EngineBuilder([engine])
+    restore = Mock(side_effect=lambda model: setattr(model, "text_encoder", "restored"))
+    generator = Qwen21Generator(None, build=builder, restore_encoder=restore)
+    monkeypatch.setattr(
+        generator_module, "_cache_prompt", lambda model, prompt: model.prompt_cache.update({prompt: ()})
+    )
+    generator.prepare_batch([job()], never_stop)
+    restore.assert_called_once_with(engine)
+    assert builder.built == [engine]
+
+
 def test_a_true_cfg_run_rebuilds_for_the_negative_prompt_it_will_encode():
     """mflux encodes the negative prompt only when guidance is above 1, so the same
     cached prompt needs a rebuild in that case and in no other."""
@@ -296,3 +321,83 @@ def test_the_model_the_rebuild_replaces_is_collected_first():
     # Two runs build three times: the second run rebuilds for its own prompt, and no
     # build ever found the model it replaces still alive.
     assert alive_when_built == [0, 0, 0]
+
+
+def test_batch_preparation_encodes_each_needed_prompt_once(monkeypatch):
+    from dataclasses import replace
+
+    engine = FakeEngine()
+    encoded = []
+
+    def cache(model, prompt):
+        encoded.append(prompt)
+        model.prompt_cache[prompt] = ("embedding", "mask")
+
+    monkeypatch.setattr(generator_module, "_cache_prompt", cache, raising=False)
+    generator = Qwen21Generator(None, build=EngineBuilder([engine]))
+    jobs = [job(negative="unused", guidance=1.0), replace(job(negative="blur", guidance=2.5), prompt="a cup"), job()]
+    generator.prepare_batch(jobs, never_stop)
+    assert encoded == ["a pear", "a cup", "blur"]
+    assert generator._model is engine
+
+
+def test_batch_preparation_keeps_an_encoderless_model_when_every_prompt_is_cached(monkeypatch):
+    engine = FakeEngine(text_encoder=None, cache=["a pear"])
+    builder = EngineBuilder([engine])
+    generator = Qwen21Generator(None, build=builder)
+    generator.prepare_batch([job()], never_stop)
+    assert builder.built == [engine]
+
+
+def test_batch_preparation_rebuilds_once_when_the_encoder_is_missing(monkeypatch):
+    old = FakeEngine(text_encoder=None)
+    new = FakeEngine()
+    builder = EngineBuilder([old, new])
+    generator = Qwen21Generator(None, build=builder)
+    monkeypatch.setattr(
+        generator_module, "_cache_prompt", lambda model, prompt: model.prompt_cache.update({prompt: ()}), raising=False
+    )
+    generator.prepare_batch([job(), job()], never_stop)
+    assert generator._model is new
+    assert len(builder.built) == 2
+
+
+def test_batch_preparation_checks_cancel_before_model_load():
+    builder = EngineBuilder([])
+    generator = Qwen21Generator(None, build=builder)
+    with pytest.raises(Cancelled):
+        generator.prepare_batch([job()], lambda: True)
+    assert builder.built == []
+
+
+def test_batch_preparation_checks_cancel_between_prompts(monkeypatch):
+    from dataclasses import replace
+
+    encoded = []
+    monkeypatch.setattr(generator_module, "_cache_prompt", lambda model, prompt: encoded.append(prompt), raising=False)
+    generator = Qwen21Generator(None, build=EngineBuilder([FakeEngine()]))
+    with pytest.raises(Cancelled):
+        generator.prepare_batch([job(), replace(job(), prompt="a cup")], lambda: bool(encoded))
+    assert encoded == ["a pear"]
+
+
+def test_empty_batch_preparation_needs_no_model():
+    builder = EngineBuilder([])
+    Qwen21Generator(None, build=builder).prepare_batch([], never_stop)
+    assert not builder.built
+
+
+def test_prompt_cache_materializes_both_arrays_before_memory_saver_frees_the_encoder():
+    encoder = Mock()
+    encoder.encode_prompt.return_value = ("embedding", "mask")
+    evaluate = Mock()
+    model = SimpleNamespace(prompt_cache={}, tokenizers={"qwen21": "tokenizer"}, text_encoder="encoder")
+    with heavy_modules(
+        {
+            "mflux.models.qwen21.model.qwen21_text_encoder.qwen21_prompt_encoder": {"Qwen21PromptEncoder": encoder},
+            "mlx.core": {"eval": evaluate},
+        }
+    ):
+        generator_module._cache_prompt(model, "a pear")
+    encoder.encode_prompt.assert_called_once_with("a pear", model.prompt_cache, "tokenizer", "encoder")
+    evaluate.assert_called_once_with("embedding", "mask")

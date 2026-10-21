@@ -130,6 +130,12 @@ def test_official_turbo_backend_is_built_from_its_local_weight_directory(tmp_pat
 
     assert backend.capabilities().backend_id == "qwen21_turbo"
     assert backend._model_dir == (tmp_path / "weights/qwen-turbo").resolve()
+    assert backend._generator._restore_encoder is not None
+    assert backend._generator._restore_encoder.keywords == {
+        "model_path": str((tmp_path / "weights/qwen-turbo").resolve()),
+        "quantize": None,
+    }
+    assert backend._edit._prepare_model.__name__ == "cache_edit_inputs"
 
 
 def test_official_turbo_needs_a_local_weight_directory_setting(tmp_path: Path):

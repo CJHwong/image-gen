@@ -71,3 +71,18 @@ def test_a_failure_on_the_gpu_thread_reaches_the_caller():
     confined = ThreadConfinedBackendGateway(backed, GpuThread())
     with pytest.raises(RuntimeError, match="out of memory"):
         confined.run(JOB, None, None)
+
+
+def test_batch_preparation_uses_the_same_gpu_thread(parts):
+    from unittest.mock import Mock
+
+    confined, backend = parts
+    identifiers = []
+    backend.prepare_batch = Mock(side_effect=lambda *_: identifiers.append(threading.get_ident()))
+
+    def cancelled():
+        return False
+
+    confined.prepare_batch([JOB], cancelled)
+    backend.prepare_batch.assert_called_once_with([JOB], cancelled)
+    assert identifiers[0] != threading.get_ident()

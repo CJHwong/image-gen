@@ -286,3 +286,32 @@ def test_gateway_frees_the_other_model_before_running_generate_and_edit(tmp_path
 
     assert generator.events == [("run", "generate"), "release", "release"]
     assert edit.events == ["release", ("run", "edit"), "release"]
+
+
+def test_generate_batch_prepares_prompts_before_the_first_run(tmp_path, monkeypatch):
+    generator, edit = Mock(), Mock()
+    gateway = OfficialQwenTurboBackendGateway(generator, edit, "bf16", str(tmp_path))
+    ensure = Mock()
+    monkeypatch.setattr(gateway, "_ensure_checkpoint", ensure)
+    register = Mock()
+    monkeypatch.setattr(gateway_module, "register_schedule", register)
+    jobs = [image_job("generate"), image_job("generate")]
+
+    def cancelled():
+        return False
+
+    assert gateway.capabilities().backend_id == "qwen21_turbo"
+    gateway.prepare_batch(jobs, cancelled)
+    ensure.assert_called_once_with()
+    register.assert_called_once_with()
+    edit.release.assert_called_once_with()
+    generator.prepare_batch.assert_called_once_with(jobs, cancelled)
+
+
+@pytest.mark.parametrize("modes", [[], ["edit"], ["generate", "edit"]])
+def test_other_batches_keep_sequential_model_loading(tmp_path, modes):
+    generator, edit = Mock(), Mock()
+    gateway = OfficialQwenTurboBackendGateway(generator, edit, "bf16", str(tmp_path))
+    gateway.prepare_batch([image_job(mode) for mode in modes], lambda: False)
+    generator.prepare_batch.assert_not_called()
+    edit.release.assert_not_called()

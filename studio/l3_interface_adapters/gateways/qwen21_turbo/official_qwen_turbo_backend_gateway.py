@@ -67,6 +67,14 @@ class OfficialQwenTurboBackendGateway(ImageBackendGateway):
         self._edit.release()
         return self._generator.run(job, on_step, should_stop)
 
+    def prepare_batch(self, jobs, should_stop) -> None:
+        if not jobs or any(job.mode != "generate" for job in jobs):
+            return
+        self._ensure_checkpoint()
+        register_schedule()
+        self._edit.release()
+        self._generator.prepare_batch(jobs, should_stop)
+
     def release(self) -> None:
         self._generator.release()
         self._edit.release()

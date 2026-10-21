@@ -1,5 +1,9 @@
 """One backend, two engines that cannot share the memory of this machine."""
 
+from unittest.mock import Mock
+
+import pytest
+
 from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l3_interface_adapters.gateways.qwen21.qwen21_backend_gateway import Qwen21BackendGateway
 from tests.support.images import png
@@ -55,3 +59,16 @@ def test_release_frees_both_engines():
 def test_the_precision_badge_the_backend_loaded_reaches_the_page():
     caps = Qwen21BackendGateway(None, None, badge="int8").capabilities()
     assert (caps.backend_id, caps.name, caps.badge) == ("qwen21", "Qwen-Image-2.1", "int8")
+
+
+@pytest.mark.parametrize("jobs", [[], [job("edit")], [job(), job("edit")], [job(), job()]])
+def test_only_all_generate_batches_prepare_shared_prompts(jobs):
+    generator, edit, stop = Mock(), Mock(), Mock(return_value=False)
+    backend = Qwen21BackendGateway(generator, edit, badge="int8")
+    backend.prepare_batch(jobs, stop)
+    if jobs and all(item.mode == "generate" for item in jobs):
+        edit.release.assert_called_once_with()
+        generator.prepare_batch.assert_called_once_with(jobs, stop)
+    else:
+        edit.release.assert_not_called()
+        generator.prepare_batch.assert_not_called()

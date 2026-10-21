@@ -224,6 +224,19 @@ def test_edit_passes_a_configured_local_model_path_to_its_builder():
     assert builder.model_path == "/local/qwen-turbo"
 
 
+def test_edit_prepares_each_new_model_once():
+    builder = EngineBuilder([FakeEngine(), FakeEngine()])
+    prepare = Mock()
+    edit = Qwen21Edit(None, build=builder, prepare_model=prepare)
+    edit.load()
+    edit.load()
+    prepare.assert_called_once_with(builder.built[0])
+    edit.release()
+    edit.load()
+    assert prepare.call_args.args == (builder.built[1],)
+    assert prepare.call_count == 2
+
+
 def test_a_run_writes_the_references_for_the_call_and_removes_them_after():
     """mflux's edit call takes image_paths, not images, so this is the one path in
     the server that puts a reference on disk. The directory lives for one run."""

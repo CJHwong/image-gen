@@ -122,11 +122,19 @@ def qwen21_turbo_backend(config: Config) -> OfficialQwenTurboBackendGateway:
     point is that the page still works there.
     """
     settings = config.backend("qwen21_turbo")
+    from studio.l3_interface_adapters.gateways.qwen21.edit_input_cache import cache_edit_inputs
+    from studio.l3_interface_adapters.gateways.qwen21.encoder_restore import restore_text_encoder
+
     model_dir = config.required("qwen21_turbo", "model_dir")
     quantize = settings.get("quantize")
     return OfficialQwenTurboBackendGateway(
-        Qwen21Generator(quantize, model_path=model_dir, scheduler=qwen21_turbo_schedule.SCHEDULER_NAME),
-        Qwen21Edit(quantize, model_path=model_dir),
+        Qwen21Generator(
+            quantize,
+            model_path=model_dir,
+            scheduler=qwen21_turbo_schedule.SCHEDULER_NAME,
+            restore_encoder=partial(restore_text_encoder, model_path=model_dir, quantize=quantize),
+        ),
+        Qwen21Edit(quantize, model_path=model_dir, prepare_model=cache_edit_inputs),
         badge=badge(quantize),
         model_dir=model_dir,
     )

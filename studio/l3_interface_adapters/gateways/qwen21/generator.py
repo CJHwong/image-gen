@@ -7,6 +7,7 @@ here. The model stays resident for the text encoder cache, not for speed.
 
 from collections.abc import Callable
 
+from studio.l1_entities.errors import Cancelled
 from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l3_interface_adapters.gateways.image_sizes import match_reference_size
 from studio.l3_interface_adapters.gateways.mflux_runtime import StepHook, lora_kwargs, release_mlx_buffers
@@ -86,12 +87,14 @@ class Qwen21Generator:
         lora_path: str | None = None,
         scheduler: str = "linear",
         model_path: str | None = None,
+        restore_encoder: Callable | None = None,
     ):
         self._quantize = quantize
         self._build = build
         self._lora_path = lora_path
         self._scheduler = scheduler
         self._model_path = model_path
+        self._restore_encoder = restore_encoder
         self._hook = StepHook()
         self._model = None
 
@@ -110,6 +113,28 @@ class Qwen21Generator:
         self._model = None
         release_mlx_buffers()
 
+    def prepare_batch(self, jobs: list[ImageJob], should_stop: Callable[[], bool]) -> None:
+        if not jobs:
+            return
+        _check_cancel(should_stop)
+        prompts = _batch_prompts(jobs, self._scheduler)
+        model = self._loaded()
+        if model.text_encoder is None and not all(prompt in model.prompt_cache for prompt in prompts):
+            if self._restore_encoder is not None:
+                self._restore_encoder(model)
+            else:
+                # Release the old reference before a rebuild allocates another transformer.
+                model = None
+                self.release()
+                model = self._loaded()
+        try:
+            for prompt in prompts:
+                _check_cancel(should_stop)
+                if prompt not in model.prompt_cache:
+                    _cache_prompt(model, prompt)
+        finally:
+            release_mlx_buffers()
+
     def run(self, job: ImageJob, on_step, should_stop) -> ImageResult:
         kwargs = generate_kwargs(job, self._scheduler)
         model = self._with_encoder(self._loaded(), kwargs)
@@ -127,9 +152,9 @@ class Qwen21Generator:
 
         MemorySaver drops the encoder before every denoising loop, so after the
         first image it is gone. A prompt already in model.prompt_cache does not
-        need it. Anything else does, and rebuilding the model is the only way
-        back: 1.0s against 40s for the image. A batch reuses one prompt, so it
-        pays nothing.
+        need it. The measured Turbo restore loads only the encoder. Other
+        backends keep the full rebuild. Batch preparation encodes its known
+        prompts before the first denoising loop.
         """
         if model.text_encoder is not None:
             return model
@@ -138,6 +163,9 @@ class Qwen21Generator:
         if kwargs["negative_prompt"] and kwargs["guidance"] > 1.0:
             needed.append(kwargs["negative_prompt"])
         if all(text in model.prompt_cache for text in needed):
+            return model
+        if self._restore_encoder is not None:
+            self._restore_encoder(model)
             return model
         # The frame names the old model, so the rebuild below would allocate a second
         # copy of the weights while the first is still live. Dropping the name lets the
@@ -154,3 +182,28 @@ class Qwen21Generator:
         model = None
         self.release()
         return self._loaded()
+
+
+def _batch_prompts(jobs: list[ImageJob], scheduler: str) -> list[str]:
+    prompts = {}
+    for job in jobs:
+        kwargs = generate_kwargs(job, scheduler)
+        prompts[kwargs["prompt"]] = None
+        if kwargs["negative_prompt"] and kwargs["guidance"] > 1.0:
+            prompts[kwargs["negative_prompt"]] = None
+    return list(prompts)
+
+
+def _cache_prompt(model, prompt: str) -> None:
+    import mlx.core as mx
+    from mflux.models.qwen21.model.qwen21_text_encoder.qwen21_prompt_encoder import Qwen21PromptEncoder
+
+    embeddings = Qwen21PromptEncoder.encode_prompt(
+        prompt, model.prompt_cache, model.tokenizers["qwen21"], model.text_encoder
+    )
+    mx.eval(*embeddings)
+
+
+def _check_cancel(should_stop: Callable[[], bool]) -> None:
+    if should_stop():
+        raise Cancelled("The image batch was cancelled during prompt encoding.")

@@ -124,11 +124,13 @@ class Qwen21Edit:
         build: Callable = build_model,
         lora_path: str | None = None,
         model_path: str | None = None,
+        prepare_model: Callable | None = None,
     ):
         self._quantize = quantize
         self._build = build
         self._lora_path = lora_path
         self._model_path = model_path
+        self._prepare_model = prepare_model
         self._hook = StepHook()
         self._model = None
 
@@ -141,6 +143,8 @@ class Qwen21Edit:
                 self._model = self._build(self._quantize, self._hook, self._lora_path)
             else:
                 self._model = self._build(self._quantize, self._hook, self._lora_path, model_path=self._model_path)
+            if self._prepare_model is not None:
+                self._prepare_model(self._model)
         return self._model
 
     def release(self) -> None:

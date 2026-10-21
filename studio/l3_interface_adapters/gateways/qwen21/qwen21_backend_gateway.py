@@ -24,6 +24,11 @@ class Qwen21BackendGateway(ImageBackendGateway):
     def load(self):
         self._generator.load()
 
+    def prepare_batch(self, jobs, should_stop):
+        if jobs and all(job.mode == "generate" for job in jobs):
+            self._edit.release()
+            self._generator.prepare_batch(jobs, should_stop)
+
     def run(self, job: ImageJob, on_step, should_stop):
         if job.mode == "edit":
             self._generator.release()
