@@ -904,11 +904,11 @@ class VoiceStudio extends LitElement {
               </select>
               <span class="caption" id="voice-convert-hint">AuK can mispronounce Traditional Chinese. Conversion helps pronunciation while keeping your script and Taiwan vocabulary unchanged. Choose As written to disable conversion.</span>
             </div>` : nothing}
-            ${(this.currentMode?.params || []).filter(param => !['seconds', 'voice', 'convert', 'ref_text'].includes(param.id)).map(param => html`<label class="field" for=${'voice-param-' + param.id}>${param.id.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase())}
+            ${(this.currentMode?.params || []).filter(param => !['seconds', 'voice', 'convert', 'ref_text'].includes(param.id)).map(param => html`<label class="field" for=${'voice-param-' + param.id}>${param.id === 'max_tokens' ? 'Audio token limit' : param.id.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase())}
               <input id=${'voice-param-' + param.id} type="number" min=${param.minimum ?? nothing} max=${param.maximum ?? nothing}
                 step=${param.step || (param.integer ? 1 : 0.1)} .value=${String(this.engineOptions[param.id] ?? param.default)} ?disabled=${this.locked}
                 @input=${event => { this.engineOptions = {...this.engineOptions, [param.id]: Number(event.target.value)}; this.persist(true); }}>
-              <span class="caption">${param.hint}</span></label>`)}
+              <span class="caption">${param.id === 'max_tokens' ? 'Safety limit per script chunk. Higher values allow longer output but may prolong repetition.' : param.hint}</span></label>`)}
             ${this.capabilities.loading?.note ? html`<p class="caption voice-note">${this.capabilities.loading.note}</p>` : nothing}
           </div>
         </details>
