@@ -17,6 +17,8 @@ visible_voice_backends = ["drama3", "auk_base", "auk"]
 # Enhance_only shares enhancement but creates a fresh video pipeline for each clip.
 # Sequential disables cross-clip reuse, including enhancement, for a baseline.
 batch_policy = "auto"
+# LTX-2.5 Fast mode is selected per request in Video Advanced or with API fast_mode=true.
+# It uses float16 transformer computation with the same q8 weights; generated details can differ.
 # The third-party MLX port, its two 8-bit packs, and ffmpeg for padding a short track. The
 # paths are the office machine's; a laptop runs the stub and never reads them.
 cli_path = "~/ltx-experiments/ltx-2-mlx/.venv/bin/ltx-2-mlx"

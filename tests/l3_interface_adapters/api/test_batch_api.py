@@ -92,3 +92,14 @@ def test_batch_count_is_the_integer_one(count):
 def test_batch_without_backend_may_only_inherit_the_selected_backend():
     with pytest.raises(InvalidJob, match="backend"):
         normalize_batch({"kind": "image", "items": [{"backend": "one"}]})
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_video_batch_fast_mode_is_shared_by_all_items(value):
+    items = normalize_batch({"kind": "video", "fast_mode": value, "items": [{}, {"fast_mode": value}]})
+    assert [item["fast_mode"] for item in items] == [value, value]
+
+
+def test_video_batch_cannot_override_fast_mode_per_item():
+    with pytest.raises(InvalidJob, match="same fast_mode"):
+        normalize_batch({"kind": "video", "fast_mode": True, "items": [{"fast_mode": False}]})

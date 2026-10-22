@@ -57,6 +57,8 @@ class VideoController:
             raise InvalidJob("Each video batch item must use the same backend.")
         capabilities = self._catalog.get(backend_id).capabilities()
         jobs = [video_job(payload, capabilities) for payload in payloads]
+        if len({job.fast_mode for job in jobs}) != 1:
+            raise InvalidJob("Each video batch item must use the same fast_mode.")
         request_id = _request_id(payloads[0].get("request_id"))
         return self._run.execute_batch(jobs, backend_id, request_id, completed, started, cancelled)
 
@@ -91,7 +93,16 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
         enhance=not mode.needs_clip,
         edit=_edit(payload, adapter, capabilities) if adapter else None,
         audio=_audio(payload.get("audio"), mode, capabilities),
+        fast_mode=_fast_mode(payload.get("fast_mode", False), capabilities),
     )
+
+
+def _fast_mode(value, capabilities: VideoCapabilities) -> bool:
+    if type(value) is not bool:
+        raise InvalidJob("fast_mode must be a boolean")
+    if value and not capabilities.fast_mode:
+        raise InvalidJob("This video model does not support Fast mode.")
+    return value
 
 
 def _mode_id(value) -> str:

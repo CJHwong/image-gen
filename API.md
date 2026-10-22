@@ -583,3 +583,35 @@ adding their fields to a Studio payload. Multi-shot prose does not create an API
 on the pinned checkpoint. Studio automatically enhances LTX Generate prompts, including 2.3 and 2.5;
 the upstream enhancer toggle and implementation do not override that product behavior. Rewrite remains
 a separate API operation. References checked 2026-10-22.
+
+## Video Fast mode
+
+LTX-2.5 offers optional Fast mode through `fast_mode: true`. Check the backend's `fast_mode`
+capability before using it. It uses reduced transformer compute precision with the same q8
+weights and sampling steps. Generated details and motion may differ even at the same seed;
+speed varies by output size and conditioning. It is separate from Rewrite and prompt enhancement.
+
+```json
+{
+  "kind": "video",
+  "backend": "ltx25_mlx",
+  "prompt": "A blue ceramic teapot on an oak table. Steam rises. Soft daylight, quiet room tone.",
+  "width": 384,
+  "height": 384,
+  "num_frames": 49,
+  "frame_rate": 24,
+  "seed": 7,
+  "fast_mode": true
+}
+```
+
+POST this to `/api/v1/operations`, or omit `kind` for `/api/v1/videos/generate`.
+The same field applies to image/audio-conditioned Generate and `/api/v1/videos/edit`; supply
+that mode's normal references, audio, or clip/adapter fields. Omit it or send false to restore
+default rendering on the next request, without restarting Studio. It must be a JSON boolean.
+LTX-2.3 rejects true. A video batch sets it once at the top level; items cannot override it.
+Operation `settings.fast_mode` records an explicitly submitted value. The UI names the option
+Fast mode and records it with the result. Watching another client's operation temporarily shows
+its setting while preserving the observer's own setting for the next render.
+
+[Conditioned-generation validation and trade-offs](reports/fast-mode-2026-10-22/README.md).

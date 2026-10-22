@@ -142,6 +142,8 @@ class VideoCapabilities:
     max_audio_megabytes: float = 32.0
     """The largest audio track a run will take. The track crosses the request as base64, so
     the cap leaves room under the request's own 64 MB ceiling."""
+    fast_mode: bool = False
+    """Whether this backend accepts the optional faster, reduced-precision render path."""
 
     def mode(self, mode_id: str) -> VideoMode:
         """The mode with this id. A backend with no modes has one, and it is generate."""

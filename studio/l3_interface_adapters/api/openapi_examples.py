@@ -119,6 +119,16 @@ def video_examples(edit: bool = False) -> dict[str, Any]:
             },
         }
     return {
+        "fast_preview": {
+            "summary": "Try Fast mode on a short LTX-2.5 clip",
+            "description": "Reduced transformer compute precision; same model weights. Details and motion may differ from default even with the same seed. Omit fast_mode or set false for default rendering. Applies per request and must be the same for all batch items.",
+            "value": {
+                **VIDEO_SETTINGS,
+                "num_frames": 49,
+                "fast_mode": True,
+                "prompt": "A blue ceramic teapot on an oak table. Steam rises as the camera slowly moves closer. Soft daylight, quiet room tone.",
+            },
+        },
         "slow_push_in": {
             "summary": "Use the measured Slow push-in template",
             "description": "Use structured template fields when the model offers a matching template. Do not copy template text into prompt. Field names and capitalization must match discovery.",

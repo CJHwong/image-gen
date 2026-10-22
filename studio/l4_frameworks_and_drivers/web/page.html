@@ -408,6 +408,10 @@
           <details id="video-advanced">
             <summary>Advanced <span class="values num" id="video-seed-summary">Random seed</span></summary>
             <div class="advanced">
+              <div class="field" id="video-fast-field" hidden>
+                <div class="field-head"><span>Rendering</span><button type="button" class="pill" id="video-fast-mode" aria-pressed="false" aria-describedby="video-fast-note">Fast mode</button></div>
+                <span class="caption" id="video-fast-note">Faster rendering; generated details and motion may differ. Uses reduced compute precision with the same model weights. Speed varies by size and input.</span>
+              </div>
               <div class="field">
                 <div class="field-head"><label for="video-seed">Seed</label></div>
                 <input id="video-seed" type="number" step="1" inputmode="numeric" placeholder="Random">
@@ -451,6 +455,7 @@
   let sharedOperation = null;
   let drafts = null;
   let observedVideo = false;
+  let observedVideoFastMode = null;
   let observedImageResult = null;
   let sharedRewriteWorkspace = 'image';
   const CLIENT_ID = crypto.randomUUID();
@@ -554,6 +559,7 @@
     document.getElementById('media-image-mode').disabled = disabled;
     document.getElementById('media-video-mode').disabled = disabled;
     document.getElementById('media-voice-mode').disabled = disabled;
+    document.getElementById('video-fast-mode').disabled = disabled;
   }
 
   // Why the button is off, in the second line of it, the way the image form says it. Empty
@@ -1134,6 +1140,12 @@
     return first ? [first.width, first.height] : [0, 0];
   }
 
+  function syncVideoFastMode() {
+    const supported = Boolean(videoCapabilities()?.fast_mode);
+    document.getElementById('video-fast-field').hidden = !supported;
+    if (!supported) document.getElementById('video-fast-mode').setAttribute('aria-pressed', 'false');
+  }
+
   function applyVideoCapabilities() {
     const capabilities = videoCapabilities();
     if (!capabilities) return;
@@ -1143,6 +1155,7 @@
     const named = modes.some(function (mode) { return mode.id === videoMode; });
     videoMode = modes.length && named ? videoMode : (modes.length ? modes[0].id : 'generate');
     syncVideoMode();
+    syncVideoFastMode();
     const duration = document.getElementById('video-duration');
     duration.min = String(capabilities.min_frames);
     duration.max = String(capabilities.max_frames);
@@ -1248,7 +1261,8 @@
       document.getElementById('video-seed-summary').textContent = 'Not supported';
       return;
     }
-    document.getElementById('video-seed-summary').textContent = seed ? 'Seed ' + seed : 'Random seed';
+    document.getElementById('video-seed-summary').textContent = (seed ? 'Seed ' + seed : 'Random seed')
+      + (document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true' ? ' · Fast mode' : '');
   }
 
   applyVideoCapabilities();
@@ -1266,6 +1280,11 @@
     syncVideoFrameCount();
   });
   document.getElementById('video-seed').addEventListener('input', syncVideoSeedSummary);
+  document.getElementById('video-fast-mode').addEventListener('click', function () {
+    this.setAttribute('aria-pressed', String(this.getAttribute('aria-pressed') !== 'true'));
+    syncVideoSeedSummary();
+    document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'}));
+  });
   document.getElementById('video-prompt').addEventListener('input', function () {
     syncVideoGenerateButton();
     growVideoPrompt();
@@ -1451,6 +1470,7 @@
       seed = selectedVideoSeed();
       settings = {
         nativeMetadata: true,
+        fastMode: document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true',
         backend: STUDIO.video.backend.id,
         modelName: STUDIO.video.backend.name,
         prompt: prompt,
@@ -1515,6 +1535,7 @@
         seed: settings.seed,
         elapsedSeconds: 0,
         references: settings.references,
+        fastMode: settings.fastMode,
       },
     );
     progressTimer = window.setInterval(async function () {
@@ -1558,6 +1579,7 @@
           seed: seed,
           backend: STUDIO.video.backend.id,
           enhance: true,
+          fastMode: settings.fastMode,
           requestId: videoRunRequestId,
         }), draft_id: submittedDraftId}),
       });
@@ -2096,6 +2118,7 @@
 
   function videoDraft() {
     return {mode: videoMode, prompt: document.getElementById('video-prompt').value,
+      fastMode: document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true',
       seed: document.getElementById('video-seed').value, frames: document.getElementById('video-duration').value,
       ratio: videoShapeInFront(), rung: videoResolutionRung, adapter: videoAdapter, adapterSeed: videoAdapterSeed,
       look: formApi.videoLook(), assets: videoStudio.inputSnapshot()};
@@ -2119,6 +2142,7 @@
     videoAdapterSeed = snapshot.adapterSeed;
     document.getElementById('video-prompt').value = snapshot.prompt;
     document.getElementById('video-seed').value = snapshot.seed;
+    document.getElementById('video-fast-mode').setAttribute('aria-pressed', String(Boolean(videoCapabilities()?.fast_mode && snapshot.fastMode)));
     document.getElementById('video-duration').value = snapshot.frames;
     document.querySelectorAll('.video-ratios button').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.ratio === snapshot.ratio));
@@ -2167,6 +2191,11 @@
       setActive: function (operation) {
         const previous = sharedOperation;
         sharedOperation = operation;
+        if (observedVideoFastMode !== null && (!operation || operation.kind !== 'video')) {
+          document.getElementById('video-fast-mode').setAttribute('aria-pressed', String(Boolean(videoCapabilities()?.fast_mode && observedVideoFastMode)));
+          observedVideoFastMode = null;
+          syncVideoSeedSummary();
+        }
         const fresh = operation && previous?.id !== operation.id;
         if (fresh) {
           observedImageResult = operation.kind === 'image' ? operation.id : null;
@@ -2175,6 +2204,13 @@
           const mode = operation.mode || operation.settings?.mode;
           if (workspace === 'image' && mode) formApi.observeMode(mode);
           if (workspace === 'video' && mode) chooseVideoMode(mode);
+          if (workspace === 'video') {
+            if (operation.client_id !== CLIENT_ID && observedVideoFastMode === null) {
+              observedVideoFastMode = document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true';
+            }
+            document.getElementById('video-fast-mode').setAttribute('aria-pressed', String(Boolean(operation.settings?.fast_mode)));
+            syncVideoSeedSummary();
+          }
         }
         if (run) run.observeOperation(operation);
         if (voiceStudio.setOperation) voiceStudio.setOperation(operation);
@@ -2244,6 +2280,7 @@
           STUDIO.video = {backend: {id: video.active, name: video.capabilities.name, badge: video.capabilities.badge},
             backends: video.backends.map(function (one) { return [one.id, one.name, one.description]; }),
             capabilities: video.capabilities};
+          syncVideoFastMode();
           syncVideoMode();
           if (drafts) drafts.restore('video');
         }

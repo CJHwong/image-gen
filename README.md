@@ -285,6 +285,15 @@ uv run --with huggingface-hub==2.2.0 hf download mlx-community/fish-audio-drama-
   That product comparison includes a 45.4-second single request under host memory activity; the others took about 26 seconds.
   The controlled comparison shows a 26.2% reduction for those three prompts. These figures do not promise a universal ratio.
   Earlier image URLs remained readable while later images ran.
+- **Fast mode is optional and belongs to one video request.** LTX-2.5 offers it under Advanced,
+  and API clients send `fast_mode: true`. It uses float16 transformer computation with the same q8 weights.
+  Details and motion can differ, even with the same seed; speed varies by geometry and input.
+  Default computation stays on when the option is off, even if the server inherits a precision environment variable.
+  Each child receives its own setting, so switching requires no restart and never mutates the server environment.
+  Every item in a batch must share the setting. The UI shows the active operation's choice, locks the control,
+  restores an observer's own choice afterward, and records Fast mode in result metadata.
+  Image-conditioned, audio-conditioned, and Upscale 2× Edit API checks all completed in both modes;
+  the [validation report](reports/fast-mode-2026-10-22/README.md) records timings, output checks, and limitations.
 - **Video progress adds both stages.** The runner combines the engine counters into one total.
   The page holds at most 99% until decoding and saving finish.
   A completed sampler does not claim that the result is ready.

@@ -277,3 +277,19 @@ def test_only_the_measured_short_pair_prefers_per_item_execution():
         dict(references=(object(),)),
     ]:
         assert not prefer_sequential([replace(item, **changes), item], model)
+
+
+def test_fast_mode_selects_residency_only_for_the_measured_enhanced_mid_shape(monkeypatch):
+    from studio.l4_frameworks_and_drivers import mlx_video_batch as batch
+
+    monkeypatch.setattr(batch, "physical_memory", lambda: 64 * 1024**3)
+    model = "dgrauet/ltx-2.5-mlx-q8"
+    first = job(width=768, height=768, num_frames=121, enhance=True, fast_mode=True)
+    assert batch.reuse_policy([first] * 2, model) == "resident"
+    for changed in [replace(first, fast_mode=False), replace(first, enhance=False), replace(first, width=752)]:
+        assert batch.reuse_policy([changed] * 2, model) is None
+    assert batch.reuse_policy([first, replace(first, fast_mode=False)], model) is None
+    high = replace(first, width=1920, height=1088, num_frames=49)
+    assert batch.reuse_policy([high] * 2, model) == "offload"
+    monkeypatch.setattr(batch, "physical_memory", lambda: 32 * 1024**3)
+    assert batch.reuse_policy([first] * 2, model) is None

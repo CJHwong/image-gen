@@ -28,6 +28,8 @@ def normalize_batch(payload: Mapping[str, object]) -> list[dict[str, Any]]:
 
 
 def _check_item(body: Mapping[str, Any], defaults: Mapping[str, Any], kind: str) -> None:
+    if kind == "video" and body.get("fast_mode", False) != defaults.get("fast_mode", False):
+        raise InvalidJob("Each video batch item must use the same fast_mode.")
     for key, expected in (("kind", kind), ("workspace", kind), ("backend", defaults.get("backend"))):
         if key in body and body[key] != expected:
             raise InvalidJob(f"Each batch item must use the same {key}.")

@@ -65,6 +65,12 @@ The Voice capabilities declare the first-use download policy and pinned weight i
 Image batches hold the engine lock for all items. Official Qwen Turbo prepares unique prompt embeddings before denoising releases the encoder.
 Eligible MLX video batches encode prompts together and free Gemma. The runner keeps sizes at or below 768×768 sequential and chooses cleanup or decoder-offload profiles by geometry, clip length, and measured memory budget. Only one clip is sampled at a time; the item count does not multiply activation memory. Validated item-start events reset each clip’s timeout while initial loading remains bounded.
 Unsupported video settings use sequential calls within the same operation. The eligibility check stays beside the video runner.
+LTX-2.5 declares optional Fast mode in its capabilities. The controller validates a boolean on
+each job and one shared choice per batch. The runner passes float16 or default float32 computation
+to each render child's environment without mutating the parent. Fast mode enables residency only
+for the measured enhanced homogeneous 768×768×121 text-only batch on at least 64 GiB; conditioned
+jobs retain their existing profiles. The page persists the local choice and temporarily shows an
+observed operation's choice while controls are locked, then restores the local choice.
 Voice batches retain the selected engine. AuK reuses a neutral designed voice; Drama-3 reuses encoded reference audio and prompt-prefix caches. Every workspace still runs only one GPU job at a time.
 See the measured comparisons in the README before extending an optimization to another engine or output shape.
 

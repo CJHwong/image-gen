@@ -51,6 +51,7 @@ function videoMetadata(settings, result = {}) {
     backend: settings.backend || '',
     modelName: settings.modelName || 'Video',
     precision: settings.precision || '',
+    fastMode: Boolean(settings.fastMode ?? settings.fast_mode),
     mode: settings.mode || 'generate',
     effect: settings.adapter || '',
     effectFile: settings.effectFile || '',
@@ -796,6 +797,7 @@ class VideoStudio extends LitElement {
       seed: settings.seed,
       // Generation always runs the pipeline enhancer, independently of a Rewrite press.
       enhance: true,
+      fast_mode: Boolean(settings.fastMode),
       // A mode that takes no image references sends none, whatever the generate form left
       // behind: references are a generate input, and the clip is the edit's.
       references: settings.maxReferences > 0 ? this.imageReferences.map(function (reference) {
@@ -1532,6 +1534,7 @@ class VideoStudio extends LitElement {
       if (duration) facts.push(duration.toFixed(1) + ' sec');
       if (metadata.width && metadata.height) facts.push(metadata.width + ' × ' + metadata.height);
       if (metadata.numFrames) facts.push(metadata.numFrames + ' frames');
+      if (metadata.fastMode) facts.push('Fast mode');
       facts.push(seed === null ? 'Random seed' : 'Seed ' + seed);
       if (timeLabel) facts.push(timeLabel);
       if (references.length) {

@@ -378,6 +378,11 @@ def openapi_document() -> dict[str, Any]:
                                 "data": {"type": "string", "contentEncoding": "base64"},
                             },
                         },
+                        "fast_mode": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Fast mode: optional LTX-2.5 rendering with float16 transformer computation and unchanged q8 weights. May change generated details and motion even with the same seed; speed varies by geometry and conditioning. Off preserves default computation. Check the backend capability fast_mode before enabling. Applies to Generate, image/audio-conditioned Generate, and Edit; use one value for the whole batch. Set on each request; no server restart is needed. Not the Rewrite or prompt-enhancement switch.",
+                        },
                         "enhance": {
                             "type": "boolean",
                             "default": True,
@@ -1095,7 +1100,7 @@ def batch_schemas() -> dict[str, Any]:
         "BatchRequest": {
             "type": "object",
             "required": ["kind", "items"],
-            "description": "Top-level fields are defaults for every item. Items override defaults. Use one backend and kind for the entire batch. Each item yields one result: count must be one and each_reference must be false. Items run in order; completed outputs survive later failure or cancellation. Indices start at one.",
+            "description": "Top-level fields are defaults for every item. Items override defaults. Use one backend and kind for the entire batch. Video items must also share the top-level fast_mode boolean (default false); it cannot change between items. Each item yields one result: count must be one and each_reference must be false. Items run in order; completed outputs survive later failure or cancellation. Indices start at one.",
             "properties": {
                 "kind": {"enum": ["image", "video", "voice"]},
                 "backend": {"type": "string"},

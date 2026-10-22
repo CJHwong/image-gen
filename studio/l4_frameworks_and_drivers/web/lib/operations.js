@@ -177,6 +177,7 @@ async function poll() {
       page.video().setGenerationProgress(Object.assign({running: true}, active.progress), elapsed(active), {
         width: active.width, height: active.height, modelName: active.model, prompt: active.prompt,
         numFrames: active.num_frames, frameRate: active.frame_rate,
+        fastMode: Boolean(active.settings?.fast_mode),
       });
     }
     page.observeDrafts(state.operations || []);

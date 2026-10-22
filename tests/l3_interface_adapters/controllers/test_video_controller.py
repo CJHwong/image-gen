@@ -579,3 +579,38 @@ def test_controller_reads_capabilities_without_switching():
     selected, catalog = build_video_controller()
     assert selected.capabilities().backend_id == catalog.active_id()
     assert selected.capabilities(catalog.active_id()) == catalog.get(catalog.active_id()).capabilities()
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_fast_mode_is_validated_and_carried_by_the_video_job(value):
+    from dataclasses import replace
+
+    capabilities = replace(fake_video_capabilities(), fast_mode=True)
+    assert video_job(payload(fast_mode=value), capabilities).fast_mode is value
+
+
+@pytest.mark.parametrize("value", [None, "true", 0, 1, [], {}])
+def test_fast_mode_rejects_non_boolean_values(value):
+    with pytest.raises(InvalidJob, match="boolean"):
+        video_job(payload(fast_mode=value), fake_video_capabilities())
+
+
+def test_fast_mode_rejects_an_unsupported_model_and_defaults_to_off():
+    assert video_job(payload(), fake_video_capabilities()).fast_mode is False
+    with pytest.raises(InvalidJob, match="does not support Fast mode"):
+        video_job(payload(fast_mode=True), fake_video_capabilities())
+
+
+def test_video_batch_rejects_mixed_fast_mode_before_running():
+    from dataclasses import replace
+
+    controller, _ = build_video_controller(
+        run=UnusedVideoRun(), capabilities=replace(fake_video_capabilities(), fast_mode=True)
+    )
+    with pytest.raises(InvalidJob, match="same fast_mode"):
+        controller.run_batch(
+            [payload(fast_mode=True), payload(fast_mode=False)],
+            lambda *_: None,
+            lambda *_: None,
+            lambda: False,
+        )

@@ -21,7 +21,7 @@ def cli(tmp_path: Path) -> str:
 
 
 def capture_execute(monkeypatch, commands):
-    def fake_execute(self, command, progress=None, cancelled=None):
+    def fake_execute(self, command, progress=None, cancelled=None, **options):
         commands.append(command)
         Path(command[command.index("-o") + 1]).write_bytes(b"mp4 bytes")
 
@@ -421,7 +421,7 @@ def test_the_timeout_names_the_hour(monkeypatch):
 
 
 def test_a_run_that_writes_no_mp4_is_named(tmp_path, monkeypatch):
-    def no_output(self, command, progress=None, cancelled=None):
+    def no_output(self, command, progress=None, cancelled=None, **options):
         return None
 
     monkeypatch.setattr(MlxVideoRunner, "_execute", no_output)
@@ -517,7 +517,7 @@ def test_a_missing_effect_is_fetched_from_an_unrelated_working_directory(tmp_pat
     commands = []
     real_execute = MlxVideoRunner._execute
 
-    def execute(self, command, progress=None, cancelled=None):
+    def execute(self, command, progress=None, cancelled=None, **options):
         if command[1] == "-c":
             return real_execute(self, command, progress, cancelled)
         commands.append(command)
@@ -680,7 +680,7 @@ def test_a_compatible_batch_uses_one_child_and_retains_each_clip(tmp_path, monke
     events = []
     calls = []
 
-    def execute(self, command, progress, cancelled, consume=None, timeout_started=None):
+    def execute(self, command, progress, cancelled, consume=None, timeout_started=None, **options):
         calls.append(command)
         assert consume is not None
         manifest = Path(command[-1])
@@ -744,7 +744,7 @@ def test_a_batch_with_no_protocol_completion_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(batch, "physical_memory", lambda: 64 * 1024**3)
     executable = cli(tmp_path)
     (tmp_path / "python").write_text("")
-    monkeypatch.setattr(MlxVideoRunner, "_execute", lambda *args: None)
+    monkeypatch.setattr(MlxVideoRunner, "_execute", lambda *args, **options: None)
     runner = MlxVideoRunner({"cli_path": executable}, "dgrauet/ltx-2.5-mlx-q8", False)
     with pytest.raises(StudioError, match="before every item"):
         runner.run_batch(
@@ -928,7 +928,7 @@ def test_enhanced_batches_finish_preparation_before_video_reuse(
     (tmp_path / "python").write_text("")
     calls = []
 
-    def execute(self, command, progress=None, cancelled=None, consume=None, timeout_started=None):
+    def execute(self, command, progress=None, cancelled=None, consume=None, timeout_started=None, **options):
         calls.append(command)
         manifest = Path(command[-1])
         commands = json.loads(manifest.read_text())
@@ -960,7 +960,7 @@ def test_enhancement_failure_never_starts_video_or_claims_an_item(tmp_path, monk
     (tmp_path / "python").write_text("")
     calls = []
 
-    def execute(self, command, *args):
+    def execute(self, command, *args, **options):
         calls.append(command)
         raise StudioError("enhancer failed")
 
@@ -1014,7 +1014,7 @@ def test_audio_batch_marks_native_enhancement_before_parsing_a2v(tmp_path, monke
     monkeypatch.setattr(runner, "_write_audio", lambda job, root: root / "ref.wav" if job.audio else None)
     seen = []
 
-    def execute(self, command, *args):
+    def execute(self, command, *args, **options):
         seen.extend(json.loads(Path(command[-1]).read_text()))
         raise StudioError("enough")
 
@@ -1108,7 +1108,8 @@ def test_cancel_during_real_cpu_enhancement_stops_before_any_video_item(tmp_path
 
 
 @pytest.mark.live
-def test_mlx_enhanced_batch_live(tmp_path):
+@pytest.mark.parametrize("fast_mode", [False, True], ids=["default", "fast"])
+def test_mlx_enhanced_batch_live(tmp_path, fast_mode):
     """Use the product runner and real weights; a separate API check covers high-res reuse."""
     import json
     import socket
@@ -1146,7 +1147,7 @@ def test_mlx_enhanced_batch_live(tmp_path):
         starts = []
         retained = []
         jobs = [
-            VideoJob(prompt, 384, 384, 9, 24, seed, enhance=True)
+            VideoJob(prompt, 384, 384, 9, 24, seed, enhance=True, fast_mode=fast_mode)
             for prompt, seed in [
                 ("A red paper boat floats on a calm pond.", 7),
                 ("A blue teapot rests on a wooden table.", 8),
@@ -1208,7 +1209,7 @@ def test_effectively_unenhanced_jobs_keep_their_existing_reuse_path(tmp_path, mo
     (tmp_path / "python").write_text("")
     runner = MlxVideoRunner({"cli_path": cli(tmp_path)}, "dgrauet/ltx-2.5-mlx-q8", False)
     selected = []
-    monkeypatch.setattr(runner, "_execute", lambda *args: selected.append("reuse"))
+    monkeypatch.setattr(runner, "_execute", lambda *args, **options: selected.append("reuse"))
     monkeypatch.setattr(runner, "_sequential_batch", lambda *args: selected.append("sequential") or [])
     with pytest.raises(StudioError, match="before every item"):
         runner.run_batch(
@@ -1219,3 +1220,57 @@ def test_effectively_unenhanced_jobs_keep_their_existing_reuse_path(tmp_path, mo
             lambda: False,
         )
     assert selected == ["reuse"]
+
+
+def test_fast_mode_changes_only_each_render_child_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("LTX2_COMPUTE_DTYPE", "bfloat16")
+    executable = tmp_path / "ltx-2-mlx"
+    executable.write_text(
+        f"#!{sys.executable}\nimport os,sys\nfrom pathlib import Path\n"
+        "Path(sys.argv[sys.argv.index('-o')+1]).write_bytes(os.environ['LTX2_COMPUTE_DTYPE'].encode())\n"
+    )
+    executable.chmod(0o755)
+    runner = MlxVideoRunner({"cli_path": str(executable)}, "pack", False)
+    for fast_mode, expected in [(True, b"float16"), (False, b"float32"), (True, b"float16")]:
+        result = runner.run(VideoJob("cat", 384, 384, 9, 24, 7, fast_mode=fast_mode))
+        assert result.mp4 == expected
+        assert os.environ["LTX2_COMPUTE_DTYPE"] == "bfloat16"
+
+
+def test_shared_batch_child_receives_the_requested_fast_mode(tmp_path, monkeypatch):
+    import json
+
+    executable = cli(tmp_path)
+    (tmp_path / "python").touch()
+    seen = []
+
+    def execute(self, command, *args, **options):
+        seen.append(options["fast_mode"])
+        consume = args[2]
+        manifest = Path(command[-1])
+        for index, arguments in enumerate(json.loads(manifest.read_text()), 1):
+            consume(f'STUDIO_BATCH:{{"event":"start","index":{index}}}\n')
+            Path(arguments[arguments.index("-o") + 1]).write_bytes(b"mp4")
+            consume(f'STUDIO_BATCH:{{"event":"done","index":{index}}}\n')
+
+    monkeypatch.setattr(MlxVideoRunner, "_execute", execute)
+    jobs = [VideoJob("cat", 384, 384, 9, 24, 7, enhance=True, fast_mode=True)] * 2
+    # Test the render child alone; enhancement transport is covered by the existing tests.
+    runner = MlxVideoRunner({"cli_path": executable}, "pack", False)
+    from studio.l4_frameworks_and_drivers import mlx_video_batch as batch
+
+    monkeypatch.setattr(batch, "reuse_policy", lambda *args: "resident")
+    assert len(runner.run_batch(jobs, lambda *_: None, lambda *_: None, None, lambda: False)) == 2
+    assert seen == [True]
+
+
+def test_mixed_precision_runner_batches_use_individual_children(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    calls = []
+    runner = MlxVideoRunner({"cli_path": cli(tmp_path)}, "pack", False)
+    first = VideoJob("cat", 384, 384, 9, 24, 7, fast_mode=True)
+    second = replace(first, fast_mode=False)
+    monkeypatch.setattr(runner, "run", lambda job, *args: calls.append(job.fast_mode))
+    runner.run_batch([first, second], lambda *_: None, lambda *_: None, None, lambda: False)
+    assert calls == [True, False]

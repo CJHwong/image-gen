@@ -797,6 +797,7 @@
      true: without it the display above outranks the browser's own `[hidden]` rule, and a
      pill that was meant to be away stays on screen. */
   .pill[hidden] { display: none; }
+  .pill[aria-pressed=true] { border-color: var(--text); background: var(--accent-soft); color: var(--text); }
   .pill .icon { width: 14px; height: 14px; }
   .pill:hover, .pill[aria-expanded=true] { border-color: var(--text-3); color: var(--text); }
   .field-head:has(.pill) { align-items: center; }

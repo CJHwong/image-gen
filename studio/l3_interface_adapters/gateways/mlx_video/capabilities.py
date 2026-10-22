@@ -218,6 +218,7 @@ def _capabilities(backend_id: str, name: str, edit: bool = False) -> VideoCapabi
         badge="24 fps",
         description="Native MLX on Apple Silicon, 8-bit weights.",
         precision="int8",
+        fast_mode=backend_id == "ltx25_mlx",
         shapes=SHAPES,
         default_shape_ratio="1:1",
         min_frames=9,

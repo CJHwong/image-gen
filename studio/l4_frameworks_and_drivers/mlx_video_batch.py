@@ -35,6 +35,14 @@ def reuse_policy(jobs: list[VideoJob], model: str) -> str | None:
         return None
     job = jobs[0]
     pixels = job.width * job.height
+    # Measured M5 Pro 64 GiB profile. Fast mode changes compute precision; only
+    # this exact enhanced text-only shape established an additional residency win.
+    if (
+        all(item.fast_mode and item.enhance for item in jobs)
+        and (job.width, job.height, job.num_frames) == (768, 768, 121)
+        and physical_memory() >= 64 * 1024**3
+    ):
+        return "resident"
     if (
         pixels <= 768 * 768
         or pixels > 1920 * 1088

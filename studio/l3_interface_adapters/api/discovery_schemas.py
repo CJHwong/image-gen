@@ -162,6 +162,10 @@ def discovery_schemas() -> dict[str, Any]:
                 "adapters": {"type": "array", "items": {"$ref": "#/components/schemas/VideoAdapter"}},
                 "max_clip_megabytes": number,
                 "precision": string,
+                "fast_mode": {
+                    "type": "boolean",
+                    "description": "Supports optional Fast mode; reduced compute precision can change generated details and motion.",
+                },
                 "max_audio_megabytes": number,
             },
             "description": "Choose an exact shape pair. Frame counts follow min_frames plus whole multiples of frame_step. Generation templates live here; Looks live inside each mode.",

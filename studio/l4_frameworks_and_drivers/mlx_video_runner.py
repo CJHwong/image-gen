@@ -91,7 +91,7 @@ class MlxVideoRunner:
                     )
                     child = Path(__file__).with_name("mlx_video_generation_child.py")
                     command = [python, str(child), *command[1:]]
-            self._execute(command, progress, cancelled)
+            self._execute(command, progress, cancelled, fast_mode=job.fast_mode)
             if not output.is_file() or output.stat().st_size == 0:
                 raise StudioError("The MLX video pipeline did not write an MP4 file.")
             mp4 = output.read_bytes()
@@ -102,6 +102,8 @@ class MlxVideoRunner:
 
         if cancelled():
             raise Cancelled("The video batch was cancelled.")
+        if len({job.fast_mode for job in jobs}) > 1:
+            return self._sequential_batch(jobs, completed, started, progress, cancelled)
         if self._batch_policy == "auto" and self._enhances and prefer_sequential(jobs, self._model):
             return self._sequential_batch(jobs, completed, started, progress, cancelled)
         python = Path(self._cli).parent / "python"
@@ -147,6 +149,7 @@ class MlxVideoRunner:
                 cancelled,
                 records.feed,
                 lambda: records.item_started_at,
+                fast_mode=jobs[0].fast_mode,
             )
             if len(records.results) != len(jobs):
                 raise StudioError("The MLX video batch ended before every item finished.")
@@ -353,9 +356,16 @@ class MlxVideoRunner:
         cancelled: Callable[[], bool] | None = None,
         consume: Callable[[str], None] | None = None,
         timeout_started: Callable[[], float | None] | None = None,
+        *,
+        fast_mode: bool | None = None,
     ) -> None:
         should_cancel = cancelled or (lambda: False)
-        with subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, bufsize=0) as process:
+        environment = os.environ.copy()
+        if fast_mode is not None:
+            environment["LTX2_COMPUTE_DTYPE"] = "float16" if fast_mode else "float32"
+        with subprocess.Popen(
+            command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, bufsize=0, env=environment
+        ) as process:
             stderr = cast(BinaryIO, process.stderr)
             started = time.monotonic()
             recent: deque[str] = deque(maxlen=TAIL_LINES)

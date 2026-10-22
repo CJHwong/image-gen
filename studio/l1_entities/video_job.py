@@ -67,6 +67,8 @@ class VideoJob:
     audio: VideoAudio | None = None
     """Set for a run whose clip follows a track. The pipeline freezes the track and returns
     it in the output unchanged, so the run reads it as timing and mood, not as a source."""
+    fast_mode: bool = False
+    """Use reduced transformer compute precision for this render; weights stay unchanged."""
 
 
 @dataclass(frozen=True)
