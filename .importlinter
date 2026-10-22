@@ -93,3 +93,12 @@ source_modules =
     studio.l4_frameworks_and_drivers.subprocess_runner
 forbidden_modules =
     studio.l3_interface_adapters.gateways
+
+[importlinter:contract:plugin-sdk-inner-only]
+name = The public model plugin SDK exposes inner contracts, not concrete adapters or drivers
+type = forbidden
+source_modules =
+    studio.plugins
+forbidden_modules =
+    studio.l3_interface_adapters
+    studio.l4_frameworks_and_drivers

@@ -8,6 +8,7 @@ from studio.l1_entities.image_job import ReferenceImage
 from studio.l1_entities.prompt_rewrite import PromptRewrite
 from studio.l2_use_cases.boundaries.backend_catalog_gateway import BackendCatalogGateway
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
+from studio.l2_use_cases.boundaries.video_backend_catalog_gateway import VideoBackendCatalogGateway
 
 
 class NoPromptRewriter(PromptRewriterGateway):
@@ -39,7 +40,11 @@ class CatalogPromptRewriter(PromptRewriterGateway):
     rewriter, because the caller asking for memory wants all of it.
     """
 
-    def __init__(self, rewriters: Mapping[str, PromptRewriterGateway], catalog: BackendCatalogGateway):
+    def __init__(
+        self,
+        rewriters: Mapping[str, PromptRewriterGateway],
+        catalog: BackendCatalogGateway | VideoBackendCatalogGateway,
+    ):
         self._rewriters = dict(rewriters)
         self._catalog = catalog
         self._none = NoPromptRewriter()

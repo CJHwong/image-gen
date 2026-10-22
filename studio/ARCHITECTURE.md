@@ -49,6 +49,19 @@ prevents framework drivers from reaching model gateways outside the composition 
 Tests mirror the same media/model paths. Add a new model as a new package, including
 when it shares an engine or publisher with an existing model.
 
+## External model plugins
+
+Installed entry points under `open_imagine.models.image`, `.video`, and `.audio` extend
+workspace catalogs without changing the source tree. `model_plugins.py` reads metadata and
+imports only visible declarations. The public `studio.plugins` SDK exposes versioned immutable
+registration/context records and media-specific inner gateway/job/capability types. Discovery
+and concrete factory validation belong in layer 4; core use cases never inspect packages.
+Plugin IDs are globally unique because all media share one residency map. Stub mode uses
+capability records without calling plugin engine factories. Native built-in factories and IDs
+remain unchanged. Plugin-only configurations own their runtime platform requirements.
+Video rewriters now follow their selected catalog, just as Image rewriters do; a plugin with
+no rewriter never inherits LTX's enhancer. See [the contract](../docs/reference/model-plugins.md).
+
 ## Boundaries and composition
 
 The responsibility split follows the [Clean Architecture examples](https://github.com/CJHwong/py-clean-architecture-examples)

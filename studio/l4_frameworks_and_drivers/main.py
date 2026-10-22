@@ -80,6 +80,7 @@ from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
+from studio.l4_frameworks_and_drivers.model_plugins import ModelPlugins
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 
 PAGE = Path(__file__).with_name("web") / "page.html"
@@ -94,6 +95,8 @@ class Studio:
     cancel: CancelRunUseCase
     rewriter: PromptRewriterGateway | None = None
 
+    video_rewriter: PromptRewriterGateway | None = None
+
     def active_capabilities(self):
         return self.catalog.get(self.catalog.active_id()).capabilities()
 
@@ -107,6 +110,8 @@ class Studio:
         self.residency.release()
         if self.rewriter is not None:
             self.rewriter.release()
+        if self.video_rewriter is not None:
+            self.video_rewriter.release()
 
 
 def badge(quantize: int | None) -> str:
@@ -239,29 +244,36 @@ def qwen21_rewrite_models(config: Config, backend_id: str) -> dict | None:
     return models if all(models.values()) else None
 
 
-def build_rewriters(config: Config) -> dict:
+def build_rewriters(config: Config, plugins: ModelPlugins | None = None, stub: bool = False) -> dict:
     built = {}
     for backend_id in config.visible_backends:
-        models = qwen21_rewrite_models(config, backend_id) if backend_id in REWRITERS else None
-        built[backend_id] = REWRITERS[backend_id](models) if models else NoPromptRewriter()
+        if plugins and backend_id in plugins.ids("image"):
+            built[backend_id] = plugins.rewriter("image", backend_id, config, stub)
+        else:
+            models = qwen21_rewrite_models(config, backend_id) if backend_id in REWRITERS else None
+            built[backend_id] = REWRITERS[backend_id](models) if models else NoPromptRewriter()
     return built
 
 
-def build_backends(config: Config) -> dict:
+def build_backends(config: Config, plugins: ModelPlugins | None = None, stub: bool = False) -> dict:
     """The backends the page offers, and no others: an unused one needs no settings.
     Each loads nothing until it is used."""
-    unknown = [backend_id for backend_id in config.visible_backends if backend_id not in BACKENDS]
+    registry = {**BACKENDS, **plugin_factories(plugins, "image", stub)}
+    unknown = [backend_id for backend_id in config.visible_backends if backend_id not in registry]
     if unknown:
-        raise ConfigError(f"no backend called {', '.join(unknown)}. Known: {', '.join(BACKENDS)}")
-    return {backend_id: BACKENDS[backend_id](config) for backend_id in config.visible_backends}
+        raise ConfigError(f"no backend called {', '.join(unknown)}. Known: {', '.join(registry)}")
+    return {backend_id: registry[backend_id](config) for backend_id in config.visible_backends}
 
 
-def build_video_backends(config: Config, enhanced_prompt=None) -> dict:
-    unknown = [backend_id for backend_id in config.visible_video_backends if backend_id not in VIDEO_BACKENDS]
+def build_video_backends(
+    config: Config, enhanced_prompt=None, plugins: ModelPlugins | None = None, stub: bool = False
+) -> dict:
+    registry = {**VIDEO_BACKENDS, **plugin_factories(plugins, "video", stub)}
+    unknown = [backend_id for backend_id in config.visible_video_backends if backend_id not in registry]
     if unknown:
-        raise ConfigError(f"no video backend called {', '.join(unknown)}. Known: {', '.join(VIDEO_BACKENDS)}")
+        raise ConfigError(f"no video backend called {', '.join(unknown)}. Known: {', '.join(registry)}")
     return {
-        backend_id: VIDEO_BACKENDS[backend_id](config, enhanced_prompt=enhanced_prompt)
+        backend_id: registry[backend_id](config, enhanced_prompt=enhanced_prompt)
         for backend_id in config.visible_video_backends
     }
 
@@ -296,33 +308,53 @@ VOICE_BACKENDS = {
 }
 
 
-def build_voice_backends(config: Config):
-    unknown = [name for name in config.visible_voice_backends if name not in VOICE_BACKENDS]
+def build_voice_backends(config: Config, plugins: ModelPlugins | None = None, stub: bool = False):
+    registry = {**VOICE_BACKENDS, **plugin_factories(plugins, "voice", stub)}
+    unknown = [name for name in config.visible_voice_backends if name not in registry]
     if unknown:
-        raise ConfigError(f"no voice backend called {', '.join(unknown)}. Known: {', '.join(VOICE_BACKENDS)}")
-    return {name: VOICE_BACKENDS[name](config) for name in config.visible_voice_backends}
+        raise ConfigError(f"no voice backend called {', '.join(unknown)}. Known: {', '.join(registry)}")
+    return {name: registry[name](config) for name in config.visible_voice_backends}
 
 
-def create_studio(config: Config, stub: bool = False) -> Studio:
+def discover_plugins() -> ModelPlugins:
+    return ModelPlugins({"image": BACKENDS, "video": VIDEO_BACKENDS, "voice": VOICE_BACKENDS})
+
+
+def plugin_factories(plugins: ModelPlugins | None, kind: str, stub: bool) -> dict:
+    return {name: partial(plugins.build, kind, name, stub=stub) for name in plugins.ids(kind)} if plugins else {}
+
+
+def create_studio(config: Config, stub: bool = False, plugins: ModelPlugins | None = None) -> Studio:
     """With `stub`, each backend keeps its form and fakes its engine: for work on the page."""
-    backends = build_backends(config)
+    plugins = plugins if plugins is not None else discover_plugins()
+    backends = build_backends(config, plugins, stub)
     enhancer = Gemma3PromptEnhancer(config.backend("mlx_video"), SubprocessRunner().execute)
-    video_backends = build_video_backends(config, enhancer.is_enhanced)
+    video_backends = build_video_backends(config, enhancer.is_enhanced, plugins, stub)
     video_rewriter = StubPromptRewriter() if stub else Gemma3PromptRewriterGateway(enhancer)
-    voice_backends = build_voice_backends(config)
-    rewriters = build_rewriters(config)
+    voice_backends = build_voice_backends(config, plugins, stub)
+    rewriters = build_rewriters(config, plugins, stub)
+    video_rewriters = {
+        name: plugins.rewriter("video", name, config, stub) if name in plugins.ids("video") else video_rewriter
+        for name in video_backends
+    }
     if stub:
         voice_backends = {
             name: StubVoiceBackendGateway(capabilities=backend.capabilities())
             for name, backend in voice_backends.items()
         }
         backends = {backend_id: StubBackendGateway(backend.capabilities()) for backend_id, backend in backends.items()}
-        rewriters = {backend_id: StubPromptRewriter() for backend_id in rewriters}
+        rewriters = {
+            backend_id: rewriters[backend_id] if backend_id in plugins.ids("image") else StubPromptRewriter()
+            for backend_id in rewriters
+        }
         video_backends = {
             backend_id: StubVideoBackendGateway(backend.capabilities())
             for backend_id, backend in video_backends.items()
         }
-    else:
+    elif any(
+        name in BACKENDS or name in VIDEO_BACKENDS or name in VOICE_BACKENDS
+        for name in (*backends, *video_backends, *voice_backends)
+    ):
         require_mlx()
     return assemble_studio(
         backends,
@@ -335,7 +367,7 @@ def create_studio(config: Config, stub: bool = False) -> Studio:
         voice_backends=voice_backends,
         default_voice_id=config.default_voice_backend,
         visible_voice_ids=config.visible_voice_backends,
-        video_rewriter=video_rewriter,
+        video_rewriters=video_rewriters,
     )
 
 
@@ -352,6 +384,7 @@ def assemble_studio(
     default_voice_id="auk",
     visible_voice_ids=(),
     video_rewriter: PromptRewriterGateway | None = None,
+    video_rewriters: dict | None = None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
     gpu = GpuThread()
@@ -374,6 +407,10 @@ def assemble_studio(
         voice_catalog = InMemoryVoiceBackendCatalogGateway(
             voice_backends, default_voice_id, visible_voice_ids or tuple(voice_backends)
         )
+    if video_rewriters is not None and video_catalog is not None:
+        video_rewriter = CatalogPromptRewriter(video_rewriters, video_catalog)
+    if video_rewriter is not None:
+        video_rewriter = ThreadConfinedPromptRewriter(video_rewriter, gpu)
     runtimes = {**confined, **(video_backends or {}), **(voice_backends or {})}
     residency = InMemoryModelResidencyGateway(runtimes)
     rewriter = ThreadConfinedPromptRewriter(CatalogPromptRewriter(rewriters, catalog), gpu)
@@ -441,4 +478,5 @@ def assemble_studio(
         residency=residency,
         cancel=cancel,
         rewriter=rewriter,
+        video_rewriter=video_rewriter,
     )

@@ -119,7 +119,7 @@ def openapi_document() -> dict[str, Any]:
                     "summary": "Models, modes, sizes, Looks and templates",
                     "responses": {
                         "200": {
-                            "description": "The studio's current models and their capabilities",
+                            "description": "The studio's current models and their capabilities, including installed and enabled model plugins. Use the selected model's declared modes, parameters and limits rather than assuming a built-in model recipe.",
                             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Studio"}}},
                         }
                     },
@@ -935,7 +935,7 @@ def voice_schemas() -> dict[str, Any]:
             "properties": {
                 "backend": {
                     "enum": ["auk", "auk_base", "drama3"],
-                    "description": "Drama-3 (drama3, default), AuK (auk_base), or AuK Flash (auk). Omitted backend uses the server's current Voice selection; send an explicit ID for reproducible behavior. Read that model's capabilities before choosing a mode or parameters.",
+                    "description": "Drama-3 (drama3, default), AuK (auk_base), or AuK Flash (auk). Omitted backend uses the server's current Voice selection; send an explicit ID for reproducible behavior. Read that model's capabilities before choosing a mode or parameters. Installed Voice plugins can add other backend IDs through the same API.",
                 },
                 "template": {
                     "type": "string",

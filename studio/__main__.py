@@ -27,6 +27,7 @@ from studio.l4_frameworks_and_drivers.main import (
     VIDEO_BACKENDS,
     VOICE_BACKENDS,
     create_studio,
+    discover_plugins,
     qwen21_rewrite_models,
 )
 
@@ -76,15 +77,16 @@ def rewriter_cache_line(config: Config) -> str:
 def main():
     args = parse_args()
     try:
+        plugins = discover_plugins()
         config = load_config(
             args.config,
             backend=args.backend,
             quantize=args.quantize,
-            visible=tuple(BACKENDS) if args.all_backends else None,
-            visible_video=tuple(VIDEO_BACKENDS) if args.all_backends else None,
-            visible_voice=tuple(VOICE_BACKENDS) if args.all_backends else None,
+            visible=(*BACKENDS, *plugins.ids("image")) if args.all_backends else None,
+            visible_video=(*VIDEO_BACKENDS, *plugins.ids("video")) if args.all_backends else None,
+            visible_voice=(*VOICE_BACKENDS, *plugins.ids("voice")) if args.all_backends else None,
         )
-        studio = create_studio(config, stub=args.stub)
+        studio = create_studio(config, stub=args.stub, plugins=plugins)
     except ConfigError as error:
         sys.exit(f"Bad settings in {args.config}: {error}")
     except EngineUnavailable as error:

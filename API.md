@@ -621,3 +621,11 @@ LTX-2.3 rejects true. A video batch sets it once at the top level; items cannot 
 Operation `settings.fast_mode` records an explicitly submitted value. The UI names the option
 Fast mode and records it with the result. Watching another client's operation temporarily shows
 its setting while preserving the observer's own setting for the next render.
+
+## Installed model plugins
+
+Installed and enabled model plugins appear in `/api/v1/studio` with their own capabilities.
+Their IDs work with the existing Image, Video, Voice and batch operation endpoints. Always read
+the selected model's modes, parameters, sizes and limits; built-in model recipes do not apply
+implicitly to plugins. A plugin without its own rewriter has no Rewrite capability.
+See [adding a model](docs/how-to/add-a-model-plugin.md) and [the plugin contract](docs/reference/model-plugins.md).

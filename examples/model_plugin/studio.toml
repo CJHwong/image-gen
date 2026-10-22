@@ -1,0 +1,12 @@
+# Launch from the Open Imagine checkout:
+# uv run --with ./examples/model_plugin studio --config examples/model_plugin/studio.toml
+# These examples produce a PNG, an FFmpeg test clip, and a WAV tone. No model weights.
+default_backend = "example_image"
+visible_backends = ["example_image"]
+default_video_backend = "example_video"
+visible_video_backends = ["example_video"]
+default_voice_backend = "example_voice"
+visible_voice_backends = ["example_voice"]
+
+# Plugin settings use the same section names as entry point IDs.
+[example_image]

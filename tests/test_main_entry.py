@@ -209,6 +209,33 @@ def test_the_all_backends_flag_offers_every_model_the_studio_can_build(tmp_path,
     assert seen["visible_voice"] == tuple(entry.VOICE_BACKENDS)
 
 
+def test_the_all_backends_flag_includes_installed_plugins(tmp_path, monkeypatch):
+    """A settings file that offers one model hides the page's picker, which is the default. The
+    flag is how a person asks for the lot without editing the file, and what it hands over is
+    the registry's own list, so a backend added later is offered by the same flag."""
+    seen = {}
+    monkeypatch.setattr(
+        entry, "discover_plugins", lambda: type("Plugins", (), {"ids": lambda self, kind: ("external_" + kind,)})()
+    )
+
+    def fake_load_config(path, backend=None, quantize=None, visible=None, visible_video=None, visible_voice=None):
+        seen["visible"] = visible
+        seen["visible_video"] = visible_video
+        seen["visible_voice"] = visible_voice
+        raise SystemExit(0)
+
+    monkeypatch.setattr(entry, "load_config", fake_load_config)
+    argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path)), "--all-backends")
+
+    with pytest.raises(SystemExit):
+        entry.main()
+
+    assert seen["visible"] == (*entry.BACKENDS, "external_image")
+    assert "flux2" in seen["visible"]
+    assert seen["visible_video"] == (*entry.VIDEO_BACKENDS, "external_video")
+    assert seen["visible_voice"] == (*entry.VOICE_BACKENDS, "external_voice")
+
+
 def test_without_the_flag_the_settings_file_decides_what_is_offered(tmp_path, monkeypatch):
     seen = {}
 
