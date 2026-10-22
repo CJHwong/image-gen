@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import replace
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -39,6 +40,7 @@ def delayed_stub():
 
     StubVideoBackendGateway.run = render
     config = load_config(Path("studio.toml"), backend="qwen21", visible=tuple(BACKENDS))
+    config = replace(config, visible_video_backends=("ltx25_mlx", "ltx23_mlx"))
     studio = create_studio(config, stub=True)
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

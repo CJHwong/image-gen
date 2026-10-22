@@ -4,10 +4,10 @@
 # the list, and `--all-backends` offers every configured backend, flux2 included.
 default_backend = "qwen21_turbo"
 visible_backends = ["qwen21_turbo"]
-# Video has its own model choice and picker in the Video workspace. Both models run the
-# MLX q8 pack; the PyTorch engine was removed on 2026-10-20.
+# Video offers LTX-2.5 only, so its header shows the model name without a picker.
+# LTX-2.3 remains an optional backend; add it here only after restoring its weights.
 default_video_backend = "ltx25_mlx"
-visible_video_backends = ["ltx25_mlx", "ltx23_mlx"]
+visible_video_backends = ["ltx25_mlx"]
 default_voice_backend = "drama3"
 visible_voice_backends = ["drama3", "auk_base", "auk"]
 
@@ -19,7 +19,7 @@ visible_voice_backends = ["drama3", "auk_base", "auk"]
 batch_policy = "auto"
 # LTX-2.5 Fast mode is selected per request in Video Advanced or with API fast_mode=true.
 # It uses float16 transformer computation with the same q8 weights; generated details can differ.
-# The third-party MLX port, its two 8-bit packs, and ffmpeg for padding a short track. The
+# The third-party MLX port, its 8-bit pack, and ffmpeg for padding a short track. The
 # paths are the office machine's; a laptop runs the stub and never reads them.
 cli_path = "~/ltx-experiments/ltx-2-mlx/.venv/bin/ltx-2-mlx"
 ffmpeg_path = "/opt/homebrew/bin/ffmpeg"

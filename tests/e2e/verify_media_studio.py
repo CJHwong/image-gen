@@ -225,17 +225,18 @@ with sync_playwright() as playwright:
     # The video prompt's head carries the same two controls, so it is measured at the same
     # width. Its own buttons are driven by the stub's capabilities, which offer both.
     switch_workspace(page, "video")
-    # The studio opens on the MLX q8 pack, which offers Generate only. The checks below are
-    # about the video form's controls, including Edit, so they run on the PyTorch model.
-    page.click("#backend-toggle")
     video_models = page.evaluate(
         "() => [...document.querySelectorAll('#backend-menu [role=menuitemradio]')].map((item) => item.getAttribute('aria-label'))"
     )
     video_default = page.evaluate("() => document.getElementById('backend-toggle').querySelector('.name').textContent")
-    page.keyboard.press("Escape")
+    video_catalog = page.request.get(URL + "api/v1/state").json()["studio"]["video"]["backends"]
     check(
-        "the video picker opens on the 2.5 q8 pack and offers the 2.3 one",
-        video_default == "LTX-2.5" and video_models == ["LTX-2.5", "LTX-2.3"],
+        "Video shows LTX-2.5 without a picker and the API offers only that model",
+        video_default == "LTX-2.5"
+        and video_models == []
+        and page.locator("#backend-toggle").is_disabled()
+        and not page.locator("#backend-toggle .icon").is_visible()
+        and [model["id"] for model in video_catalog] == ["ltx25_mlx"],
         str({"default": video_default, "models": video_models}),
     )
     narrow_video_head = page.evaluate(
@@ -382,9 +383,9 @@ with sync_playwright() as playwright:
         page.locator("#video-source-panel .video-reference").inner_text(),
     )
     check(
-        "Video mode shows its own selected model and offers the other video models",
+        "Video mode shows its own selected model without a picker",
         page.locator("#backend-toggle .name").inner_text() == "LTX-2.5"
-        and page.locator("#backend-toggle").is_enabled(),
+        and page.locator("#backend-toggle").is_disabled(),
         page.locator("#backend-toggle").inner_text().replace("\n", " "),
     )
     check(
@@ -1000,8 +1001,8 @@ with sync_playwright() as playwright:
     page.fill("#video-prompt", "short")
     small = page.evaluate("() => document.getElementById('video-prompt').getBoundingClientRect().height")
     check(
-        "the video prompt grows with its words, up to the image form's cap",
-        grown > small and grown <= 320,
+        "the focused video prompt stays expanded for long and short text, at the shared cap",
+        grown == small == 320,
         f"grown {grown:.0f}px, short {small:.0f}px",
     )
     page.locator("#video-media-upload").set_input_files(

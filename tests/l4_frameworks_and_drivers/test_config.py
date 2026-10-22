@@ -27,6 +27,8 @@ def test_the_shipping_config_opens_on_turbo_and_offers_no_picker():
 
     assert config.default_backend == "qwen21_turbo"
     assert config.visible_backends == ("qwen21_turbo",)
+    assert config.default_video_backend == "ltx25_mlx"
+    assert config.visible_video_backends == ("ltx25_mlx",)
 
 
 def test_the_shipping_config_loads_the_image_weights_at_full_precision():
