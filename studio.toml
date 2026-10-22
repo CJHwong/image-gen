@@ -53,18 +53,18 @@ quantize = 0                              # bf16, for the reason above
 model_dir = "~/Library/Caches/models/qwen-image-2.1-turbo"
 # The checkpoint ships its own eight-node sampling schedule and this backend samples
 # it, so 8 steps is the count rather than a setting. `gateways/image/shared/qwen21_turbo_schedule.py`
-# holds the table; `docs/DESIGN_DECISIONS.md` explains why it differs from the default table.
+# holds the table; `docs/explanation/design-decisions.md` explains why it differs from the default table.
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 
 [flux2]
 quantize = 0
-model_dir = "~/Library/Caches/models/mflux-klein-base-9b-uncensored"   # docs/MODEL_SETUP.md has the download
+model_dir = "~/Library/Caches/models/mflux-klein-base-9b-uncensored"   # docs/how-to/set-up-models.md has the download
 
 [viggle_turbo]
 quantize = 0                              # bf16, for the reason above; the LoRA is passed unmerged
 # Viggle's distilled 6-step adapter for Qwen-Image-2.1, 1.3 GB. The base weights
-# are the ones [qwen21] already downloads. docs/MODEL_SETUP.md has the download recipe.
+# are the ones [qwen21] already downloads. docs/how-to/set-up-models.md has the download recipe.
 lora_path = "~/Library/Caches/models/viggle-turbo/Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors"
 # The same two prompt rewriters as [qwen21]: they are their own models and do not
 # depend on which weights draw the image.
