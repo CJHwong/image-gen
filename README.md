@@ -407,3 +407,8 @@ The complete Voice stack therefore retains that research license restriction. Do
 Drama-3 weights use the [Fish Audio Community License 1.0](https://huggingface.co/mlx-community/fish-audio-drama-3-8bit/blob/fedc7cc92bab5a180709cbaae6208d10b390bb97/LICENSE). Its community commercial eligibility and hosted-service terms differ from the MLX Audio code license.
 
 Drama-3 is the default Voice model and uses the pinned eight-bit MLX checkpoint. The UI automatically keeps the first 15 seconds of longer Clone references, including gallery selections and references carried over from AuK. Trimming clears a copied full-recording transcript: enter the exact words in the retained excerpt. API callers use `/api/v1/audio/trim` before submitting a reference longer than the model limit. Script and prompt fields expand while focused.
+
+
+Experimental reports and research notes are kept outside the checkout. Runtime setup,
+API usage and the measured implementation decisions remain documented here and in
+[API.md](API.md) and [ARCHITECTURE.md](studio/ARCHITECTURE.md).
