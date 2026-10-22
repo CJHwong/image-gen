@@ -6,7 +6,7 @@ import pytest
 
 from studio.l1_entities.errors import Cancelled, StudioError
 from studio.l1_entities.video_job import VideoAudio, VideoJob
-from studio.l4_frameworks_and_drivers.mlx_video_batch import BatchRecords, can_reuse
+from studio.l3_interface_adapters.gateways.video.ltx_runtime.batch import BatchRecords, can_reuse
 
 
 def job(prompt="a cat", **changes):
@@ -14,7 +14,7 @@ def job(prompt="a cat", **changes):
 
 
 def test_dynamic_profiles_use_geometry_length_and_measured_memory(monkeypatch):
-    from studio.l4_frameworks_and_drivers import mlx_video_batch as batch
+    from studio.l3_interface_adapters.gateways.video.ltx_runtime import batch
 
     monkeypatch.setattr(batch, "physical_memory", lambda: 64 * 1024**3)
     model = "dgrauet/ltx-2.5-mlx-q8"
@@ -48,7 +48,7 @@ def test_dynamic_profiles_use_geometry_length_and_measured_memory(monkeypatch):
 
 
 def test_physical_memory_failure_disables_reuse(monkeypatch):
-    from studio.l4_frameworks_and_drivers import mlx_video_batch as batch
+    from studio.l3_interface_adapters.gateways.video.ltx_runtime import batch
 
     monkeypatch.setattr(batch.os, "sysconf", lambda key: 1024)
     assert batch.physical_memory() == 1024**2
@@ -112,7 +112,7 @@ def test_the_child_preencodes_unique_prompts_frees_gemma_and_reuses_one_pipeline
     import sys
     from types import ModuleType, SimpleNamespace
 
-    from studio.l4_frameworks_and_drivers import mlx_video_batch_child as child
+    from studio.l3_interface_adapters.gateways.video.ltx_runtime import mlx_video_batch_child as child
 
     events = []
     pipelines = []
@@ -217,7 +217,7 @@ def test_cleanup_profile_bounds_cache_and_preserves_each_stage_result(monkeypatc
     import sys
     from types import ModuleType
 
-    from studio.l4_frameworks_and_drivers import mlx_video_batch_child as child
+    from studio.l3_interface_adapters.gateways.video.ltx_runtime import mlx_video_batch_child as child
 
     events = []
 
@@ -261,7 +261,7 @@ def test_cleanup_profile_bounds_cache_and_preserves_each_stage_result(monkeypatc
 
 
 def test_only_the_measured_short_pair_prefers_per_item_execution():
-    from studio.l4_frameworks_and_drivers.mlx_video_batch import prefer_sequential
+    from studio.l3_interface_adapters.gateways.video.ltx_runtime.batch import prefer_sequential
 
     model = "dgrauet/ltx-2.5-mlx-q8"
     item = job(width=1920, height=1088, num_frames=17, enhance=True)
@@ -280,7 +280,7 @@ def test_only_the_measured_short_pair_prefers_per_item_execution():
 
 
 def test_fast_mode_selects_residency_only_for_the_measured_enhanced_mid_shape(monkeypatch):
-    from studio.l4_frameworks_and_drivers import mlx_video_batch as batch
+    from studio.l3_interface_adapters.gateways.video.ltx_runtime import batch
 
     monkeypatch.setattr(batch, "physical_memory", lambda: 64 * 1024**3)
     model = "dgrauet/ltx-2.5-mlx-q8"

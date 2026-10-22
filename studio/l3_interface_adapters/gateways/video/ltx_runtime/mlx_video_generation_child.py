@@ -5,10 +5,13 @@ can run before the audio pipeline without loading either video pack alongside it
 """
 
 import importlib
+import sys
+from pathlib import Path
 from typing import Any, cast
 
 
 def main():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gemma3"))
     cli = cast(Any, importlib.import_module("ltx_pipelines_mlx.cli"))
     original = cli._cmd_a2v
     native_enhance = cli._maybe_enhance_prompt

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from studio.l4_frameworks_and_drivers import mlx_prompt_enhancement_child as child
+from studio.l3_interface_adapters.gateways.video.gemma3 import mlx_prompt_enhancement_child as child
 
 
 @pytest.mark.parametrize("entrypoint", [False, True])

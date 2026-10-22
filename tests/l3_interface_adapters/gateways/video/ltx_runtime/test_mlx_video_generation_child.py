@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import pytest
 
-from studio.l4_frameworks_and_drivers import mlx_video_generation_child as child
+from studio.l3_interface_adapters.gateways.video.ltx_runtime import mlx_video_generation_child as child
 
 
 @pytest.mark.parametrize("entrypoint", [False, True])

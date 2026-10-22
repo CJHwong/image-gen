@@ -7,17 +7,18 @@ from collections import OrderedDict
 from pathlib import Path
 
 from studio.l1_entities.errors import StudioError
-from studio.l4_frameworks_and_drivers.mlx_video_runner import MlxVideoRunner
+from studio.l3_interface_adapters.gateways.video.shared.engine_paths import checked_executable
+from studio.l3_interface_adapters.gateways.video.shared.process_errors import crash_report
 
 
-class MlxPromptEnhancer:
-    def __init__(self, settings):
+class Gemma3PromptEnhancer:
+    def __init__(self, settings, execute_process):
         self._cli = str(settings.get("cli_path", ""))
-        self._runner = MlxVideoRunner(settings, "", True)
+        self._execute_process = execute_process
         self._enhanced = OrderedDict()
 
     def __call__(self, prompt, references, on_writing, should_stop):
-        python = self._runner._checked(
+        python = checked_executable(
             str(Path(self._cli).parent / "python"), "Set cli_path under [mlx_video] to the installed MLX engine."
         )
         with tempfile.TemporaryDirectory(prefix="studio-ltx-rewrite-") as scratch:
@@ -40,11 +41,13 @@ class MlxPromptEnhancer:
                     writing = True
                     on_writing()
 
-            self._runner._execute(
+            self._execute_process(
                 [python, str(child), str(source), str(destination)],
-                None,
                 should_stop,
                 consume,
+                failure_message=crash_report,
+                timeout_message="The MLX video pipeline timed out after one hour.",
+                cancel_message="video generation was cancelled",
             )
             result = json.loads(destination.read_text())["prompt"]
             if not isinstance(result, str) or not result.strip():

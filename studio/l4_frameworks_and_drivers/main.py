@@ -71,15 +71,16 @@ from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter impor
 from studio.l3_interface_adapters.gateways.video.gemma3.gemma3_prompt_rewriter_gateway import (
     Gemma3PromptRewriterGateway,
 )
+from studio.l3_interface_adapters.gateways.video.gemma3.prompt_enhancer import Gemma3PromptEnhancer
 from studio.l3_interface_adapters.gateways.video.ltx23.ltx23_backend_gateway import Ltx23BackendGateway
 from studio.l3_interface_adapters.gateways.video.ltx25.ltx25_backend_gateway import Ltx25BackendGateway
+from studio.l3_interface_adapters.gateways.video.ltx_runtime.runner import MlxVideoRunner
 from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
-from studio.l4_frameworks_and_drivers.mlx_prompt_enhancer import MlxPromptEnhancer
-from studio.l4_frameworks_and_drivers.mlx_video_runner import MlxVideoRunner
+from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 
 PAGE = Path(__file__).with_name("web") / "page.html"
 
@@ -198,7 +199,13 @@ def _mlx_video_runner(
     settings = config.backend("mlx_video")
     model = str(settings.get(model_key, ""))
     return MlxVideoRunner(
-        settings, model, True, keyframe_two_stage, model_key=model_key, enhanced_prompt=enhanced_prompt
+        settings,
+        model,
+        True,
+        keyframe_two_stage,
+        model_key=model_key,
+        enhanced_prompt=enhanced_prompt,
+        execute_process=SubprocessRunner().execute,
     )
 
 
@@ -299,7 +306,7 @@ def build_voice_backends(config: Config):
 def create_studio(config: Config, stub: bool = False) -> Studio:
     """With `stub`, each backend keeps its form and fakes its engine: for work on the page."""
     backends = build_backends(config)
-    enhancer = MlxPromptEnhancer(config.backend("mlx_video"))
+    enhancer = Gemma3PromptEnhancer(config.backend("mlx_video"), SubprocessRunner().execute)
     video_backends = build_video_backends(config, enhancer.is_enhanced)
     video_rewriter = StubPromptRewriter() if stub else Gemma3PromptRewriterGateway(enhancer)
     voice_backends = build_voice_backends(config)

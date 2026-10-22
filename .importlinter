@@ -81,3 +81,15 @@ source_modules =
     studio.l3_interface_adapters.api
 forbidden_modules =
     studio.l3_interface_adapters.gateways
+
+
+[importlinter:contract:drivers-composition-only]
+name = Framework drivers leave model adapters to the composition root
+type = forbidden
+source_modules =
+    studio.l4_frameworks_and_drivers.http_server
+    studio.l4_frameworks_and_drivers.config
+    studio.l4_frameworks_and_drivers.engines
+    studio.l4_frameworks_and_drivers.subprocess_runner
+forbidden_modules =
+    studio.l3_interface_adapters.gateways

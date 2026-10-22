@@ -5,13 +5,14 @@ from types import SimpleNamespace
 import pytest
 
 from studio.l1_entities.errors import Cancelled, StudioError
-from studio.l4_frameworks_and_drivers.mlx_prompt_enhancer import MlxPromptEnhancer
+from studio.l3_interface_adapters.gateways.video.gemma3.prompt_enhancer import Gemma3PromptEnhancer
+from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 
 
 def enhancer(tmp_path):
     python = tmp_path / "python"
     python.touch()
-    return MlxPromptEnhancer({"cli_path": str(tmp_path / "ltx-2-mlx")})
+    return Gemma3PromptEnhancer({"cli_path": str(tmp_path / "ltx-2-mlx")}, SubprocessRunner().execute)
 
 
 @pytest.mark.parametrize("conditioned", [False, True])
@@ -20,7 +21,7 @@ def test_native_enhancement_uses_engine_environment_and_tracks_exact_output(tmp_
     writing = []
     references = (SimpleNamespace(png=b"image-a"),) if conditioned else ()
 
-    def execute(command, progress, stop, consume):
+    def execute(command, stop, consume, **options):
         assert command[0] == str(tmp_path / "python")
         assert Path(command[1]).name == "mlx_prompt_enhancement_child.py"
         request = json.loads(Path(command[2]).read_text())
@@ -29,14 +30,14 @@ def test_native_enhancement_uses_engine_environment_and_tracks_exact_output(tmp_
             assert Path(request["image"]).read_bytes() == b"image-a"
         else:
             assert request["image"] is None
-        assert progress is None and stop() is False
+        assert stop() is False
         consume("Loading weights\n[Studio enhan")
         consume("cer writing]\n" + "Writing tokens\n" * 100)
         assert writing == [True]
         consume("[Studio enhancer writing]\n")
         Path(command[3]).write_text(json.dumps({"prompt": "A directed shot."}))
 
-    monkeypatch.setattr(engine._runner, "_execute", execute)
+    monkeypatch.setattr(engine, "_execute_process", execute)
     assert engine("A cup", references, lambda: writing.append(True), lambda: False) == "A directed shot."
     assert writing == [True]
     assert engine.is_enhanced("A directed shot.", references)
@@ -48,7 +49,9 @@ def test_native_enhancement_uses_engine_environment_and_tracks_exact_output(tmp_
 def test_empty_enhancement_is_not_cached(tmp_path, monkeypatch, output):
     engine = enhancer(tmp_path)
     monkeypatch.setattr(
-        engine._runner, "_execute", lambda command, *_: Path(command[3]).write_text(json.dumps({"prompt": output}))
+        engine,
+        "_execute_process",
+        lambda command, *_, **options: Path(command[3]).write_text(json.dumps({"prompt": output})),
     )
     with pytest.raises(StudioError, match="empty prompt"):
         engine("A cup", (), lambda: None, lambda: False)
@@ -58,10 +61,10 @@ def test_empty_enhancement_is_not_cached(tmp_path, monkeypatch, output):
 def test_enhancement_cancellation_does_not_cache_output(tmp_path, monkeypatch):
     engine = enhancer(tmp_path)
 
-    def execute(*_):
+    def execute(*_, **options):
         raise Cancelled("Stopped")
 
-    monkeypatch.setattr(engine._runner, "_execute", execute)
+    monkeypatch.setattr(engine, "_execute_process", execute)
     with pytest.raises(Cancelled):
         engine("A cup", (), lambda: None, lambda: True)
     assert not engine._enhanced
@@ -71,9 +74,9 @@ def test_enhancement_history_is_bounded(tmp_path, monkeypatch):
     engine = enhancer(tmp_path)
     count = iter(range(129))
     monkeypatch.setattr(
-        engine._runner,
-        "_execute",
-        lambda command, *_: Path(command[3]).write_text(json.dumps({"prompt": str(next(count))})),
+        engine,
+        "_execute_process",
+        lambda command, *_, **options: Path(command[3]).write_text(json.dumps({"prompt": str(next(count))})),
     )
     for _ in range(129):
         engine("A cup", (), lambda: None, lambda: False)
@@ -84,7 +87,9 @@ def test_enhancement_history_is_bounded(tmp_path, monkeypatch):
 def test_enhanced_image_cache_matches_pixels_instead_of_reference_presence(tmp_path, monkeypatch):
     engine = enhancer(tmp_path)
     monkeypatch.setattr(
-        engine._runner, "_execute", lambda command, *_: Path(command[3]).write_text(json.dumps({"prompt": "A shot."}))
+        engine,
+        "_execute_process",
+        lambda command, *_, **options: Path(command[3]).write_text(json.dumps({"prompt": "A shot."})),
     )
     first, changed = SimpleNamespace(png=b"first"), SimpleNamespace(png=b"changed")
     engine("A cup", (first,), lambda: None, lambda: False)

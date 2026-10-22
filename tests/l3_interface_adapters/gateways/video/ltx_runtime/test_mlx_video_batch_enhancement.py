@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import pytest
 
-from studio.l4_frameworks_and_drivers import mlx_video_batch_enhancement as child
+from studio.l3_interface_adapters.gateways.video.ltx_runtime import mlx_video_batch_enhancement as child
 
 
 @pytest.fixture
@@ -133,7 +133,7 @@ def test_failure_releases_model_and_cleans_before_propagating(engine, monkeypatc
 def test_child_enhances_every_prompt_before_encoding_or_rendering(engine, monkeypatch, tmp_path, policy, entrypoint):
     import json
 
-    from studio.l4_frameworks_and_drivers import mlx_video_batch_child as batch
+    from studio.l3_interface_adapters.gateways.video.ltx_runtime import mlx_video_batch_child as batch
 
     events, instances, _ = engine
     monkeypatch.setitem(sys.modules, "mlx_video_batch_enhancement", child)

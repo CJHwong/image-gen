@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from studio.l4_frameworks_and_drivers.mlx_image_prompt_enhancement import ImagePromptEnhancer
+from studio.l3_interface_adapters.gateways.video.gemma3.mlx_image_prompt_enhancement import ImagePromptEnhancer
 
 
 @pytest.mark.parametrize("output", ["  A red shape moves.  ", "  "])

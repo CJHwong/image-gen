@@ -6,25 +6,21 @@ sampling path, and the lines its progress bar prints.
 """
 
 import json
-import os
 import re
-import selectors
 import shutil
 import subprocess
 import sys
 import tempfile
-import time
-from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import BinaryIO, cast
 
 from studio.l1_entities.errors import Cancelled, StudioError
 from studio.l1_entities.video_job import VideoEdit, VideoJob, VideoResult
+from studio.l3_interface_adapters.gateways.video.shared.engine_paths import checked_executable
+from studio.l3_interface_adapters.gateways.video.shared.process_errors import crash_report as _crash_report
 
 RUN_TIMEOUT_SECONDS = 60 * 60
-TAIL_LINES = 12
 # Weight loaders also print counters. Only the sampler's bar measures the render.
 BAR = re.compile(r"^Denoising(?: \([^\r\n]*\))?:[^\r\n]*?\|\s*(\d+)/(\d+)\s*\[")
 
@@ -48,7 +44,10 @@ class MlxVideoRunner:
         process_runner: Callable = subprocess.run,
         model_key: str = "the model",
         enhanced_prompt: Callable | None = None,
+        *,
+        execute_process: Callable,
     ):
+        self._execute_process = execute_process
         self._enhanced_prompt = enhanced_prompt or (lambda prompt, image: False)
         self._cli = str(settings.get("cli_path", ""))
         self._ffmpeg = str(settings.get("ffmpeg_path") or (shutil.which("ffmpeg") or ""))
@@ -107,7 +106,11 @@ class MlxVideoRunner:
         return VideoResult(mp4, job.width, job.height, job.num_frames, job.frame_rate, job.seed)
 
     def run_batch(self, jobs, completed, started, progress, cancelled) -> list[VideoResult]:
-        from studio.l4_frameworks_and_drivers.mlx_video_batch import BatchRecords, prefer_sequential, reuse_policy
+        from studio.l3_interface_adapters.gateways.video.ltx_runtime.batch import (
+            BatchRecords,
+            prefer_sequential,
+            reuse_policy,
+        )
 
         jobs = [self._prepared_job(job) for job in jobs]
         if cancelled():
@@ -294,7 +297,7 @@ class MlxVideoRunner:
                 sys.executable,
                 "-c",
                 LORA_FETCH,
-                str(Path(__file__).resolve().parents[2]),
+                str(Path(__file__).resolve().parents[5]),
                 edit.adapter,
                 edit.lora_file,
                 str(path.parent.absolute()),
@@ -348,16 +351,7 @@ class MlxVideoRunner:
             raise StudioError(f"The track could not be padded to the clip: {detail[0]}")
         return target
 
-    def _checked(self, value: str, message: str) -> str:
-        if not value:
-            raise StudioError(message)
-        path = Path(value).expanduser()
-        if path.is_file():
-            return str(path.absolute())
-        found = shutil.which(value)
-        if found:
-            return found
-        raise StudioError(message)
+    _checked = staticmethod(checked_executable)
 
     def _execute(
         self,
@@ -369,53 +363,28 @@ class MlxVideoRunner:
         *,
         fast_mode: bool | None = None,
     ) -> None:
-        should_cancel = cancelled or (lambda: False)
-        environment = os.environ.copy()
+        reporter = _RenderProgress(command, progress) if progress else None
+
+        def feed(text):
+            if consume:
+                consume(text)
+            if reporter:
+                reporter.feed(text)
+
+        environment = {}
         if fast_mode is not None:
             environment["LTX2_COMPUTE_DTYPE"] = "float16" if fast_mode else "float32"
-        with subprocess.Popen(
-            command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, bufsize=0, env=environment
-        ) as process:
-            stderr = cast(BinaryIO, process.stderr)
-            started = time.monotonic()
-            recent: deque[str] = deque(maxlen=TAIL_LINES)
-            reporter = _RenderProgress(command, progress) if progress else None
-            with selectors.DefaultSelector() as selector:
-                selector.register(stderr, selectors.EVENT_READ)
-                while selector.get_map():
-                    if timeout_started is not None:
-                        item_started = timeout_started()
-                        if item_started is not None:
-                            started = item_started
-                    if should_cancel():
-                        _stop_process(process)
-                        raise Cancelled("video generation was cancelled")
-                    remaining = RUN_TIMEOUT_SECONDS - (time.monotonic() - started)
-                    if remaining <= 0:
-                        process.kill()
-                        process.wait()
-                        raise StudioError("The MLX video pipeline timed out after one hour.")
-                    if not selector.select(min(0.25, remaining)):
-                        continue
-                    chunk = os.read(stderr.fileno(), 4096)
-                    if not chunk:
-                        selector.unregister(stderr)
-                        continue
-                    text = chunk.decode(errors="replace")
-                    recent.extend(line for line in re.split(r"[\r\n]+", text) if line.strip())
-                    if consume:
-                        try:
-                            consume(text)
-                        except BaseException:
-                            _stop_process(process)
-                            raise
-                    if reporter:
-                        reporter.feed(text)
-            return_code = process.wait(timeout=max(0.01, RUN_TIMEOUT_SECONDS - (time.monotonic() - started)))
-            if should_cancel():
-                raise Cancelled("video generation was cancelled")
-            if return_code:
-                raise StudioError(_crash_report(return_code, recent))
+        self._execute_process(
+            command,
+            cancelled,
+            feed,
+            timeout_started,
+            environment=environment,
+            timeout_seconds=RUN_TIMEOUT_SECONDS,
+            timeout_message="The MLX video pipeline timed out after one hour.",
+            cancel_message="video generation was cancelled",
+            failure_message=_crash_report,
+        )
 
 
 class _RenderProgress:
@@ -454,54 +423,3 @@ class _RenderProgress:
         if completed > self._reported:
             self._publish(completed, self._total, self._phase)
             self._reported = completed
-
-
-# What a failed weight fetch looks like, and the step it needs. The first run downloads
-# about 72 GB, so the common failure is an unprepared machine, not a broken render. The
-# tail stays after the hint: the class name and the status are what a report needs.
-FETCH_FIXES = (
-    (
-        ("gatedrepoerror", "cannot access gated repo"),
-        "The weights sit in a gated repo. Accept its terms on the model page and run "
-        "`uv run hf auth login` once, then run this again.",
-    ),
-    (
-        ("repositorynotfounderror", "repository not found"),
-        "No Hugging Face repo has that id. Check the pack id under [mlx_video] in studio.toml.",
-    ),
-    (
-        ("connectionerror", "maxretryerror", "nameresolutionerror"),
-        "The studio could not reach Hugging Face. Check the network, then run this again.",
-    ),
-)
-
-
-def _crash_report(return_code: int, recent: deque[str]) -> str:
-    tail = " | ".join(list(recent)[-TAIL_LINES:])
-    if not tail:
-        return f"MLX video pipeline failed with exit status {return_code} and said nothing."
-    hint = _fetch_fix(tail)
-    lead = f"{hint} " if hint else ""
-    return f"{lead}MLX video pipeline failed with exit status {return_code}. Its last lines: {tail}"
-
-
-def _fetch_fix(tail: str) -> str:
-    lowered = tail.lower()
-    for needles, fix in FETCH_FIXES:
-        if any(needle in lowered for needle in needles):
-            return fix
-    return ""
-
-
-def _stop_process(process: subprocess.Popen) -> None:
-    if process.poll() is not None:
-        return
-    try:
-        process.terminate()
-    except ProcessLookupError:
-        return
-    try:
-        process.wait(timeout=3)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()

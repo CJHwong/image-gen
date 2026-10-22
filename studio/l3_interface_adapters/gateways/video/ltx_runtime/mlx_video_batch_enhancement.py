@@ -10,6 +10,7 @@ from typing import Any, cast
 
 
 def enhance_commands(commands):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gemma3"))
     selected = [command for command in commands if "--enhance-prompt" in command]
     if not selected:
         return

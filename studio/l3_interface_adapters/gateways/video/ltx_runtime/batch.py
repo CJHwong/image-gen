@@ -8,7 +8,7 @@ from pathlib import Path
 
 from studio.l1_entities.errors import Cancelled, StudioError
 from studio.l1_entities.video_job import VideoJob, VideoResult
-from studio.l4_frameworks_and_drivers.mlx_video_runner import _RenderProgress
+from studio.l3_interface_adapters.gateways.video.ltx_runtime.runner import _RenderProgress
 
 PREFIX = "STUDIO_BATCH:"
 
