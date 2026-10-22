@@ -795,7 +795,7 @@ class VideoStudio extends LitElement {
       num_frames: settings.numFrames,
       frame_rate: settings.frameRate,
       seed: settings.seed,
-      // Generation always runs the pipeline enhancer, independently of a Rewrite press.
+      // The backend enhances new prompts and recognizes exact native Rewrite outputs.
       enhance: true,
       fast_mode: Boolean(settings.fastMode),
       // A mode that takes no image references sends none, whatever the generate form left

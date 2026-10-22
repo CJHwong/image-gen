@@ -10,8 +10,8 @@ from typing import Any
 import pytest
 
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
-from studio.l3_interface_adapters.gateways.stub_backend_gateway import StubBackendGateway
-from studio.l3_interface_adapters.gateways.thread_confined_backend_gateway import ThreadConfinedBackendGateway
+from studio.l3_interface_adapters.gateways.image.stub_backend_gateway import StubBackendGateway
+from studio.l3_interface_adapters.gateways.image.thread_confined_backend_gateway import ThreadConfinedBackendGateway
 
 OPERATIONS = frozenset({"capabilities", "load", "run", "release"})
 ADAPTERS = (ThreadConfinedBackendGateway, StubBackendGateway)

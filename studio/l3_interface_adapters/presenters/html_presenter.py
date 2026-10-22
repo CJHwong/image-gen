@@ -13,6 +13,7 @@ from studio.l1_entities.errors import Cancelled, InvalidJob, StudioError
 from studio.l1_entities.rewrite_progress import RewriteProgress
 from studio.l1_entities.run_progress import RunProgress
 from studio.l2_use_cases.describe_studio_use_case import StudioView
+from studio.l2_use_cases.prepare_batch_use_case import BATCH_LIMIT
 from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
 from studio.l2_use_cases.run_image_use_case import NextRun, RunImageResponse
 
@@ -40,6 +41,7 @@ class HtmlPresenter:
     def page(self, view: StudioView) -> str:
         active = view.active
         studio = {
+            "batch_limit": BATCH_LIMIT,
             "backend": {
                 "id": active.backend_id,
                 "name": active.name,
@@ -59,6 +61,7 @@ class HtmlPresenter:
                 ),
                 "backends": [list(backend) for backend in view.video_backends],
                 "capabilities": asdict(view.active_video) if view.active_video else None,
+                "rewrite_modes": list(view.video_rewrite_modes),
             },
             "modes": [asdict(mode) for mode in active.modes],
             # Which modes a prompt rewriter serves. Empty leaves the page's

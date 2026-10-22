@@ -36,3 +36,7 @@ class UnknownBackend(StudioError):
 
 class BackendChanged(StudioError):
     """The page was built for a backend that is no longer the active one."""
+
+
+class OperationMissing(StudioError, LookupError):
+    """The operation is unknown or its retained result expired."""

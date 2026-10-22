@@ -84,6 +84,12 @@ export function closeMenus() {
   });
 }
 
+function fitOpenMenus() {
+  document.querySelectorAll('.menu:not([hidden])').forEach(fitMenu);
+}
+window.addEventListener('resize', fitOpenMenus);
+window.visualViewport?.addEventListener('resize', fitOpenMenus);
+
 document.addEventListener('click', function (event) {
   if (event.target.closest('.menu, [aria-controls]')) return;
   closeMenus();

@@ -27,6 +27,8 @@ let active = null;
 let polling = false;
 let stopped = false;
 let lastFailure = '';
+let progressId = null;
+let overallPercent = null;
 
 function elapsed(operation) {
   return Math.max(0, (operation.finished_at || Date.now() / 1000) - operation.started_at);
@@ -40,22 +42,32 @@ function render(operation) {
   panel.hidden = !operation;
   if (!operation) return;
   const state = operation.progress || {};
-  const percent = state.total > 0 ? Math.min(99, Math.round(state.step / state.total * 100)) : null;
+  if (progressId !== operation.id) { progressId = operation.id; overallPercent = null; }
+  if (state.total > 0) overallPercent = Math.max(overallPercent || 0, Math.min(99, Math.floor(state.step / state.total * 100)));
+  const percent = overallPercent;
   const labels = {rewrite: 'Rewriting prompt', video: 'Generating video', voice: 'Generating voice', image: 'Generating image'};
-  const name = labels[operation.kind] || 'Generating media';
-  const phase = operation.status === 'stopping' ? 'Stopping' : state.total && state.step >= state.total ? 'Finishing' : name;
-  label.textContent = phase + (operation.model ? ' with ' + operation.model : '')
-    + (percent === null ? '' : ', ' + percent + '%') + ', ' + Math.floor(elapsed(operation)) + 's elapsed';
-  progress.hidden = percent === null;
-  progress.value = percent || 0;
-  cancel.disabled = operation.status === 'stopping';
-  cancel.textContent = operation.status === 'stopping' ? 'Stopping…' : 'Cancel';
+  const name = operation.kind === 'image' && operation.mode === 'edit' ? 'Editing image' : labels[operation.kind] || 'Generating media';
+  const stopping = operation.status === 'stopping';
+  const phase = stopping ? 'Stopping' : state.stage === 'preparing' ? 'Loading model'
+    : state.total && state.step >= state.total ? 'Finishing' : name;
+  const detail = [operation.model, operation.batch_total ? 'Item ' + (operation.batch_index || 1) + ' of ' + operation.batch_total
+    : state.label ? 'Image ' + state.label : ''].filter(Boolean).join(' · ');
+  label.textContent = !stopping && operation.kind === 'rewrite' && state.stage === 'preparing' ? 'Preparing prompt rewrite' : phase;
+  document.getElementById('shared-operation-detail').textContent = detail;
+  document.getElementById('shared-operation-percent').textContent = percent === null ? '' : percent + '%';
+  const seconds = Math.floor(elapsed(operation));
+  document.getElementById('shared-operation-elapsed').textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0') + ' elapsed';
+  if (percent === null) progress.removeAttribute('value');
+  else progress.value = percent;
+  cancel.disabled = stopping;
+  cancel.querySelector('span').textContent = stopping ? 'Stopping…' : 'Cancel';
   panel.dataset.operationId = operation.id;
   panel.dataset.status = operation.status;
 }
 
 async function cancelActive() {
   if (!active) return;
+  page.prepareNativeCancel(active);
   const operationId = active.id;
   document.getElementById('shared-operation-cancel').disabled = true;
   try {
@@ -106,7 +118,8 @@ async function importBatch(operation, answer) {
 }
 
 async function importResult(operation) {
-  if (imported.has(operation.id) || (operation.client_id === page.clientId && operation.kind !== 'voice')) return;
+  if (imported.has(operation.id) || (operation.client_id === page.clientId && operation.kind !== 'voice'
+      && !(operation.kind === 'image' && operation.batch_total))) return;
   if (operation.source === 'ui' && operation.library_id !== page.libraryId && !owners.has(operation.client_id)) return;
   if (operation.source === 'ui' && !owners.has(operation.client_id) && !observed.has(operation.id)
       && operation.started_at < openedAt && (operation.finished_at || 0) < openedAt) return;
@@ -181,7 +194,10 @@ async function poll() {
       });
     }
     page.observeDrafts(state.operations || []);
-    for (const operation of (state.operations || []).slice().reverse()) await importResult(operation);
+    for (const operation of (state.operations || []).slice().reverse()) {
+      await importResult(operation);
+      page.finishImageOperation(operation);
+    }
     lastFailure = '';
   } catch (error) {
     if (lastFailure !== error.message) page.notify('info', error.message);

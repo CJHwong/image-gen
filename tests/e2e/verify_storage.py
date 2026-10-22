@@ -32,7 +32,7 @@ def run(page, prompt):
     page.fill("#prompt", prompt)
     page.dispatch_event("#prompt", "input")
     page.click("#go")
-    page.wait_for_function("!document.body.classList.contains('busy')", timeout=600000)
+    page.wait_for_function("!busy() && !sharedOperation", timeout=600000)
 
 
 def leave_blocked(page):

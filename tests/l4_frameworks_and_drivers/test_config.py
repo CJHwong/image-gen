@@ -110,8 +110,20 @@ def test_a_backends_settings_are_a_copy(tmp_path: Path):
     assert config.backend("qwen21")["quantize"] is None
 
 
-def test_the_shipping_config_opens_voice_on_drama_and_keeps_auk():
+def test_the_shipping_config_opens_voice_on_drama_without_a_picker():
     config = load_config(Path(__file__).parents[2] / "studio.toml")
 
     assert config.default_voice_backend == "drama3"
-    assert config.visible_voice_backends == ("drama3", "auk_base", "auk")
+    assert config.visible_voice_backends == ("drama3",)
+
+
+@pytest.mark.parametrize("family", ["video", "voice"])
+@pytest.mark.parametrize("offered", [("other",), ("other", "selected")])
+def test_model_lists_accept_startup_overrides_and_include_the_default(tmp_path, family, offered):
+    path = write(
+        tmp_path,
+        f'default_backend = "qwen21"\ndefault_{family}_backend = "selected"\nvisible_{family}_backends = ["hidden"]\n',
+    )
+    config = load_config(path, **{f"visible_{family}": offered})
+    expected = offered if "selected" in offered else ("selected", *offered)
+    assert getattr(config, f"visible_{family}_backends") == expected

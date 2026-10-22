@@ -5,11 +5,12 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
-from studio.l1_entities.video_capabilities import VideoCapabilities
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
+from studio.l2_use_cases.complete_operation_use_case import CompleteOperationUseCase
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase
+from studio.l2_use_cases.prepare_batch_use_case import PrepareBatchUseCase
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
 from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
 from studio.l2_use_cases.release_model_use_case import ReleaseModelUseCase
@@ -24,16 +25,32 @@ from studio.l3_interface_adapters.api.json_api import JsonApi
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
-from studio.l3_interface_adapters.gateways import qwen21_turbo_schedule
-from studio.l3_interface_adapters.gateways.auk_voice.auk_backend_gateway import AukBackendGateway
-from studio.l3_interface_adapters.gateways.drama_voice.drama_backend_gateway import DramaBackendGateway
-from studio.l3_interface_adapters.gateways.flux2.flux2_backend_gateway import Flux2BackendGateway
-from studio.l3_interface_adapters.gateways.flux2.klein_models import KleinModels
+from studio.l3_interface_adapters.gateways.audio.auk.auk_backend_gateway import AukBackendGateway
+from studio.l3_interface_adapters.gateways.audio.auk_flash.auk_flash_backend_gateway import AukFlashBackendGateway
+from studio.l3_interface_adapters.gateways.audio.drama3.drama3_backend_gateway import Drama3BackendGateway
+from studio.l3_interface_adapters.gateways.audio.stdio_child import StdioChild
+from studio.l3_interface_adapters.gateways.audio.stub_voice_backend_gateway import StubVoiceBackendGateway
 from studio.l3_interface_adapters.gateways.gpu_thread import GpuThread
+from studio.l3_interface_adapters.gateways.image.flux2.flux2_backend_gateway import Flux2BackendGateway
+from studio.l3_interface_adapters.gateways.image.flux2.klein_models import KleinModels
+from studio.l3_interface_adapters.gateways.image.qwen21.qwen21_backend_gateway import Qwen21BackendGateway
+from studio.l3_interface_adapters.gateways.image.qwen21_turbo.official_qwen_turbo_backend_gateway import (
+    OfficialQwenTurboBackendGateway,
+)
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.edit import Qwen21Edit
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.generator import Qwen21Generator
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter import Qwen21Rewriter
+from studio.l3_interface_adapters.gateways.image.shared import qwen21_turbo_schedule
+from studio.l3_interface_adapters.gateways.image.stub_backend_gateway import StubBackendGateway
+from studio.l3_interface_adapters.gateways.image.thread_confined_backend_gateway import ThreadConfinedBackendGateway
+from studio.l3_interface_adapters.gateways.image.viggle_turbo.viggle_turbo_backend_gateway import (
+    ViggleTurboBackendGateway,
+)
 from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
 from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
     InMemoryModelResidencyGateway,
 )
+from studio.l3_interface_adapters.gateways.in_memory_operation_gateway import InMemoryOperationGateway
 from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
 from studio.l3_interface_adapters.gateways.in_memory_reference_store_gateway import InMemoryReferenceStoreGateway
 from studio.l3_interface_adapters.gateways.in_memory_rewrite_progress_gateway import (
@@ -45,36 +62,23 @@ from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gatew
 from studio.l3_interface_adapters.gateways.in_memory_voice_backend_catalog_gateway import (
     InMemoryVoiceBackendCatalogGateway,
 )
-from studio.l3_interface_adapters.gateways.mlx_video.capabilities import (
-    ltx23_mlx_capabilities,
-    ltx25_mlx_capabilities,
-)
-from studio.l3_interface_adapters.gateways.mlx_video.mlx_video_backend_gateway import MlxVideoBackendGateway
 from studio.l3_interface_adapters.gateways.prompt_rewriters import (
     CatalogPromptRewriter,
     NoPromptRewriter,
     StubPromptRewriter,
 )
-from studio.l3_interface_adapters.gateways.qwen21.edit import Qwen21Edit
-from studio.l3_interface_adapters.gateways.qwen21.generator import Qwen21Generator
-from studio.l3_interface_adapters.gateways.qwen21.qwen21_backend_gateway import Qwen21BackendGateway
-from studio.l3_interface_adapters.gateways.qwen21.rewriter import Qwen21Rewriter
-from studio.l3_interface_adapters.gateways.qwen21_turbo.official_qwen_turbo_backend_gateway import (
-    OfficialQwenTurboBackendGateway,
-)
-from studio.l3_interface_adapters.gateways.stub_backend_gateway import StubBackendGateway
-from studio.l3_interface_adapters.gateways.stub_video_backend_gateway import StubVideoBackendGateway
-from studio.l3_interface_adapters.gateways.stub_voice_backend_gateway import StubVoiceBackendGateway
-from studio.l3_interface_adapters.gateways.thread_confined_backend_gateway import ThreadConfinedBackendGateway
 from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter import ThreadConfinedPromptRewriter
-from studio.l3_interface_adapters.gateways.viggle.qwen21_turbo_backend_gateway import (
-    Qwen21TurboBackendGateway,
+from studio.l3_interface_adapters.gateways.video.gemma3.gemma3_prompt_rewriter_gateway import (
+    Gemma3PromptRewriterGateway,
 )
-from studio.l3_interface_adapters.gateways.voice_stdio_child import StdioChild
+from studio.l3_interface_adapters.gateways.video.ltx23.ltx23_backend_gateway import Ltx23BackendGateway
+from studio.l3_interface_adapters.gateways.video.ltx25.ltx25_backend_gateway import Ltx25BackendGateway
+from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
+from studio.l4_frameworks_and_drivers.mlx_prompt_enhancer import MlxPromptEnhancer
 from studio.l4_frameworks_and_drivers.mlx_video_runner import MlxVideoRunner
 
 PAGE = Path(__file__).with_name("web") / "page.html"
@@ -122,8 +126,9 @@ def qwen21_turbo_backend(config: Config) -> OfficialQwenTurboBackendGateway:
     point is that the page still works there.
     """
     settings = config.backend("qwen21_turbo")
-    from studio.l3_interface_adapters.gateways.qwen21.edit_input_cache import cache_edit_inputs
-    from studio.l3_interface_adapters.gateways.qwen21.encoder_restore import restore_text_encoder
+    from studio.l3_interface_adapters.gateways.image.qwen_runtime.edit_input_cache import cache_edit_inputs
+    from studio.l3_interface_adapters.gateways.image.qwen_runtime.encoder_restore import restore_text_encoder
+    from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import active_mlx_memory
 
     model_dir = config.required("qwen21_turbo", "model_dir")
     quantize = settings.get("quantize")
@@ -137,6 +142,7 @@ def qwen21_turbo_backend(config: Config) -> OfficialQwenTurboBackendGateway:
         Qwen21Edit(quantize, model_path=model_dir, prepare_model=cache_edit_inputs),
         badge=badge(quantize),
         model_dir=model_dir,
+        memory_scope=active_mlx_memory,
     )
 
 
@@ -145,7 +151,7 @@ def flux2_backend(config: Config) -> Flux2BackendGateway:
     return Flux2BackendGateway(KleinModels(config.required("flux2", "model_dir"), quantize), badge=badge(quantize))
 
 
-def viggle_turbo_backend(config: Config) -> Qwen21TurboBackendGateway:
+def viggle_turbo_backend(config: Config) -> ViggleTurboBackendGateway:
     """The two models qwen21 drives, built with Viggle's adapter and its schedule.
 
     The generator is told to sample the turbo schedule, which its command accepts.
@@ -158,7 +164,7 @@ def viggle_turbo_backend(config: Config) -> Qwen21TurboBackendGateway:
     settings = config.backend("viggle_turbo")
     lora_path = config.required("viggle_turbo", "lora_path")
     quantize = settings.get("quantize")
-    return Qwen21TurboBackendGateway(
+    return ViggleTurboBackendGateway(
         Qwen21Generator(quantize, lora_path=lora_path, scheduler="viggle_turbo"),
         Qwen21Edit(quantize, lora_path=lora_path),
         badge=badge(quantize),
@@ -174,37 +180,26 @@ BACKENDS = {
 }
 
 
-def ltx25_mlx_backend(config: Config) -> MlxVideoBackendGateway:
-    return _mlx_video_backend(
-        config,
-        ltx25_mlx_capabilities(),
-        model_key="model_ltx25",
-        enhances=True,
-        keyframe_two_stage=False,
+def ltx25_mlx_backend(config: Config, enhanced_prompt=None) -> Ltx25BackendGateway:
+    return Ltx25BackendGateway(
+        _mlx_video_runner(config, "model_ltx25", keyframe_two_stage=False, enhanced_prompt=enhanced_prompt)
     )
 
 
-def ltx23_mlx_backend(config: Config) -> MlxVideoBackendGateway:
-    return _mlx_video_backend(
-        config,
-        ltx23_mlx_capabilities(),
-        model_key="model_ltx23",
-        enhances=True,
-        keyframe_two_stage=True,
+def ltx23_mlx_backend(config: Config, enhanced_prompt=None) -> Ltx23BackendGateway:
+    return Ltx23BackendGateway(
+        _mlx_video_runner(config, "model_ltx23", keyframe_two_stage=True, enhanced_prompt=enhanced_prompt)
     )
 
 
-def _mlx_video_backend(
-    config: Config,
-    capabilities: VideoCapabilities,
-    model_key: str,
-    enhances: bool,
-    keyframe_two_stage: bool,
-) -> MlxVideoBackendGateway:
+def _mlx_video_runner(
+    config: Config, model_key: str, *, keyframe_two_stage: bool, enhanced_prompt=None
+) -> MlxVideoRunner:
     settings = config.backend("mlx_video")
     model = str(settings.get(model_key, ""))
-    runner = MlxVideoRunner(settings, model, enhances, keyframe_two_stage, model_key=model_key)
-    return MlxVideoBackendGateway(capabilities, runner)
+    return MlxVideoRunner(
+        settings, model, True, keyframe_two_stage, model_key=model_key, enhanced_prompt=enhanced_prompt
+    )
 
 
 VIDEO_BACKENDS = {
@@ -254,33 +249,42 @@ def build_backends(config: Config) -> dict:
     return {backend_id: BACKENDS[backend_id](config) for backend_id in config.visible_backends}
 
 
-def build_video_backends(config: Config) -> dict:
+def build_video_backends(config: Config, enhanced_prompt=None) -> dict:
     unknown = [backend_id for backend_id in config.visible_video_backends if backend_id not in VIDEO_BACKENDS]
     if unknown:
         raise ConfigError(f"no video backend called {', '.join(unknown)}. Known: {', '.join(VIDEO_BACKENDS)}")
-    return {backend_id: VIDEO_BACKENDS[backend_id](config) for backend_id in config.visible_video_backends}
+    return {
+        backend_id: VIDEO_BACKENDS[backend_id](config, enhanced_prompt=enhanced_prompt)
+        for backend_id in config.visible_video_backends
+    }
 
 
-def voice_auk_backend(config: Config, variant="flash"):
-    child_path = Path(__file__).parents[1] / "l3_interface_adapters/gateways/auk_voice/auk_child.py"
-    backend_id = "auk" if variant == "flash" else "auk_base"
+def voice_auk_backend(config: Config) -> AukBackendGateway:
+    return AukBackendGateway(_auk_child(config, "auk_base", "base"))
+
+
+def voice_auk_flash_backend(config: Config) -> AukFlashBackendGateway:
+    return AukFlashBackendGateway(_auk_child(config, "auk", "flash"))
+
+
+def _auk_child(config: Config, backend_id: str, variant: str) -> StdioChild:
+    child_path = Path(__file__).parents[1] / "l3_interface_adapters/gateways/audio/auk_runtime/auk_child.py"
     settings = {**config.backend("auk"), **config.backend(backend_id)}
-    child = StdioChild(["uv", "run", "--script", str(settings.get("child_script", child_path)), "--variant", variant])
-    return AukBackendGateway(child, variant)
+    return StdioChild(["uv", "run", "--script", str(settings.get("child_script", child_path)), "--variant", variant])
 
 
 def voice_drama_backend(config: Config):
-    child_path = Path(__file__).parents[1] / "l3_interface_adapters/gateways/drama_voice/drama3_child.py"
+    child_path = Path(__file__).parents[1] / "l3_interface_adapters/gateways/audio/drama3/drama3_child.py"
     settings = config.backend("drama3")
     script = str(settings.get("child_script", child_path))
     python = settings.get("python_path")
     command = [str(python), script] if python else ["uv", "run", "--script", script]
-    return DramaBackendGateway(StdioChild(command))
+    return Drama3BackendGateway(StdioChild(command))
 
 
 VOICE_BACKENDS = {
-    "auk": partial(voice_auk_backend, variant="flash"),
-    "auk_base": partial(voice_auk_backend, variant="base"),
+    "auk": voice_auk_flash_backend,
+    "auk_base": voice_auk_backend,
     "drama3": voice_drama_backend,
 }
 
@@ -295,7 +299,9 @@ def build_voice_backends(config: Config):
 def create_studio(config: Config, stub: bool = False) -> Studio:
     """With `stub`, each backend keeps its form and fakes its engine: for work on the page."""
     backends = build_backends(config)
-    video_backends = build_video_backends(config)
+    enhancer = MlxPromptEnhancer(config.backend("mlx_video"))
+    video_backends = build_video_backends(config, enhancer.is_enhanced)
+    video_rewriter = StubPromptRewriter() if stub else Gemma3PromptRewriterGateway(enhancer)
     voice_backends = build_voice_backends(config)
     rewriters = build_rewriters(config)
     if stub:
@@ -322,6 +328,7 @@ def create_studio(config: Config, stub: bool = False) -> Studio:
         voice_backends=voice_backends,
         default_voice_id=config.default_voice_backend,
         visible_voice_ids=config.visible_voice_backends,
+        video_rewriter=video_rewriter,
     )
 
 
@@ -337,6 +344,7 @@ def assemble_studio(
     voice_backends=None,
     default_voice_id="auk",
     visible_voice_ids=(),
+    video_rewriter: PromptRewriterGateway | None = None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
     gpu = GpuThread()
@@ -375,7 +383,7 @@ def assemble_studio(
             SwitchVideoBackendUseCase(video_catalog, engine_lock, residency),
         )
     controller = FormController(
-        describe=DescribeStudioUseCase(catalog, rewriter, video_catalog),
+        describe=DescribeStudioUseCase(catalog, rewriter, video_catalog, video_rewriter),
         run=RunImageUseCase(
             catalog,
             progress,
@@ -391,6 +399,7 @@ def assemble_studio(
             rewriter,
             catalog,
             rewrite_progress,
+            video_rewriter=video_rewriter,
             engine_lock=engine_lock,
             residency=residency,
         ),
@@ -409,7 +418,15 @@ def assemble_studio(
             voice_catalog,
             SwitchVoiceBackendUseCase(voice_catalog, engine_lock, residency),
         )
-    api = JsonApi(controller, video_controller, voice_controller)
+    operations = InMemoryOperationGateway()
+    api = JsonApi(
+        controller,
+        video_controller,
+        voice_controller,
+        operations=operations,
+        completion=CompleteOperationUseCase(operations),
+        batches=PrepareBatchUseCase(),
+    )
     return Studio(
         handler=make_handler(controller, presenter, video_controller, api),
         catalog=catalog,

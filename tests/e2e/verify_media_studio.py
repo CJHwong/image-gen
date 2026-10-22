@@ -757,9 +757,9 @@ with sync_playwright() as playwright:
     check(
         "a press shows one verb and borrows the readout",
         page.inner_text("#video-rewrite-toggle") == "Rewrite"
-        and page.locator("#status").is_visible()
-        and "getting ready" in page.inner_text("#status-text"),
-        f"{page.inner_text('#video-rewrite-toggle')!r}, {page.inner_text('#status-text')!r}",
+        and page.locator("#shared-operation").is_visible()
+        and "Preparing" in page.inner_text("#shared-operation-label"),
+        f"{page.inner_text('#video-rewrite-toggle')!r}, {page.inner_text('#shared-operation-label')!r}",
     )
     page.locator("#video-rewrite-toggle .rewrite-cancel").wait_for(state="visible")
     check(
@@ -767,7 +767,7 @@ with sync_playwright() as playwright:
         page.locator("#form").get_attribute("data-panel-held") == "true"
         and page.locator("#video-prompt").get_attribute("readonly") is not None
         and page.locator("#video-generate").is_disabled(),
-        page.inner_text("#status-text"),
+        page.inner_text("#shared-operation-label"),
     )
     page.wait_for_function("document.getElementById('video-prompt').value.indexOf('stub') >= 0")
     check(

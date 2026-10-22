@@ -136,6 +136,7 @@ def test_official_turbo_backend_is_built_from_its_local_weight_directory(tmp_pat
         "quantize": None,
     }
     assert backend._edit._prepare_model.__name__ == "cache_edit_inputs"
+    assert backend._memory_scope.__name__ == "active_mlx_memory"
 
 
 def test_official_turbo_needs_a_local_weight_directory_setting(tmp_path: Path):
@@ -246,11 +247,12 @@ def test_voice_models_open_drama_by_default_and_keep_both_auk_models(tmp_path):
 
     config = settings(tmp_path, 'default_backend="qwen21"\n[qwen21]\nquantize=0\n')
     assert config.default_voice_backend == "drama3"
-    assert config.visible_voice_backends == ("drama3", "auk_base", "auk")
+    assert config.visible_voice_backends == ("drama3",)
+    config = replace(config, visible_voice_backends=("drama3", "auk_base", "auk"))
     backends = build_voice_backends(config)
     assert [backend.capabilities().name for backend in backends.values()] == ["Drama-3", "AuK", "AuK Flash"]
-    assert backends["auk"]._child._command[-1] == "flash"
-    assert backends["auk_base"]._child._command[-1] == "base"
+    assert backends["auk"]._engine._child._command[-1] == "flash"
+    assert backends["auk_base"]._engine._child._command[-1] == "base"
     config = settings(
         tmp_path,
         'default_backend="qwen21"\ndefault_voice_backend="auk_base"\nvisible_voice_backends=["auk"]\n[qwen21]\nquantize=0\n',
@@ -261,7 +263,7 @@ def test_voice_models_open_drama_by_default_and_keep_both_auk_models(tmp_path):
 
 
 def test_singular_voice_backend_assembly_still_uses_shared_residency():
-    from studio.l3_interface_adapters.gateways.stub_voice_backend_gateway import StubVoiceBackendGateway
+    from studio.l3_interface_adapters.gateways.audio.stub_voice_backend_gateway import StubVoiceBackendGateway
 
     studio = assemble_studio(
         {"fake": FakeBackendGateway()},
@@ -290,3 +292,19 @@ def test_drama_builder_keeps_the_engine_environment_separate(tmp_path, dedicated
         assert command == [str(tmp_path / "runtime/bin/python"), str(tmp_path / "drama.py")]
     else:
         assert command[:3] == ["uv", "run", "--script"] and command[-1].endswith("drama3_child.py")
+
+
+def test_each_model_has_its_own_gateway_class_under_its_media_family():
+    from pathlib import Path
+
+    from studio.l4_frameworks_and_drivers.main import BACKENDS, VIDEO_BACKENDS, VOICE_BACKENDS
+
+    config = load_config(Path(__file__).parents[2] / "studio.toml")
+    models = []
+    for family, builders in (("image", BACKENDS), ("video", VIDEO_BACKENDS), ("audio", VOICE_BACKENDS)):
+        for backend_id, builder in builders.items():
+            gateway = builder(config)
+            assert gateway.capabilities().backend_id == backend_id
+            assert f".gateways.{family}." in type(gateway).__module__
+            models.append(type(gateway))
+    assert len(models) == len(set(models)) == 9

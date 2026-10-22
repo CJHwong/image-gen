@@ -933,7 +933,7 @@ def test_operation_sources_distinguish_native_and_api_requests(served):
 
 
 def test_native_video_timestamp_survives_immediate_result_eviction(served, monkeypatch):
-    from studio.l3_interface_adapters.api.operations import Operations
+    from studio.l3_interface_adapters.gateways.in_memory_operation_gateway import InMemoryOperationGateway as Operations
 
     retain = Operations.retain
 
@@ -954,7 +954,7 @@ def test_native_video_timestamp_survives_immediate_result_eviction(served, monke
 
 @pytest.fixture
 def voice_served():
-    from studio.l3_interface_adapters.gateways.stub_voice_backend_gateway import StubVoiceBackendGateway
+    from studio.l3_interface_adapters.gateways.audio.stub_voice_backend_gateway import StubVoiceBackendGateway
 
     studio = assemble_studio(
         {"fake": FakeBackendGateway()},
@@ -1281,3 +1281,44 @@ def test_design_templates_discovery_single_and_batch_routes(voice_served, backen
     assert [item["prompt"] for item in items] == ["First line.", "Second line."]
     assert items[1]["settings"]["template_values"] == {"tone": "bright"}
     assert post_json(voice_served, "/api/v1/voice/generate", {**payload, "text": ""})[0] == 400
+
+
+def test_native_image_batch_prepares_all_jobs_once_and_retains_browser_identity(served, monkeypatch):
+    import time
+
+    prepared = []
+    monkeypatch.setattr(FakeBackendGateway, "prepare_batch", lambda self, jobs, cancelled: prepared.append(jobs))
+    status, _, body = call(
+        served[1],
+        "/image/operations",
+        json.dumps(
+            {
+                "kind": "image",
+                "steps": 2,
+                "items": [
+                    {"prompt": "a pear", "seed": 7},
+                    {"prompt": "an apple", "seed": 8},
+                ],
+            }
+        ).encode(),
+        **{"Content-Type": "application/json", "X-Studio-Client": "image-tab", "X-Studio-Library": "image-library"},
+    )
+    assert status == 202
+    operation = json.loads(body)
+    assert (operation["source"], operation["client_id"], operation["library_id"]) == (
+        "ui",
+        "image-tab",
+        "image-library",
+    )
+    for _ in range(100):
+        _, _, body = call(served[1], operation["status_url"])
+        if json.loads(body)["status"] != "running":
+            break
+        time.sleep(0.02)
+    assert json.loads(body)["status"] == "succeeded"
+    assert len(prepared) == 1
+    assert [(job.prompt, job.seed) for job in prepared[0]] == [("a pear", 7), ("an apple", 8)]
+    _, _, body = call(served[1], json.loads(body)["result_url"])
+    manifest = json.loads(body)
+    assert manifest["completed"] == 2
+    assert [item["prompt"] for item in manifest["items"]] == ["a pear", "an apple"]

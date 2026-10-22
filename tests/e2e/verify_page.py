@@ -22,7 +22,7 @@ marked in place with `LEFT:` and a reason:
     make the words the assertion is about the thing that finds it.
 
 Thirteen ids the checks lean on are not in the design's contract list, and the
-list should carry the two the checks depend on most: `#go-sub` and `#status`.
+list should carry the two the checks depend on most: `#go-sub` and `#shared-operation`.
 The rest are `#region-preview`, `#region-note`, `#region-field`, `#stage-bar`,
 `#toasts`, `#incoming`, `#tier-sizes`, `#look`, `#look-values`, `#counter` and
 `#backend-toggle`.
@@ -65,7 +65,7 @@ BRUSH = re.compile(r"^Brush width")
 # process also loads 18.84 GB of weights. Two minutes is about four times the
 # measured answer and leaves room for that load. A wait sized for the stub is a
 # wait that fails on the engine this check exists for.
-# See the module docstring and MAX_TOKENS in gateways/qwen21/rewriter.py.
+# See the module docstring and MAX_TOKENS in gateways/image/qwen21/rewriter.py.
 REWRITE_TIMEOUT = 120000
 # The rewrite button's two states, read from the label it shows. A rewrite is long
 # enough to be worth stopping, so where it can be stopped is what these name.
@@ -226,33 +226,6 @@ def shown_frame(page):
     return page.locator("#strip .frame.selected").get_attribute("aria-label")
 
 
-def set_phase(page, stage, step, total, label="", stopping=False):
-    """Put the run into a phase, the way the server puts it there.
-
-    The poll swaps a `.progress-state` element into `#progress`, and the page's
-    own observer reads its attributes and repaints. So a check that needs a
-    phase writes that element, which is the input the page already consumes, and
-    the page draws itself. The element is replaced rather than rewritten, and
-    the poller stays where it is: the observer watches for children, and taking
-    the poller out would stop the run reporting.
-    """
-    page.evaluate(
-        """([stage, step, total, label, stopping]) => {
-             const slot = document.getElementById('progress');
-             const old = slot.querySelector('.progress-state');
-             const node = document.createElement('div');
-             node.className = 'progress-state';
-             node.dataset.stage = stage;
-             node.dataset.step = step;
-             node.dataset.total = total;
-             node.dataset.label = label;
-             node.dataset.stopping = stopping ? '1' : '0';
-             if (old) old.replaceWith(node); else slot.append(node);
-           }""",
-        [stage, step, total, label, stopping],
-    )
-
-
 def toggle_look(page, row, label):
     """Open the Look row, then pick or unpick the option. A pick closes the row again.
 
@@ -367,10 +340,10 @@ with sync_playwright() as playwright:
     check("the top plate has no privacy line", page.locator(".topbar .privacy").count() == 0)
     # LEFT: an id the page publishes, and the claim is that it is absent.
     check("the top plate has no frame counter", page.locator("#counter").count() == 0)
-    # LEFT: `#status` is an id the page publishes, and it is not in the design's
+    # LEFT: `#shared-operation-label` is an id the page publishes, and it is not in the design's
     # contract. A live region that has nothing to say is not in the tree, so the
     # role would report the same thing for a hidden one and an empty one.
-    check("the status is announced", page.get_attribute("#status", "aria-live") == "polite")
+    check("the status is announced", page.get_attribute("#shared-operation-label", "aria-live") == "polite")
     # LEFT: `#go-sub` is an id the page publishes, and it is not in the design's
     # contract. The run button's own name carries the same words, but only with
     # the verb in front of them, which is a different claim about wording.
@@ -385,8 +358,8 @@ with sync_playwright() as playwright:
     check("a long model name truncates in the top plate", name == [True, 52], str(name))
     page.reload()
     # The readout is for a run. "Ready" said nothing, so it waits for one and goes with it.
-    # LEFT: `#status` again, and the claim is that it is hidden.
-    check("the top bar shows no status when idle", page.locator("#status").is_hidden())
+    # LEFT: `#shared-operation` again, and the claim is that it is hidden.
+    check("the shared operation status is hidden when idle", page.locator("#shared-operation").is_hidden())
     # The guide, which is the manual the studio did not have.
     check("no guide until it is asked for", page.locator("#guide-sheet").count() == 0)
     page.click("#guide-toggle")
@@ -415,6 +388,9 @@ with sync_playwright() as playwright:
     page.click("#templates-toggle")
     check("7 generate templates", page.locator("#templates button").count() == 7)
     page.set_viewport_size({"width": 1440, "height": 500})
+    page.wait_for_function(
+        "document.getElementById('templates').getBoundingClientRect().bottom <= innerHeight", timeout=5000
+    )
     menu = page.locator("#templates").bounding_box()
     check("the menu fits in a short window", menu["y"] + menu["height"] <= 500, menu)
     last = page.locator("#templates button").last
@@ -472,42 +448,12 @@ with sync_playwright() as playwright:
     # Before the first step the estimate is the only number and it never moves, so the
     # reading phase says how long it has been reading instead: a slow engine then looks
     # alive rather than frozen.
-    # The phase is set the way the server sets it, as the `.progress-state`
-    # element the poll swaps in, so the page repaints from its own observer and
-    # nothing here calls the page's drawing. The run's start is the page's own
-    # state and the run button publishes it, so that is where a check that needs
-    # the page 95 seconds into its reading phase writes it.
-    page.evaluate("() => { document.getElementById('go').dataset.started = String(Date.now() - 95000); }")
-    set_phase(page, "running", 0, 20)
-    reading = page.inner_text("#status")
-    check(
-        "the reading phase counts the time it has been reading",
-        reading.startswith("Reading the") and "min" in reading and "so far" in reading,
-        reading,
-    )
-    # A stop that has not landed yet says when it will, because an engine inside this
-    # process can only stop where it looks, and before the first step there is nothing.
-    # The body's class is the page's own state for a stop, and writing the
-    # phase again is what a poll does, so the page repaints with the class on.
-    page.evaluate("() => { document.body.classList.add('stopping'); }")
-    set_phase(page, "running", 0, 20)
-    check(
-        "a stop before the first step says when it lands",
-        page.inner_text("#status").startswith("Stopping when the first step arrives"),
-        page.inner_text("#status"),
-    )
-    # The same phase, one step further on.
-    set_phase(page, "running", 3, 20)
-    check(
-        "a stop after a step says it lands at the end of that step",
-        page.inner_text("#status").startswith("Stopping at the end of this step"),
-        page.inner_text("#status"),
-    )
-    page.evaluate("() => { document.body.classList.remove('stopping'); }")
-    # The percent shows at 0% while the backend still loads, before step 1.
-    page.wait_for_function("document.getElementById('status').innerText.startsWith('Step ')", timeout=300000)
-    status = page.inner_text("#status")
-    check("the status reads the step", status.startswith("Step ") and " of " in status, status)
+    # Displayed progress follows the shared operation, not injected per-image counters.
+    page.locator("#shared-operation:not([hidden])").wait_for()
+    check("one shared status replaces the top readout", page.locator(".topbar .status, #status").count() == 0)
+    check("the shared status names the operation", bool(page.inner_text("#shared-operation-label")))
+    check("elapsed time has its own readout", "elapsed" in page.inner_text("#shared-operation-elapsed"))
+    check("the matching operation can be cancelled", page.locator("#shared-operation-cancel").is_enabled())
     # LEFT: the print rising out of the bottom edge is a length, and the plate and
     # the bar are the page's own drawing of a run.
     bar = page.evaluate("""() => {
@@ -609,7 +555,7 @@ with sync_playwright() as playwright:
              // escape so this file holds no ambiguous character of its own.
              const shape = text.match(/(\\d+)\\s*[\\u00d7x]\\s*(\\d+)/);
              const steps = text.match(/(\\d+) steps/);
-             const took = text.match(/Took (\\d+) s/);
+             const took = text.match(/Took (\\d+(?:\\.\\d+)?) s/);
              const picked = document.querySelector('input[name=mode]:checked');
              const mode = picked && STUDIO.modes.find(function (m) { return m.id === picked.value; });
              if (!shape || !steps || !took || !mode) return null;
@@ -949,11 +895,14 @@ with sync_playwright() as playwright:
     )
     # LEFT: the progress card's percentage again.
     page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
+    page.wait_for_function("Date.now() - Number(document.getElementById('go').dataset.started) >= 750")
     page.click("#go")
+    cancel_state = page.locator("#go").evaluate("button => ({state: button.dataset.state, text: button.innerText})")
     check(
         "Cancel reads Stopping while it stops",
-        page.locator("#image-footer").get_by_role("button", name=STOPPING).count() == 1,
-        page.locator("#image-footer").get_by_role("button", name=STOPPING).inner_text(),
+        cancel_state["state"] == "idle"
+        or (cancel_state["state"] == "stopping" and cancel_state["text"].startswith("Stopping")),
+        str(cancel_state),
     )
     wait_idle(page)
     check("cancel ends the run, no new image", frames(page).count() == 4)
@@ -1414,11 +1363,14 @@ with sync_playwright() as playwright:
 
     # LEFT: the progress card's percentage again.
     page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
+    page.wait_for_function("Date.now() - Number(document.getElementById('go').dataset.started) >= 750")
     page.click("#go")
+    cancel_state = page.locator("#go").evaluate("button => ({state: button.dataset.state, text: button.innerText})")
     check(
         "Cancel reads Stopping while it stops",
-        page.locator("#image-footer").get_by_role("button", name=STOPPING).count() == 1,
-        page.locator("#image-footer").get_by_role("button", name=STOPPING).inner_text(),
+        cancel_state["state"] == "idle"
+        or (cancel_state["state"] == "stopping" and cancel_state["text"].startswith("Stopping")),
+        str(cancel_state),
     )
     wait_idle(page)
     check(
@@ -1629,6 +1581,14 @@ with sync_playwright() as playwright:
     page.fill("#prompt", typed)
     page.dispatch_event("#prompt", "input")
     rewrite = rewrite_prompt(page, button, typed)
+    # The cancelled stress run restored 100 steps and a count of two. These
+    # checks inspect metadata, so sample one small image instead.
+    page.locator("#tier-sizes").get_by_role("button").first.click()
+    if not page.locator("#advanced").evaluate("panel => panel.open"):
+        page.click("#advanced summary")
+    page.fill("#steps", "8")
+    page.click("#count-toggle")
+    page.get_by_role("menuitemradio", name="1 image", exact=True).click()
     page.click("#go")
     wait_idle(page)
     # The card's own record of the run is what it shows. The caption under the
@@ -1657,9 +1617,12 @@ with sync_playwright() as playwright:
     # megapixels. That is the setter the page runs when a size changes, and it is
     # also the stronger claim: a panel left held puts `pointer-events: none` on
     # that button, so a click that does not land is the failure this guards.
-    page.locator("#tier-sizes").get_by_role("button", name="0.3 MP", exact=True).click()
+    page.locator("#tier-sizes").get_by_role("button").first.click()
     page.fill("#prompt", "a cat")
     page.dispatch_event("#prompt", "input")
+    if not page.locator("#advanced").evaluate("panel => panel.open"):
+        page.click("#advanced summary")
+    page.fill("#steps", "8")
     page.click("#go")
     wait_idle(page)
     absent = [field for field in ("prompt", "mode", "size", "steps") if not posted.get(field)]

@@ -10,44 +10,54 @@ A batch is one request here. The page follows a chain, one image per request, an
 this reads that chain to its end and answers with every image in one document.
 """
 
-import base64
-import json
-import re
 import time
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
 from typing import Any
 
-from studio.l1_entities.errors import Cancelled, InvalidJob, StudioError, UnknownBackend
-from studio.l1_entities.run_progress import RunProgress
+from studio.l1_entities.errors import Cancelled, InvalidJob, OperationMissing, StudioError, UnknownBackend
+from studio.l1_entities.operation import OperationOutput
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
-from studio.l2_use_cases.describe_studio_use_case import StudioView
-from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
-from studio.l2_use_cases.run_image_use_case import NextRun, RunImageResponse
+from studio.l2_use_cases.boundaries.operation_gateway import OperationGateway
+from studio.l2_use_cases.complete_operation_use_case import CompleteOperationUseCase
+from studio.l2_use_cases.prepare_batch_use_case import BATCH_LIMIT, PrepareBatchUseCase
+from studio.l2_use_cases.run_image_use_case import RunImageResponse
 from studio.l3_interface_adapters.api.audio_trim import trim_audio
-from studio.l3_interface_adapters.api.batch_api import normalize_batch
 from studio.l3_interface_adapters.api.openapi import openapi_document
-from studio.l3_interface_adapters.api.operations import OperationMissing, Operations
 from studio.l3_interface_adapters.api.prompt_builder import prepare_prompt
+from studio.l3_interface_adapters.api.request_mapper import image_form, next_form, rewrite_form
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
-
-# A batch is a chain of runs, and a chain with no end would hold one HTTP request
-# open forever. The page's own count control stops well below this.
-BATCH_LIMIT = 16
+from studio.l3_interface_adapters.presenters.json_presenter import (
+    image_document,
+    native_image_progress,
+    operation_document,
+    progress_document,
+    rewrite_document,
+    studio_document,
+)
 
 
 class JsonApi:
     def __init__(
-        self, controller: FormController, video: VideoController | None = None, voice: VoiceController | None = None
+        self,
+        controller: FormController,
+        video: VideoController | None = None,
+        voice: VoiceController | None = None,
+        *,
+        operations: OperationGateway,
+        completion: CompleteOperationUseCase,
+        batches: PrepareBatchUseCase,
     ) -> None:
         self._controller = controller
         self._video = video
         self._voice = voice
-        self._operations = Operations()
+        self._operations = operations
+        self._completion = completion
+        self._batches = batches
 
     def trim_audio(self, payload: Mapping[str, Any]) -> tuple[bytes, float]:
         return trim_audio(payload)
@@ -124,41 +134,42 @@ class JsonApi:
         model = next((one["name"] for one in document["backends"] if one["id"] == backend), "") if document else ""
         batch_metadata = {}
         if "items" in payload:
-            batch_metadata["batch_total"] = len(normalize_batch({**payload, "backend": backend}))
+            batch_metadata["batch_total"] = len(self._batches.execute({**payload, "backend": backend}))
         excluded = {"references", "reference", "clip", "audio", "reference_token", "items"}
         settings = {key: value for key, value in payload.items() if key not in excluded}
-        return self._operations.begin(
-            {
-                **batch_metadata,
-                "kind": kind,
-                "source": source,
-                "workspace": workspace,
-                "mode": mode,
-                "backend": backend,
-                "model": model,
-                "prompt": payload.get("prompt", payload.get("text", "")),
-                "width": payload.get("width"),
-                "height": payload.get("height"),
-                "num_frames": payload.get("num_frames"),
-                "frame_rate": payload.get("frame_rate"),
-                "settings": settings,
-                "client_id": payload.get("client_id", ""),
-                "library_id": payload.get("library_id", ""),
-            }
+        return operation_document(
+            self._operations.begin(
+                {
+                    **batch_metadata,
+                    "kind": kind,
+                    "source": source,
+                    "workspace": workspace,
+                    "mode": mode,
+                    "backend": backend,
+                    "model": model,
+                    "prompt": payload.get("prompt", payload.get("text", "")),
+                    "width": payload.get("width"),
+                    "height": payload.get("height"),
+                    "num_frames": payload.get("num_frames"),
+                    "frame_rate": payload.get("frame_rate"),
+                    "settings": settings,
+                    "client_id": payload.get("client_id", ""),
+                    "library_id": payload.get("library_id", ""),
+                }
+            )
         )
 
     def complete(
         self, operation_id: str, action: Callable, serialize: Callable | None = None, observed: dict | None = None
     ):
-        try:
+        def adapted_action():
             result = action()
-            completed_at = self._operations.finish(operation_id, serialize(result) if serialize else result)
-            if observed is not None:
-                observed["finished_at"] = completed_at
-            return result
-        except Exception as error:
-            self._operations.fail(operation_id, error)
-            raise
+            return OperationOutput(result, serialize(result) if serialize else result)
+
+        completed = self._completion.execute(operation_id, adapted_action)
+        if observed is not None:
+            observed["finished_at"] = completed.finished_at
+        return completed.value
 
     def execute_operation(self, operation: dict[str, Any], payload: Mapping[str, object]):
         mode = operation["mode"]
@@ -187,6 +198,7 @@ class JsonApi:
         return self._operation_document(self._operations.get(operation_id))
 
     def _operation_document(self, operation: dict[str, Any]) -> dict[str, Any]:
+        operation = operation_document(operation)
         if operation["status"] in ("running", "stopping"):
             operation["progress"] = self.rewrite_state() if operation["kind"] == "rewrite" else self.progress()
         else:
@@ -279,7 +291,7 @@ class JsonApi:
         return self._operations.item_result(operation_id, index)
 
     def _batch(self, operation, body):
-        items = normalize_batch({**body, "kind": operation["kind"], "backend": operation["backend"]})
+        items = self._batches.execute({**body, "kind": operation["kind"], "backend": operation["backend"]})
         effective_items = items
         operation_id = operation["id"]
         manifest = {"items": [], "completed": 0, "batch_total": len(items)}
@@ -451,135 +463,3 @@ class JsonApi:
         if self._video is None:
             raise StudioError("Video generation is not configured.")
         return self._video
-
-
-def image_form(payload: Mapping[str, object], mode: str) -> dict[str, str]:
-    """A JSON body as the form the page would post, so one parser checks both doors."""
-    form: dict[str, str] = {"mode": mode}
-    for key, value in payload.items():
-        if key == "mode" or value is None:
-            continue
-        form[key] = form_value(key, value)
-    return form
-
-
-def rewrite_form(payload: Mapping[str, object], workspace: str) -> dict[str, str]:
-    form = image_form(payload, str(payload.get("mode") or "generate"))
-    form["workspace"] = workspace
-    return form
-
-
-def form_value(key: str, value: object) -> str:
-    if key == "references":
-        if not isinstance(value, list):
-            raise InvalidJob("references must be an array of base64 strings")
-        return json.dumps([reference_text(item) for item in value])
-    if isinstance(value, bool):
-        return "1" if value else ""
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, str):
-        return value
-    raise InvalidJob(f"{key} must be a string, a number or a boolean")
-
-
-def reference_text(item: object) -> str:
-    """One reference as bare base64. A data URL is accepted, because that is what a
-    browser's FileReader hands back and what a caller already has in hand."""
-    text = item
-    if isinstance(item, Mapping):
-        text = item.get("png_base64") or item.get("data")
-    if not isinstance(text, str) or not text.strip():
-        raise InvalidJob("Each reference must be a base64 string or an object with png_base64")
-    marker = "base64,"
-    if text.startswith("data:") and marker in text:
-        return text.split(marker, 1)[1].strip()
-    return text.strip()
-
-
-def next_form(next_run: NextRun) -> dict[str, str]:
-    """The form the page builds for the next image of a batch, field for field."""
-    form = {
-        **next_run.options,
-        "mode": next_run.mode,
-        "prompt": next_run.prompt,
-        "seed": str(next_run.seed),
-        "total": str(next_run.total),
-        "index": str(next_run.index),
-        "reference_token": next_run.reference_token,
-        "backend": next_run.backend,
-    }
-    if next_run.each_reference:
-        form["each_reference"] = "1"
-    if next_run.mask:
-        form["mask"] = "1"
-    return form
-
-
-def image_document(response: RunImageResponse) -> dict[str, Any]:
-    image = response.image
-    return {
-        "completed_at": time.time(),
-        "png_base64": base64.b64encode(image.png).decode("ascii"),
-        "width": image.width,
-        "height": image.height,
-        "seed": image.seed,
-        "steps": image.steps,
-        "elapsed": round(response.elapsed, 1),
-        "position": response.position,
-        "mode": response.mode,
-        "prompt": response.prompt,
-        "reference": response.reference,
-    }
-
-
-def rewrite_document(response: RewriteResponse) -> dict[str, Any]:
-    if response.cancelled:
-        return {"cancelled": True}
-    return {"prompt": response.prompt, "size": response.size, "elapsed": round(response.elapsed, 1)}
-
-
-def native_image_progress(progress: dict[str, Any]) -> dict[str, Any]:
-    # The label and counters share one snapshot, so a continuation cannot combine
-    # the next image's index with the previous image's finished counters.
-    match = re.fullmatch(r"([1-9]\d*) of ([1-9]\d*)", progress.get("label", ""))
-    if match is None:
-        return progress
-    index, count = map(int, match.groups())
-    if count < 2 or index > count:
-        return progress
-    total = progress["total"] or 1
-    step = progress["step"] if progress["total"] else 0
-    return {**progress, "step": (index - 1) * total + step, "total": count * total}
-
-
-def progress_document(state: RunProgress) -> dict[str, Any]:
-    return {
-        "running": state.running,
-        "stage": state.stage,
-        "step": state.step,
-        "total": state.total,
-        "phase": state.phase,
-        "label": state.label,
-        "kind": state.kind,
-        "stopping": state.stopping,
-        "request_id": state.request_id,
-    }
-
-
-def studio_document(view: StudioView) -> dict[str, Any]:
-    """What the page draws, in the page's own terms, so a caller can read the sizes,
-    modes, Looks and templates a model offers before it sends one."""
-    image = {
-        "active": view.active.backend_id,
-        "backends": [{"id": one, "name": name, "description": text} for one, name, text in view.backends],
-        "capabilities": asdict(view.active),
-    }
-    video = None
-    if view.active_video is not None:
-        video = {
-            "active": view.active_video.backend_id,
-            "backends": [{"id": one, "name": name, "description": text} for one, name, text in view.video_backends],
-            "capabilities": asdict(view.active_video),
-        }
-    return {"image": image, "video": video, "rewrite_modes": list(view.rewrite_modes)}

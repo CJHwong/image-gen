@@ -117,22 +117,6 @@ function madeBadge(entry) {
   return badge;
 }
 
-function renderTopPlate() {
-  // The readout is for a job: a run says what the engine is doing and how long it has been
-  // doing it, and a rewrite press says which part it is writing. "Ready" said nothing, so the
-  // line waits for one of them and goes with it. It knows about both, because the stage draws
-  // again when a press starts and when it ends, and a rule that knew only about runs wiped the
-  // press's own line off the screen.
-  const status = document.getElementById('status');
-  const running = page.busy();
-  status.hidden = !(running || page.rewriting());
-  if (!running) {
-    if (!page.rewriting()) page.statusText.textContent = '';
-  } else if (!page.progressState()) {
-    page.statusText.textContent = 'Starting';
-  }
-}
-
 // An empty stage names the next step and offers it as a button.
 function renderEmpty() {
   const empty = document.createElement('div');
@@ -311,7 +295,6 @@ function renderStageBar(entry) {
 
 export function renderStage() {
   const region = page.region();
-  renderTopPlate();
   // A mark belongs to the picture it was drawn on: another frame, another
   // reference, or a mode that does not take a region drops it. A run moves the
   // stage to its progress card and takes the mark with it, which is the one case
@@ -436,64 +419,6 @@ export function closeSheet() {
 // The studio had no manual, so this is it: short, and about what the page does rather
 // than about what the model can do. It is the same sheet the prompt opens in, because
 // that is the shape this page already has for reading something over the print.
-const GUIDE = [
-  ['Generate, or Edit', 'Generate writes a picture from a prompt. Edit changes one you already have, and needs an image from the strip: click a frame, then Edit this.'],
-  ['A Look', 'A chip adds one sentence after your words. Each model offers only the options its own test kept.'],
-  ['Rewrite', 'It writes out the words you typed, and the words in the marked areas, at length. Each answer lands where it was written, and the Look is added after them. In a batch your words lead every image and each row adds to them, and the press writes a row from its own picture.'],
-  ['Mark a region', "Fill the area you want changed. Do not circle it: the mark's own shape is the shape that comes back repainted."],
-  ['What changes there', 'One row per marked colour says what changes in that area. Or pick the Mark a region template and leave the rows empty.'],
-  ['The brush', 'Three widths, and a loupe follows the brush while you draw. The area you mark is the area that changes, so keep the mark close to what should change.'],
-  ['The wait', 'An edit reads your prompt and images for about a minute before its first step. The line in the top bar counts that time.'],
-  ['Run and Cancel', 'Run empties the form it sent. Cancel puts all of it back, the marked region included.'],
-  ['The strip', 'Images stay in the strip. Download the ones you want before you clear it.'],
-];
-
-export function closeGuide() {
-  const sheet = document.getElementById('guide-sheet');
-  if (!sheet) return;
-  sheet.remove();
-  const toggle = document.getElementById('guide-toggle');
-  toggle.setAttribute('aria-expanded', 'false');
-  toggle.focus();
-}
-
-export function openGuide() {
-  if (document.getElementById('guide-sheet')) return closeGuide();
-  const sheet = document.createElement('div');
-  sheet.className = 'sheet';
-  sheet.id = 'guide-sheet';
-  sheet.setAttribute('role', 'region');
-  sheet.setAttribute('aria-label', 'How to use this studio');
-  const list = document.createElement('dl');
-  GUIDE.forEach(function (pair) {
-    const term = document.createElement('dt');
-    const text = document.createElement('dd');
-    term.textContent = pair[0];
-    text.textContent = pair[1];
-    list.append(term, text);
-  });
-  // The manual ends with the door a program uses: the page and the API run the same
-  // use cases, so the spec belongs where a reader of the page can find it.
-  const api = document.createElement('p');
-  api.className = 'guide-api';
-  const spec = document.createElement('a');
-  spec.href = '/api/v1/openapi.json';
-  spec.target = '_blank';
-  spec.rel = 'noreferrer';
-  spec.textContent = 'OpenAPI spec';
-  api.append(spec, document.createTextNode(' lists every JSON route. Start at /api/v1/studio.'));
-  const close = iconButton('x', 'Close', closeGuide, 'close');
-  sheet.addEventListener('keydown', function (event) {
-    if (event.key !== 'Escape') return;
-    event.stopPropagation();
-    closeGuide();
-  });
-  sheet.append(list, api, close);
-  page.canvas.append(sheet);
-  document.getElementById('guide-toggle').setAttribute('aria-expanded', 'true');
-  close.focus();
-}
-
 // ---- Full screen -------------------------------------------------------------
 // The stage and the sheet fill the screen. F toggles it, and Escape leaves by
 // the browser's own rule. The arrow keys walk the strip, which is the page's.
@@ -515,8 +440,6 @@ const handle = {
   markCaption: markCaption,
   toggleSheet: toggleSheet,
   closeSheet: closeSheet,
-  openGuide: openGuide,
-  closeGuide: closeGuide,
   toggleFullscreen: toggleFullscreen,
   selected: selected,
 };

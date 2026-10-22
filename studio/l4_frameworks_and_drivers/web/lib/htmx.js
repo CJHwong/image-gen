@@ -1,11 +1,9 @@
 // The run: the poll, the post, the cancel, and everything the stage reads while
 // one goes.
 //
-// The run stays an htmx post. The region composition depends on the
-// `event.detail.parameters` hook, and moving it to `fetch` would move the mask
-// contract as well. So the poller clocks itself off its own response, the form's
-// own request is what clears the form, and this module is where those listeners
-// live.
+// Single images keep the form transport. Multiple images use one asynchronous
+// prepared operation, after the same form hook has composed references, masks
+// and prompts. Shared operations import each completed image as it arrives.
 //
 // htmx keeps `#progress`. The poll swaps that element's children and the
 // children carry the next `hx-get`, so nothing here renders over it: the poller
@@ -25,6 +23,8 @@ const POLLER = '<div hx-get="/progress" hx-trigger="load"'
   + ' hx-target="#progress" hx-swap="innerHTML"></div>';
 
 let progressState = null;
+let sharedProgress = null;
+let overallPercent = 0;
 let observedOperationId = null;
 let pace = null;            // how fast this run's steps arrive, for the time left
 let cleared = null;         // what Run emptied, kept for Cancel
@@ -33,6 +33,9 @@ let cancelRestore = null;   // the copy Cancel asked for, applied once the run e
 // The run's own facts, apart from the form the next run will read.
 let runKey = null;
 let nativeOperationId = null;
+let nativeRunning = false;
+let nativeDraftId = null;
+let preparedBatch = false;
 let runPixels = 0;
 let runEstimate = null;     // the estimate model of the mode in flight
 let runStepSeconds = 0;     // the pre-run guess per step, until real steps arrive
@@ -141,6 +144,7 @@ function restoreInputs(snapshot) {
 
 function startWork(element) {
   const fresh = element === page.el.form;
+  if (fresh) nativeRunning = true;
   document.body.classList.add('busy');
   page.syncRunState();
   page.el.go.disabled = false;
@@ -157,6 +161,8 @@ function startWork(element) {
     runStepSeconds = page.stepSeconds();
     page.setView('progress');
     progressState = null;
+    sharedProgress = null;
+    overallPercent = 0;
     pace = null;
     page.renderStrip();
     page.renderStage();
@@ -179,6 +185,7 @@ function revokeUnclaimed() {
 }
 
 function stopWork() {
+  nativeRunning = false;
   if (!page.busy()) return;
   document.title = (document.hidden ? '(Done) ' : '') + page.workspaceTitle();
   document.body.classList.remove('busy', 'stopping');
@@ -199,6 +206,12 @@ function stopWork() {
   }
 }
 
+function armCancelRestore() {
+  if (!cleared) return;
+  cancelRestore = cleared;
+  cleared = null;
+}
+
 function requestCancel() {
   if (document.body.classList.contains('stopping')) return;
   document.body.classList.add('stopping');
@@ -209,8 +222,45 @@ function requestCancel() {
   // The form comes back once the run has really stopped, not now: the progress
   // card lives on the stage, and moving the stage mid-run would take it away
   // from the poller that is still streaming into it.
-  cancelRestore = cleared;
-  cleared = null;
+  armCancelRestore();
+}
+
+// Expand the UI's per-reference editing into ordinary one-image API items.
+// One seed sequence spans the whole batch, just as it did in the form chain.
+function batchPayload(parameters) {
+  const body = Object.assign({}, parameters);
+  const references = JSON.parse(body.references || '[]');
+  const each = batchSources.length > 0 && body.mask !== '1';
+  const count = Number(body.count);
+  const rawSeed = String(body.seed || '').trim();
+  if (rawSeed && !/^\d+$/.test(rawSeed)) throw new Error('seed must be a whole number');
+  const seed = rawSeed ? BigInt(rawSeed)
+    : BigInt(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000001);
+  delete body.count;
+  delete body.each_reference;
+  delete body.references;
+  delete body.seed;
+  const items = Array.from({length: count}, function (_, index) {
+    const place = each ? index % references.length : -1;
+    return {prompt: place >= 0 && runPrompts.length ? runPrompts[place] : body.prompt,
+      seed: String(seed + BigInt(index)), references: each ? [references[place]] : references};
+  });
+  return {...body, kind: 'image', backend: page.backendId, precision: page.precision, items: items};
+}
+
+async function submitBatch(parameters, headers) {
+  try {
+    const answer = await fetch('/image/operations', {method: 'POST',
+      headers: {...headers, 'Content-Type': 'application/json'}, body: JSON.stringify(batchPayload(parameters))});
+    const operation = await answer.json();
+    if (!answer.ok) throw new Error(operation.error || 'The batch could not be started.');
+    nativeOperationId = operation.id;
+  } catch (error) {
+    armCancelRestore();
+    revokeUnclaimed();
+    stopWork();
+    page.notify('error', error.message);
+  }
 }
 
 // Time left comes from when steps arrive, never from the clock between them:
@@ -223,9 +273,8 @@ function trackPace() {
   const state = progressState;
   if (!state) return;
   const now = Date.now();
-  if (!pace) pace = { label: null, stepTime: 0, stepsTimed: 0, tail: null };
+  if (!pace) pace = { label: null, stepTime: 0, stepsTimed: 0 };
   if (state.label !== pace.label) {
-    if (pace.label !== null && pace.lastStepAt) pace.tail = (now - pace.lastStepAt) / 1000;
     pace.label = state.label;
     pace.lastStep = 0;
     pace.lastStepAt = 0;
@@ -246,66 +295,24 @@ function paceRate() {
   return pace && pace.stepsTimed >= 2 ? pace.stepTime / pace.stepsTimed : runStepSeconds;
 }
 
-function timeLeft() {
-  const state = progressState;
-  const perStep = paceRate();
-  if (!state || !perStep) return '';
-  const tail = pace && pace.tail !== null ? pace.tail : (runEstimate ? runEstimate.overhead : 0);
-  const batch = (state.label || '').match(/(\d+) of (\d+)/);
-  const imagesAfter = batch ? Number(batch[2]) - Number(batch[1]) : 0;
-  const step = state.stage === 'running' ? state.step : 0;
-  const sinceStep = pace && pace.lastStepAt ? (Date.now() - pace.lastStepAt) / 1000 : 0;
-  const thisImage = Math.max(0, perStep * (state.total - step) + tail - sinceStep);
-  const seconds = thisImage + imagesAfter * (perStep * state.total + tail);
-  return seconds < 3 ? 'Almost done' : 'About ' + page.spell(seconds) + ' left';
-}
-
 function progressNow() {
-  const state = progressState;
+  // The legacy /progress poll is per image; shared operation counters cover the
+  // complete batch. Never alternate those two scales on the same preview.
+  const state = sharedProgress || progressState;
   const running = Boolean(state && state.stage === 'running' && state.total);
-  return { running: running, percent: running ? Math.round(state.step / state.total * 100) : 0 };
+  const batch = !sharedProgress && (state?.label || '').match(/(\d+) of (\d+)/);
+  const fraction = !running ? 0 : batch
+    ? (Number(batch[1]) - 1 + state.step / state.total) / Number(batch[2])
+    : state.step / state.total;
+  overallPercent = Math.max(overallPercent, Math.min(99, Math.floor(fraction * 100)));
+  return { running: running || overallPercent > 0, percent: overallPercent };
 }
 
 function renderProgress() {
   if (!page.busy()) return;
-  const state = progressState;
-  const stopping = document.body.classList.contains('stopping') || (state && state.stopping);
   const now = progressNow();
-  const running = now.running;
-  let stepText = 'Starting';
-  // Before step 0 the backend sets up its model: a rebuild, a switch between
-  // generate and edit, or the edit engine's first load. Step 0 is its notice
-  // that the engine started, which first encodes the prompt and images. The
-  // engine may then run fewer steps (a starting image skips part of the
-  // schedule), so the count shows from the first real step.
-  if (state && state.stage === 'preparing') stepText = 'Loading the model';
-  if (running && state.stage === 'running' && state.step === 0) {
-    stepText = runSources.length ? 'Reading the prompt and images' : 'Reading the prompt';
-  }
-  if (running && state.step > 0) stepText = 'Step ' + state.step + ' of ' + state.total;
-  if (stopping) {
-    // An engine inside this process can only stop where it looks, which is a step, and
-    // before the first step there is nothing to look at. So the label says when, not
-    // that it has happened. A child engine is killed outright and this flashes past.
-    stepText = state && state.step > 0
-      ? 'Stopping at the end of this step' : 'Stopping when the first step arrives';
-  }
-
-  // Before the first step the estimate is the only number the page has, and it does
-  // not move: the same sentence, redrawn every second, is what a frozen run looks
-  // like. The elapsed time does move, so the reading phase says how long it has been
-  // reading and a slow engine is visibly still working.
-  const reading = running && state && state.step === 0;
-  const soFar = startedAt() ? page.spell(Math.max(0, (Date.now() - startedAt()) / 1000)) + ' so far' : '';
-  const left = running && !stopping ? (reading ? soFar : timeLeft()) : '';
-  // While stopping, the phase text says when the stop lands. It used to be a bare
-  // "Stopping", and the sentence built for this case was written and never shown.
-  page.el.statusText.textContent = stopping ? stepText : running
-    ? [stepText, state.label ? 'image ' + state.label : '',
-      left.charAt(0).toLowerCase() + left.slice(1)].filter(Boolean).join(', ')
-    : stepText;
-  document.title = (running ? '(' + now.percent + '%) ' : '') + page.workspaceTitle();
-  page.progressCard().paintAll(running, now.percent);
+  document.title = (now.running ? '(' + now.percent + '%) ' : '') + page.workspaceTitle();
+  page.progressCard().paintAll(now.running, now.percent);
 }
 
 function sideChannel(event) {
@@ -427,6 +434,39 @@ function harvest() {
 }
 
 const handle = {
+  prepareCancel: function (operation) {
+    if (!nativeRunning || !nativeDraftId || operation.settings?.draft_id !== nativeDraftId) return false;
+    armCancelRestore();
+    return true;
+  },
+  finishOperation: function (operation) {
+    if (!preparedBatch || !nativeRunning || operation.settings?.draft_id !== nativeDraftId) return;
+    if (!['succeeded', 'failed', 'cancelled'].includes(operation.status)) return;
+    if (operation.status !== 'succeeded') armCancelRestore();
+    revokeUnclaimed();
+    stopWork();
+  },
+  decorateImage: function (operation, image, entry, position) {
+    if (!preparedBatch || operation.settings?.draft_id !== nativeDraftId) return;
+    const place = batchSources.length ? position % batchSources.length : -1;
+    entry.nativeMetadata = true;
+    entry.operationId = operation.id.split(':')[0];
+    entry.position = position + 1;
+    entry.sources = place >= 0 ? [runSources[place] || ''] : runSources;
+    entry.before = image.mode === 'edit' ? (place >= 0 ? batchSources[place] : batchSource) : null;
+    if (runLook && image.prompt === runLook.sent) {
+      entry.prompt = runLook.prompt || runLook.reader || image.prompt;
+      entry.typed = runLook.typed || runLook.prompt;
+      entry.negative = runLook.negative;
+      if (runLook.labels.length) entry.look = runLook;
+    }
+    if (place >= 0 && runWords.length > place) {
+      entry.prompt = runPrompts[place];
+      entry.typed = runWords[place];
+      entry.negative = runLook.negative;
+      if (runLook.labels.length) entry.look = runLook;
+    }
+  },
   updateBackend: function (backend) {
     page.backendId = backend.id;
     page.edgeName = backend.name.toUpperCase().replace(/-/g, ' ');
@@ -438,6 +478,7 @@ const handle = {
   release: release,
   observeOperation: function (operation) {
     if (operation?.kind === 'image') {
+      if (observedOperationId !== operation.id) overallPercent = 0;
       if (observedOperationId !== operation.id && !document.body.classList.contains('busy')) {
         page.el.go.dataset.started = String(operation.started_at * 1000);
         const settings = operation.settings || {};
@@ -445,10 +486,11 @@ const handle = {
         page.setView('progress');
       }
       observedOperationId = operation.id;
-      progressState = operation.progress || null;
+      sharedProgress = operation.progress || null;
       renderProgress();
     } else if (observedOperationId) {
       observedOperationId = null;
+      sharedProgress = null;
       if (!document.body.classList.contains('busy')) {
         progressState = null;
         document.title = page.workspaceTitle();
@@ -456,7 +498,7 @@ const handle = {
       }
     }
   },
-  progressState: function () { return progressState; },
+  progressState: function () { return sharedProgress || progressState; },
 };
 
 document.dispatchEvent(new CustomEvent('run-ready', {
@@ -523,6 +565,8 @@ function listen() {
       return;
     }
     nativeOperationId = null;
+    preparedBatch = false;
+    nativeDraftId = event.detail.parameters.draft_id || null;
     const references = page.references();
     const region = page.region();
     // Only a one-image edit changes that image in place. An edit from several
@@ -588,7 +632,15 @@ function listen() {
     // The form empties after startWork, which reads it for the run's cost, shape
     // and step time. A chain request carries its own token and never reads the
     // form, so only the form's own request clears.
-    if (fresh) clearInputs();
+    if (fresh && Number(event.detail.requestConfig.parameters.count) > 1) {
+      event.preventDefault();
+      preparedBatch = true;
+      // Capture the composed parameters before clearing the inputs. The API
+      // validates and prepares every item once, before any image is rendered.
+      const parameters = Object.assign({}, event.detail.requestConfig.parameters);
+      clearInputs();
+      submitBatch(parameters, event.detail.requestConfig.headers);
+    } else if (fresh) clearInputs();
   });
   document.body.addEventListener('htmx:afterSettle', function (event) {
     // A /progress response settles once a second. It is not the end of the run,

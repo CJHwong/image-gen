@@ -10,16 +10,64 @@ Each layer imports only the layers inside it. `.importlinter` enforces this, and
 |---|---|---|
 | 1. Entities | `l1_entities/` | The job, the result, the progress, the errors, and the capabilities record: modes, params, Looks, templates, estimate |
 | 2. Use cases | `l2_use_cases/` | Run image, video, or Voice jobs, describe the studio, switch backends, release model memory, rewrite prompts, and read progress. `boundaries/` holds their ports. |
-| 3. Interface adapters | `l3_interface_adapters/` | The form and video controllers, the HTML presenter, the JSON API, model gateways, including the MLX video pack under `gateways/mlx_video`, in-memory stores, and the GPU thread for MLX calls |
+| 3. Interface adapters | `l3_interface_adapters/` | The form and video controllers, the HTML presenter, the JSON API, model gateways, grouped under `gateways/image`, `gateways/video`, and `gateways/audio`, in-memory stores, and the GPU thread for MLX calls |
 | 4. Frameworks and drivers | `l4_frameworks_and_drivers/` | The HTTP server, local LTX process runner, config file, page, and `main.py`, which wires everything |
 
 The entities and use cases import no engine: no mlx, mflux, PIL, http or subprocess. The backend adapters do not import each other; what two of them share sits next to them in `gateways/`.
 
-The engine choice is made in layer 4, from the probe in `engines.py`, not in a gateway. An engine that only one platform has is a decision at the top, not a branch inside the adapter. Engine code that already branches is not converted; `gateways/qwen21/PORTABILITY.md` records what a port would need. A checkpoint's sampling schedule is wired the same way: layer 4 registers the official Turbo checkpoint's own sigma table, which lives beside the backends in `gateways/qwen21_turbo_schedule.py` because a backend may not import another backend.
+The engine choice is made in layer 4, from the probe in `engines.py`, not in a gateway. An engine that only one platform has is a decision at the top, not a branch inside the adapter. Engine code that already branches is not converted; `gateways/image/qwen21/PORTABILITY.md` records what a port would need. A checkpoint's sampling schedule is wired the same way: layer 4 registers the official Turbo checkpoint's own sigma table, which lives beside the backends in `gateways/image/shared/qwen21_turbo_schedule.py` because a backend may not import another backend.
 
 Image, Video, and Voice have separate backend catalogs and selections. Voice offers Drama-3 by default, AuK, and AuK Flash. They share one model-memory slot and one non-queueing lock. The server starts without loading weights. A model loads only when its run starts. Selecting another model releases the current one but does not load the new one. Leaving a workspace releases its model. The LTX pipelines run in a child process, which releases its weights when it exits. The MLX q8 packs run the same way through their port. A prompt rewrite takes the same lock and releases its weights when it ends.
 
 Names follow the role. A gateway ends in `_gateway.py` and its class in `Gateway`. A use case ends in `_use_case.py` and `UseCase`. Controllers and presenters do the same. Entities and the records passed between layers have no suffix.
+
+## Model gateway ownership
+
+Every generation model has one concrete gateway in its own media/model package:
+
+```text
+gateways/
+  image/{qwen21,qwen21_turbo,viggle_turbo,flux2}/
+  video/{ltx25,ltx23}/
+  audio/{drama3,auk,auk_flash}/
+```
+
+Each package implements its media boundary. AuK and AuK Flash have separate gateways;
+LTX-2.3 and LTX-2.5 do too. A gateway fixes its model identity rather than selecting
+between models at runtime. Existing public backend IDs remain stable.
+Shared engine helpers live in `image/qwen_runtime`, `image/shared`, `video/shared`,
+and `audio/auk_runtime`. These packages are implementation helpers, not additional
+model gateways. `.importlinter` forbids imports between all nine model packages.
+Layer 4 constructs the model-specific gateway and injects its engine dependencies.
+Tests mirror the same media/model paths. Add a new model as a new package, including
+when it shares an engine or publisher with an existing model.
+
+## Boundaries and composition
+
+The responsibility split follows the [Clean Architecture examples](https://github.com/CJHwong/py-clean-architecture-examples)
+and their [dependency rule](https://github.com/CJHwong/py-clean-architecture-examples/blob/main/doc/principles.md).
+Dependencies point inward; application policy uses ports, and the composition root supplies concrete adapters.
+
+- `PrepareBatchUseCase` owns batch envelope policy: item limits, inherited defaults, one model and
+  one result per item. The HTTP adapter does not define a second batch limit.
+- `CompleteOperationUseCase` owns the common success/failure path. Its only dependency is the
+  `OperationGateway` port. It accepts and returns plain operation records, retaining the prepared result
+  and recording failures before propagating them. Transport serialization happens in the adapter.
+- `InMemoryOperationGateway` implements atomic reservations, continuation ownership, cancellation,
+  and bounded result storage. Its locks and retention bookkeeping stay outside the use cases.
+  It stores a result-retention flag, not HTTP routes. `OperationMissing` is an inner error;
+  the HTTP driver translates it to a 404.
+- `JsonApi` adapts the public JSON and legacy form entry points to the same controllers. It receives
+  its operation store, completion use case, and batch use case; it constructs none of them.
+  `api/request_mapper.py` converts transport values. `presenters/json_presenter.py` builds response
+  documents, including operation URLs, without importing controllers or storage implementations.
+- `main.py` is the composition root for every workspace. It builds the concrete operation store
+  once and supplies that same instance to the JSON adapter and completion use case. The shared
+  progress adapters observe cancellation from that same operation state.
+
+`.importlinter` enforces the four layers and adapter isolation. API adapters cannot import concrete
+storage or model gateways. Controllers, presenters and gateways cannot import the API adapter.
+A change to an endpoint's route or JSON shape should not require a change to a model gateway or use case.
 
 ## One request
 
@@ -35,13 +83,13 @@ Names follow the role. A gateway ends in `_gateway.py` and its class in `Gateway
 1. The page sends a unique request ID, the selected video backend, prompt, output settings, and still references with target frames as JSON to `/video/generate`.
 2. `VideoController` reads that backend's `VideoCapabilities`, checks the request, and decodes stills to PNG bytes.
 3. `RunVideoUseCase` takes the shared lock and claims the shared model-memory slot.
-4. The selected `VideoBackendGateway` runs the model. `Ltx25BackendGateway` calls the injected runner, which starts the official Python pipeline.
-5. The LTX runner downloads missing official components on first use, writes keyframes to a temporary folder, and starts `ltx_pipelines.distilled`. A cancel request terminates the child process.
+4. The selected `VideoBackendGateway` runs the model. `Ltx25BackendGateway` or `Ltx23BackendGateway` calls its injected MLX runner.
+5. The MLX runner resolves the selected model pack, writes conditioning inputs to a temporary folder, and starts the pinned pipeline child. A cancel request terminates that owned child process.
 6. The page puts MP4 output in the video gallery. When **Keep in this browser** is on, IndexedDB stores the MP4, thumbnail, and generation details. The stub returns settings only and creates no fake video bytes.
 
 The model selector follows the active workspace. Each workspace keeps its own selected backend and capabilities. Video settings come from `VideoCapabilities`, so a backend declares its supported shapes and default, frame limits and step, duration presets and default, frame rate, seed range, reference limit, and reference strength range and step. The Video source panel lives beside its prompt in the right sidebar. It keeps imported clips separate from image keyframes. The Video gallery holds generated output only. A frame from an imported or generated clip can move to Image or become a Video keyframe. The source clip itself is not a video-conditioning input.
 
-The image-count control uses a legacy chain of requests, one per image. Explicit API batches use one request and one reservation. Image progress is a poll of `/progress`. Video progress is a poll of `/video/progress`, which includes the active request ID. Every tab also polls `/api/v1/state` from startup and follows API or other-tab operations. It sends cancellation to `/video/cancel` with the same ID. The legacy route stops only that matching run. The shared operation route cancels by operation ID. The MLX runner combines sampler steps across stages into one count. It ignores weight-loading counters. The page keeps progress below 100% until the clip is ready. After denoising, it shows Finishing the clip while decoding and saving continue. A video cancel terminates the LTX child and releases the shared lock after it exits. The timeline keeps source clips and reference keyframes. A rewrite is one request of its own, and its phase is a poll of `/rewrite/state`: the page offers a cancel only while the model is writing, because a stop cannot land during the load.
+The image-count control expands multiple results into explicit items and submits one asynchronous prepared batch through `/image/operations`, the UI identity wrapper around the same operation API. Per-reference edits cycle references and their own instructions in item order, with one exact decimal seed sequence. The server emits the batch item limit; the count menu limits results per reference so the total fits the same API envelope. Shared polling imports completed items incrementally, including in the submitting tab and after reload. The originating tab decorates results with its Look and reference comparison metadata; precision is retained on the operation for reloads. Cancellation or a failed submission restores consumed inputs. Single-image forms retain their existing htmx transport. Explicit API batches use the same batch use case and one reservation. Image progress is a poll of `/progress`. Video progress is a poll of `/video/progress`, which includes the active request ID. Every tab also polls `/api/v1/state` from startup and follows API or other-tab operations. It sends cancellation to `/video/cancel` with the same ID. The legacy route stops only that matching run. The shared operation route cancels by operation ID. The MLX runner combines sampler steps across stages into one count. It ignores weight-loading counters. The page keeps progress below 100% until the clip is ready. After denoising, it shows Finishing the clip while decoding and saving continue. A video cancel terminates the LTX child and releases the shared lock after it exits. The timeline keeps source clips and reference keyframes. A rewrite is one request of its own, and its phase is a poll of `/rewrite/state`: the page offers a cancel only while the model is writing, because a stop cannot land during the load.
 
 ## One Voice request
 
@@ -92,6 +140,12 @@ An image edit may carry a marked region. The page appends it as the last image o
 `web/page.html` holds the layout and workspace wiring. The other page logic lives in modules under `web/lib/` and `web/components/`,
 which the static route serves. `web/PAGE-REFACTOR.md` is the design for taking it apart into Lit components, light DOM, with no bundler. Read it before you change how the page is built. It also lists the ids, roles and attributes that the e2e checks pin, and those must not move: `tests/e2e/verify_ui.py` is the executable version of that contract.
 
+The shared header guide is owned by `web/components/studio-guide.js`, independently of any
+preview renderer. Its overlay lives in the shared workspace grid, so preview redraws cannot
+remove it or hide it inside the Image stage. The page supplies the current workspace and model;
+Voice help distinguishes Drama-3 from AuK. Workspace or model changes close stale guidance.
+The guide retains the existing toggle, sheet, keyboard and focus contracts and links to `/api/docs`.
+
 ## Tests
 
 - The tree under `tests/` mirrors the tree under `studio/`. The module `studio/a/b/c.py` is tested by `tests/a/b/c/test_c.py`. A shared helper lives in `tests/support/` and mirrors no module. `tests/e2e/` holds the browser checks and mirrors nothing.
@@ -114,4 +168,14 @@ Browser libraries and presentation preferences stay in IndexedDB and local stora
 
 The UI clips overlong Drama-3 reference picks to the first fifteen seconds at the native reference rate. It clears copied transcripts after an actual trim and retries normalization against changed capabilities before committing a pending decode. References restored while globally locked are reconciled on unlock. API clients trim explicitly, so the reference transcript can match the chosen excerpt.
 
-Every LTX Generate request enables the engine's separate Gemma-3 prompt-enhancement pass. Normal generation uses the native CLI flag; audio-conditioned generation calls the same helper before the a2v pipeline, because the pinned audio parser lacks that flag. This pass finishes and frees its model before video loading. It is independent of Studio Rewrite, and Edit adapter prompts are unchanged. Eligible Generate batches run enhancement in one separate child before the video child. Auto keeps per-item execution for the measured enhanced two-item 1920×1088, 17-frame, 24-fps text regression; the guard does not extend to another item count, duration or conditioning mode. It loads Gemma once, preserves each item’s seed and native enhancement strategy, writes effective prompts and resolved random seeds back to a temporary manifest, then exits. Video encoding therefore sees enhanced prompts, without a second enhancement pass, and the enhancer process cannot hold accelerator allocations while video loads. The existing geometry/memory planner selects video reuse; otherwise the video child renders sequentially with cleanup between clips. Mixed Edit batches retain per-item execution. The whole enhancement phase has one hour to finish; validated render-start events reset the per-clip timeout. Cancellation stops the currently owned child and keeps clips already published.
+Every LTX Generate request enables the engine's separate Gemma-3 prompt-enhancement pass. Text generation uses the native CLI flag; image-conditioned generation uses a Studio child to forward `args.images[0].path` into Gemma’s vision tower through `mlx-vlm`. Audio-conditioned generation calls the same enhancement helper before the a2v pipeline, because the pinned audio parser lacks that flag. This pass finishes and frees its model before video loading. Video Rewrite now uses the same native Gemma 3 strategies through `video/gemma3/Gemma3PromptRewriterGateway`, injected separately from the Image rewriter. A bounded, session-local driver cache remembers 128 exact enhanced outputs and the first reference PNG digest (or no reference). A subsequent single or batched Generate with the same prompt and first reference image skips duplicate enhancement; changed text or conditioning triggers enhancement again. Edit adapter prompts are unchanged. Studio’s image-aware driver retains the engine’s native I2V instructions and sampling settings, but uses `mlx-vlm` to read the first attached reference. Later keyframes remain generator inputs. Eligible Generate batches run enhancement in one separate child before the video child. Auto keeps per-item execution for the measured enhanced two-item 1920×1088, 17-frame, 24-fps text regression; the guard does not extend to another item count, duration or conditioning mode. It groups prompts by checkpoint and text/image strategy, holds only one enhancement model at a time, and frees each group before loading the next. It preserves each item’s seed and native enhancement strategy, writes effective prompts and resolved random seeds back to a temporary manifest, then exits. Video encoding therefore sees enhanced prompts, without a second enhancement pass, and the enhancer process cannot hold accelerator allocations while video loads. The existing geometry/memory planner selects video reuse; otherwise the video child renders sequentially with cleanup between clips. Mixed Edit batches retain per-item execution. The whole enhancement phase has one hour to finish; validated render-start events reset the per-clip timeout. Cancellation stops the currently owned child and keeps clips already published.
+
+Inactive workspace controls are disabled fieldsets. Hidden Voice or Video numeric constraints therefore cannot prevent native Image form submission. Voice validates supported numeric limits in its own Generate reason before submitting; Drama-3 remains at a 2048 default and a supported range of 64–2048.
+
+Startup uses the same model-list policy for Image, Video, and Voice. The shipping configuration offers one default per workspace; `--all-backends` passes each registry as its workspace visibility override. Optional models are constructed lazily and still require installed weights before use. Custom visible lists can expose a subset.
+
+Drama-3 bounds its active-generation wired-memory limit by MLX’s recommended working set and 75% of physical RAM. It synchronizes and restores the previous process limit on success or failure; idle models remain reclaimable. Cancellation terminates the child. Sampling and precision are unchanged.
+
+The shared operation bar is the sole global status readout for Image, Video, Voice, and Rewrite. It occupies an explicit grid row below the header and remains visible on mobile. It separates phase, model/item, elapsed time, and cancellation. Unknown totals remain indeterminate; active percentages stay below 100%. The Image preview reads aggregate operation counters independently of the legacy per-image poll used to learn timing. Per-operation display progress never decreases, including item transitions and temporary missing counters.
+
+The composition root injects the bounded active-memory scope into the official Qwen Turbo gateway. The scope covers Generate, Edit, and batch prompt preparation, synchronizes outstanding MLX work, and restores the prior wired limit in nested cleanup even if synchronization fails. Other Image backends keep their existing memory policy. Both Image Cancel controls arm the native input-restoration lifecycle for the submitted draft. Shared-bar cancellation always targets the displayed operation ID; draft matching prevents a stale snapshot or an API request from restoring a different native draft.

@@ -8,8 +8,8 @@ from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilitie
 from studio.l3_interface_adapters.api.openapi import openapi_document
 from studio.l3_interface_adapters.api.prompt_builder import prepare_prompt
 from studio.l3_interface_adapters.controllers.video_controller import video_job
-from studio.l3_interface_adapters.gateways.mlx_video.capabilities import ltx25_mlx_capabilities
-from studio.l3_interface_adapters.gateways.qwen21_turbo.capabilities import qwen21_turbo_capabilities
+from studio.l3_interface_adapters.gateways.image.qwen21_turbo.capabilities import qwen21_turbo_capabilities
+from studio.l3_interface_adapters.gateways.video.shared.capabilities import ltx25_mlx_capabilities
 
 
 def test_generate_routes_offer_named_payloads_instead_of_generated_defaults():
@@ -103,7 +103,9 @@ def test_voice_examples_cover_design_clone_and_edit_with_explicit_media_replacem
 
 
 def test_batch_examples_obey_the_shared_batch_contract():
-    from studio.l3_interface_adapters.api.batch_api import normalize_batch
+    from studio.l2_use_cases.prepare_batch_use_case import PrepareBatchUseCase
+
+    normalize_batch = PrepareBatchUseCase().execute
 
     document = openapi_document()
     examples = document["paths"]["/api/v1/operations"]["post"]["requestBody"]["content"]["application/json"]["examples"]
@@ -244,7 +246,7 @@ def test_visual_prompt_guides_are_available_at_model_discovery_and_generation():
 
 
 def test_drama_token_default_matches_capabilities_and_named_example():
-    from studio.l3_interface_adapters.gateways.drama_voice.capabilities import drama_capabilities
+    from studio.l3_interface_adapters.gateways.audio.drama3.capabilities import drama_capabilities
 
     document = openapi_document()
     default = document["components"]["schemas"]["VoiceRequest"]["properties"]["max_tokens"]["default"]
@@ -257,3 +259,12 @@ def test_drama_token_default_matches_capabilities_and_named_example():
         == drama_capabilities().mode("generate").parse_options({})["max_tokens"]
         == 2048
     )
+
+
+def test_video_rewrite_describes_real_image_grounding_and_cache_identity():
+    route = openapi_document()["paths"]["/api/v1/videos/rewrite"]["post"]
+    assert "vision tower" in route["description"]
+    assert "first reference image" in route["description"]
+    sample = route["requestBody"]["content"]["application/json"]["examples"]["animate_reference"]
+    assert base64.b64decode(sample["value"]["references"][0]["png_base64"], validate=True).startswith(b"\x89PNG")
+    assert "same first image" in sample["description"]

@@ -2,7 +2,7 @@
 
 Image backends use mflux, which requires MLX. The LTX video runner uses its
 configured Python environment, but studio startup still checks MLX.
-`gateways/qwen21/PORTABILITY.md` records the unverified CUDA path.
+`gateways/image/qwen21/PORTABILITY.md` records the unverified CUDA path.
 """
 
 
@@ -34,5 +34,5 @@ def require_mlx() -> None:
         raise EngineUnavailable(
             "no MLX GPU is available on this machine, so no backend can run here: every image backend uses mflux, "
             "and mflux requires an MLX GPU. "
-            "See studio/l3_interface_adapters/gateways/qwen21/PORTABILITY.md."
+            "See studio/l3_interface_adapters/gateways/image/qwen21/PORTABILITY.md."
         )

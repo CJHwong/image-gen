@@ -1,7 +1,7 @@
 import argparse
 import sys
 import weakref
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -18,7 +18,12 @@ def engine(monkeypatch):
     parser.add_argument("-p", dest="prompt")
     parser.add_argument("--seed", type=int, default=-1)
     parser.add_argument("--gemma", default="native-gemma")
-    parser.add_argument("--image")
+
+    class Images(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            setattr(namespace, self.dest, [SimpleNamespace(path=values)])
+
+    parser.add_argument("--image", dest="images", action=Images, default=None)
     cli = cast(Any, ModuleType("ltx_pipelines_mlx.cli"))
     cli._build_parser = lambda: parser
     cli._guard_enhance_not_gemma4 = lambda path: events.append(("guard", path))
@@ -36,15 +41,18 @@ def engine(monkeypatch):
             events.append(("t2v", prompt, seed))
             return prompt + " enhanced"
 
-        def enhance_i2v(self, prompt, seed):
-            events.append(("i2v", prompt, seed))
+        def enhance_i2v(self, prompt, image, seed):
+            events.append(("i2v", prompt, image, seed))
             return prompt + " animated"
 
     encoder.GemmaLanguageModel = Model
+    helper = cast(Any, ModuleType("mlx_image_prompt_enhancement"))
+    helper.ImagePromptEnhancer = Model
+    monkeypatch.setitem(sys.modules, helper.__name__, helper)
 
     def cleanup():
         events.append(("cleanup",))
-        events.append(("alive_at_cleanup", instances[0]() is not None))
+        events.append(("alive_at_cleanup", any(instance() is not None for instance in instances)))
 
     memory.aggressive_cleanup = cleanup
     for name, module in [(cli.__name__, cli), (encoder.__name__, encoder), (memory.__name__, memory)]:
@@ -68,15 +76,18 @@ def test_unique_seeds_and_native_strategies_share_one_load_and_release_before_re
         "unchanged",
     ]
     assert all("--enhance-prompt" not in command for command in commands)
-    assert len(instances) == 1
+    assert len(instances) == 2
     assert events == [
+        ("guard", "native-gemma"),
+        ("guard", "native-gemma"),
         ("guard", "native-gemma"),
         ("load", "native-gemma"),
         ("t2v", "cat", 7),
-        ("guard", "native-gemma"),
-        ("i2v", "dog", 8),
-        ("guard", "native-gemma"),
         ("t2v", "song", 9),
+        ("cleanup",),
+        ("alive_at_cleanup", False),
+        ("load", "native-gemma"),
+        ("i2v", "dog", "ref.png", 8),
         ("cleanup",),
         ("alive_at_cleanup", False),
     ]
@@ -160,3 +171,29 @@ def test_child_enhances_every_prompt_before_encoding_or_rendering(engine, monkey
     assert events.index(("t2v", "dog", 7)) < events.index(("render", "cat enhanced"))
     assert sum(event[0] == "load" for event in events) == 1
     assert sum(event[0] == "retain" for event in events) == (policy != "sequential")
+
+
+@pytest.mark.parametrize("second_checkpoint", ["native-gemma", "other-gemma"])
+def test_image_groups_reuse_each_checkpoint_without_reordering_results(engine, second_checkpoint):
+    events, instances, _ = engine
+    commands = [
+        ["cli", "generate", "-p", "first", "--seed", "7", "--image", "first.png", "--enhance-prompt"],
+        [
+            "cli",
+            "generate",
+            "-p",
+            "second",
+            "--seed",
+            "8",
+            "--image",
+            "second.png",
+            "--gemma",
+            second_checkpoint,
+            "--enhance-prompt",
+        ],
+    ]
+    child.enhance_commands(commands)
+    assert len(instances) == (1 if second_checkpoint == "native-gemma" else 2)
+    assert [command[command.index("-p") + 1] for command in commands] == ["first animated", "second animated"]
+    assert [(event[2], event[3]) for event in events if event[0] == "i2v"] == [("first.png", 7), ("second.png", 8)]
+    assert all(event == ("alive_at_cleanup", False) for event in events if event[0] == "alive_at_cleanup")

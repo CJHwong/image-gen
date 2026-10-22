@@ -2,6 +2,7 @@
 
 The API and page use the same controllers, model checks, download policy, and shared model memory.
 Qwen remains at full precision. Selecting a model does not load its weights.
+Official Qwen Turbo temporarily raises the MLX wired-memory budget during Generate, Edit, and batch prompt preparation, bounded by MLX’s recommended working set and 75% of physical RAM. It synchronizes outstanding work and restores the previous process limit after success, failure, or cancellation. This internal memory policy also applies to UI requests; it adds no request parameter and changes no sampling settings.
 
 ## Discover controls
 
@@ -104,9 +105,10 @@ Retention also has limits of 32 operations and 256 MiB, including metadata.
 Older results can expire sooner when either limit fills. Missing results return `404`.
 A server restart clears operation history. The existing Keep setting controls browser storage independently.
 
-A browser image batch keeps one operation across its continuation requests.
-If its tab closes between images, the operation cancels after a 30-second continuation timeout.
-Completed images remain available. An asynchronous API batch runs entirely on the server.
+A browser Image batch submits ordered items to the same prepared batch use case as this API. One reservation covers preparation and every image; completed items appear incrementally and survive reload or cancellation. Per-reference UI edits expand into one-reference items with their own prompts and consecutive seeds. Single-image form requests retain their compatibility transport.
+Prepared UI and asynchronous API batches run entirely on the server, including after their tab closes.
+Only legacy compatibility batches that wait for a client continuation cancel after a 30-second continuation timeout.
+Completed images remain available.
 
 ## Choose a useful request
 
@@ -457,7 +459,7 @@ Drama-3 internally splits long scripts into 180-byte chunks and joins them into 
 
 Drama-3 is the default Voice model and uses the pinned eight-bit MLX checkpoint. The UI automatically keeps the first 15 seconds of longer Clone references, including gallery selections and references carried over from AuK. Trimming clears a copied full-recording transcript: enter the exact words in the retained excerpt. API callers use `/api/v1/audio/trim` before submitting a reference longer than the model limit. Script and prompt fields expand while focused.
 
-LTX Generate always applies the pipeline's Gemma-3 prompt enhancer before video encoding, for both LTX-2.3 and LTX-2.5 and for audio-conditioned generation. LTX-2.5 still uses its Gemma-4 tower for text encoding. The compatibility `enhance` request field cannot disable this pass. The separate Rewrite endpoint/button remains available to edit the prompt beforehand. Edit adapters retain their supplied prompt unchanged. Eligible Generate batches enhance their prompts in one model load, release the enhancement process, then render. Auto retains per-item generation for measured regressions, including the enhanced LTX-2.5 two-item 1920×1088, 17-frame, 24-fps text case. Eligible LTX-2.5 text batches reuse the video pipeline within its measured geometry/memory limits. Other Generate batches render clips sequentially after shared enhancement. Mixed Edit batches retain per-item execution. One operation reserves the engine throughout both phases; enhancement is preparation, not a completed result.
+LTX Generate always applies the pipeline's Gemma-3 prompt enhancer before video encoding, for both LTX-2.3 and LTX-2.5 and for audio-conditioned generation. LTX-2.5 still uses its Gemma-4 tower for text encoding. The compatibility `enhance` request field cannot disable this pass. The Video Rewrite endpoint/button uses the same native Gemma-3 enhancer, independently of the selected Image model. With references, it reads the first attached image through Gemma’s vision tower using LTX’s native I2V instructions. Later references remain video keyframes and are not passed to the enhancer. Audio is used by the video generator, not read by the enhancer. The server remembers up to 128 exact Rewrite outputs and the first reference image’s SHA-256 identity (or text-only conditioning) for its lifetime. Generate with unchanged output and the same first reference image skips duplicate enhancement; changed text (including appended Looks) or a different first reference image enhances again. This applies equally to UI, direct API calls and explicit batches. Restarting the server clears this cache. Edit adapters retain their supplied prompt unchanged. Eligible Generate batches group enhancement by checkpoint and text/image strategy, loading each group once and freeing it before the next; they release the enhancement process before rendering. Item and render order stay unchanged. Auto retains per-item generation for measured regressions, including the enhanced LTX-2.5 two-item 1920×1088, 17-frame, 24-fps text case. Eligible LTX-2.5 text batches reuse the video pipeline within its measured geometry/memory limits. Other Generate batches render clips sequentially after shared enhancement. Mixed Edit batches retain per-item execution. One operation reserves the engine throughout both phases; enhancement is preparation, not a completed result.
 
 Each endpoint description now explains when to choose it, required discovery, how to use its output, and recovery choices. Start with `/api/v1/studio`, inspect a candidate's capabilities without switching models, then submit an operation and poll its status URL. Named template and adapter recipes are preferred when they match the task.
 
@@ -613,5 +615,3 @@ LTX-2.3 rejects true. A video batch sets it once at the top level; items cannot 
 Operation `settings.fast_mode` records an explicitly submitted value. The UI names the option
 Fast mode and records it with the result. Watching another client's operation temporarily shows
 its setting while preserving the observer's own setting for the next render.
-
-[Conditioned-generation validation and trade-offs](reports/fast-mode-2026-10-22/README.md).

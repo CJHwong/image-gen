@@ -177,13 +177,25 @@ def rewrite_examples(workspace: str) -> dict[str, Any]:
     prompt = (
         "A teapot on a table. The camera moves closer." if workspace == "video" else "A blue teapot on an oak table."
     )
-    return {
+    examples = {
         "expand_draft": {
             "summary": "Expand a short draft before generation",
             "description": "A rewrite returns suggested text. Review it before using it in a generation request. Apply Looks when generating, not when rewriting.",
             "value": {"prompt": prompt, "mode": "generate"},
         }
     }
+
+    if workspace == "video":
+        examples["animate_reference"] = {
+            "summary": "Enhance motion instructions while reading your image",
+            "description": "Replace the transport-test PNG with your scene. Gemma reads the first reference. Reuse the returned prompt and same first image in Generate to skip duplicate enhancement in this server session.",
+            "value": {
+                "prompt": "It slowly moves to the right.",
+                "mode": "generate",
+                "references": [{"png_base64": PNG_BASE64}],
+            },
+        }
+    return examples
 
 
 def operation_examples() -> dict[str, Any]:

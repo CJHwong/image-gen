@@ -411,9 +411,14 @@ function growField(field) {
   field.style.height = field.scrollHeight + 'px';
 }
 
+function countLimit() {
+  const references = chosenEach() ? Math.max(1, page.references().length) : 1;
+  return Math.min(page.maxBatch, Math.floor(page.batchLimit / references));
+}
+
 function clampCount() {
   const countInput = page.el.countInput;
-  const value = Math.min(page.maxBatch, Math.max(1, parseInt(countInput.value, 10) || 1));
+  const value = Math.min(countLimit(), Math.max(1, parseInt(countInput.value, 10) || 1));
   countInput.value = value;
   document.getElementById('count-shown').textContent = '×' + value;
   page.el.countToggle.setAttribute('aria-label', value + (value === 1 ? ' image' : ' images') + ', change the count');
@@ -427,7 +432,7 @@ function openCount() {
   const countMenu = page.el.countMenu;
   const current = clampCount();
   countMenu.replaceChildren();
-  for (let count = 1; count <= page.maxBatch; count++) {
+  for (let count = 1; count <= countLimit(); count++) {
     const option = menus.menuItem('check', count + (count === 1 ? ' image' : ' images'), function () {
       page.el.countInput.value = count;
       clampCount();
@@ -965,9 +970,9 @@ function setupModes() {
 // one is about a minute. Only `writing` has something a press can stop, so only
 // `writing` offers Cancel.
 const rewriteStages = {
-  preparing: { title: 'The rewriter is getting its weights ready', status: 'The rewriter is getting ready' },
-  writing: { title: 'Stop the rewrite and keep what is already written', status: 'Rewriting, about 30s' },
-  stopping: { title: 'Stopping the rewrite', status: 'Stopping the rewrite' },
+  preparing: { title: 'The rewriter is getting its weights ready' },
+  writing: { title: 'Stop the rewrite and keep what is already written' },
+  stopping: { title: 'Stopping the rewrite' },
 };
 let rewriteStage = 'idle';
 let rewritePoll = null;
@@ -1016,18 +1021,13 @@ function rewriteItems() {
   return items;
 }
 
-function rewriteWhere(item) {
-  if (item.kind === 'video' || item.kind === 'prompt') return 'the prompt';
-  if (item.kind === 'image') return 'the words for image ' + (item.place + 1);
-  return 'the ' + page.region().name(item.colour) + ' area';
-}
-
 // The video workspace is offered the generate rewriter: a video is drawn from words,
 // and the workspace's own picture is a frame the clip must hold rather than a picture
 // the rewriter reads an instruction from. A backend with no generate rewriter offers
 // the button nowhere, video included.
 function rewriteOffered() {
-  return (page.studio.rewrite_modes || []).indexOf(video() ? 'generate' : currentMode().id) >= 0;
+  const modes = video() ? page.studio.video?.rewrite_modes : page.studio.rewrite_modes;
+  return (modes || []).indexOf(video() ? 'generate' : currentMode().id) >= 0;
 }
 
 
@@ -1075,13 +1075,7 @@ function renderRewriteButton() {
       || (rewriteStage === 'idle' && (busy || !items.length));
     button.title = stage ? stage.title : rewriteTitle(items);
   });
-  // The readout belongs to a run while one is going, so a rewrite only borrows
-  // it when nothing else is. Without this a press looks like nothing happened
-  // for half a minute, and the button stays live for a second press.
-  if (busy) return;
-  const status = document.getElementById('status');
-  status.hidden = rewriteStage === 'idle';
-  if (stage) page.el.statusText.textContent = rewriteStage === 'writing' ? rewriteStatus() : stage.status;
+
 }
 
 // What the button promises, in the mode on screen. A generate run draws a picture and has
@@ -1108,23 +1102,6 @@ function rewriteTitle(items) {
   return editing()
     ? 'Write a prompt, or say what changes in a marked area, to rewrite it first'
     : 'Write a prompt to rewrite first';
-}
-
-// Where the press is, for the readout: which part is being written now, where it stands,
-// and what the whole press costs. The rewriter writes for 22 to 32 seconds on a warm load
-// whatever it is asked about, so a press over three parts takes about three times as long
-// as one, and the readout has to say so: it used to quote the one-part time either way.
-const REWRITE_SECONDS = 30;
-
-function rewriteStatus() {
-  // The last part stays named while its own answer lands, so the readout does not fall
-  // back to a nameless one for the moment between the last answer and the release.
-  const item = rewriteQueue[Math.min(rewriteDone, rewriteQueue.length - 1)];
-  if (!item) return rewriteStages.writing.status;
-  const where = 'Rewriting ' + rewriteWhere(item);
-  if (rewriteQueue.length === 1) return where + ', about ' + spell(REWRITE_SECONDS);
-  const at = ', ' + (rewriteDone + 1) + ' of ' + rewriteQueue.length;
-  return where + at + ', about ' + spell(rewriteQueue.length * REWRITE_SECONDS) + ' in all';
 }
 
 // What the rewriter reports is the page's only view of the job while the answer
@@ -1210,10 +1187,9 @@ function cancelRewrite() {
 // about the scene. A caller that names its own pictures is asking about those alone,
 // which is how one image of a batch gets an instruction that names it.
 //
-// A video rewrite names the workspace it is in and the generate rewriter, and sends no
-// picture: the video's reference is a frame the clip has to hold, and what is being
-// lengthened is the direction of a shot. The workspace travels with the request because
-// only an image form has a size list for a suggested shape to land in.
+// Video uses its native LTX enhancer. Keyframes select its image-to-video wording;
+// this MLX enhancer does not inspect their pixels. The workspace also prevents
+// an image ratio suggestion from changing video geometry.
 async function askRewriter(prompt, pictures) {
   const inVideo = video();
   const images = pictures || page.references().map(function (reference) { return reference.b64; });
@@ -1221,7 +1197,7 @@ async function askRewriter(prompt, pictures) {
   body.set('mode', inVideo ? 'generate' : currentMode().id);
   body.set('workspace', inVideo ? 'video' : 'image');
   body.set('prompt', prompt);
-  body.set('references', JSON.stringify(inVideo ? [] : images));
+  body.set('references', JSON.stringify(inVideo ? page.videoReferences() : images));
   const answer = await fetch('/rewrite', { method: 'POST',
     headers: {'X-Studio-Client': page.clientId, 'X-Studio-Library': page.libraryId}, body: body });
   const text = await answer.text();

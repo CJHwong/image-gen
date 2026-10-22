@@ -42,7 +42,7 @@ Run this flow when you add a backend. Also run it when you change one: its capab
 2. **Declare the capabilities** in `gateways/<id>/capabilities.py`.
    - Take the defaults for steps, guidance and size from this model's own recommended settings. Do not copy them from another backend.
    - An edit mode defaults its size to "match", so the output keeps the reference's size.
-   - Put every size on the 16-pixel grid. Keep its named ratio within 1%. Add the new `SIZES` to `test_every_size_keeps_its_named_ratio_on_the_16_pixel_grid` in `tests/l3_interface_adapters/gateways/qwen21/test_capabilities.py`.
+   - Put every size on the 16-pixel grid. Keep its named ratio within 1%. Add the new `SIZES` to `test_every_size_keeps_its_named_ratio_on_the_16_pixel_grid` in `tests/l3_interface_adapters/gateways/image/qwen21/test_capabilities.py`.
    - Leave out Looks and templates until step 5 proves them on this model.
 3. **Measure the cost.** With the GPU free, measure the seconds per step for each mode at three sizes: about 0.25, 0.6 and 1 MP. For an edit, measure with 1 reference and with the maximum. Fit `step_cost`, `exponent` and `overhead` for the `Estimate`. Put the measured table in a comment next to it, with the machine and the quantization.
 4. **Spike before you build an engine feature**, such as real batching. Measure it on the real engine first, and build it only if it wins. Write the result in the README section "Why it looks like this", whether it wins or not. For example, a batched flux2 run was 2 to 8% slower per image, so a batch stays a chain of single runs.

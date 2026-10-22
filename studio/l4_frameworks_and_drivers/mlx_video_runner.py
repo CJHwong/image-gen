@@ -16,6 +16,7 @@ import tempfile
 import time
 from collections import deque
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import BinaryIO, cast
 
@@ -32,7 +33,7 @@ BAR = re.compile(r"^Denoising(?: \([^\r\n]*\))?:[^\r\n]*?\|\s*(\d+)/(\d+)\s*\[")
 LORA_FETCH = """import sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
-from studio.l3_interface_adapters.gateways.mlx_video.lora_fetch import fetch_lora
+from studio.l3_interface_adapters.gateways.video.shared.lora_fetch import fetch_lora
 fetch_lora(sys.argv[2], sys.argv[3], Path(sys.argv[4]))
 """
 
@@ -46,7 +47,9 @@ class MlxVideoRunner:
         keyframe_two_stage: bool = False,
         process_runner: Callable = subprocess.run,
         model_key: str = "the model",
+        enhanced_prompt: Callable | None = None,
     ):
+        self._enhanced_prompt = enhanced_prompt or (lambda prompt, image: False)
         self._cli = str(settings.get("cli_path", ""))
         self._ffmpeg = str(settings.get("ffmpeg_path") or (shutil.which("ffmpeg") or ""))
         self._model = model
@@ -67,12 +70,18 @@ class MlxVideoRunner:
         self._keyframe_two_stage = keyframe_two_stage
         self._process_runner = process_runner
 
+    def _prepared_job(self, job):
+        if job.enhance and self._enhanced_prompt(job.prompt, job.references):
+            return replace(job, enhance=False)
+        return job
+
     def run(
         self,
         job: VideoJob,
         progress: Callable[[int, int, int], None] | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> VideoResult:
+        job = self._prepared_job(job)
         if not self._model:
             raise StudioError(f"Set {self._model_key} under [mlx_video] to a q8 pack id.")
         self._checked(self._cli, "Set cli_path under [mlx_video] to the MLX port's executable.")
@@ -85,7 +94,7 @@ class MlxVideoRunner:
                 images = self._write_references(job, root)
                 audio = self._write_audio(job, root)
                 command = self._command(job, output, images, audio)
-                if audio is not None and job.enhance and self._enhances:
+                if (audio is not None or images) and job.enhance and self._enhances:
                     python = self._checked(
                         str(Path(self._cli).parent / "python"), "The MLX CLI needs its environment's python."
                     )
@@ -100,6 +109,7 @@ class MlxVideoRunner:
     def run_batch(self, jobs, completed, started, progress, cancelled) -> list[VideoResult]:
         from studio.l4_frameworks_and_drivers.mlx_video_batch import BatchRecords, prefer_sequential, reuse_policy
 
+        jobs = [self._prepared_job(job) for job in jobs]
         if cancelled():
             raise Cancelled("The video batch was cancelled.")
         if len({job.fast_mode for job in jobs}) > 1:

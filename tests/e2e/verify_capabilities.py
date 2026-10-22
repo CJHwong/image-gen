@@ -19,9 +19,9 @@ from playwright.sync_api import sync_playwright
 from studio.l1_entities.capabilities import Capabilities, ModeSpec, ParamSpec
 from studio.l1_entities.image_job import ImageResult
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
+from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
 from studio.l3_interface_adapters.gateways.prompt_aids import EDIT_TEMPLATES
 from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
-from studio.l3_interface_adapters.gateways.qwen21.capabilities import qwen21_capabilities
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 
 TINY = Capabilities(
@@ -357,7 +357,11 @@ def main():
         page.keyboard.press("Escape")
         page.fill("#prompt", "a teal square")
         page.click("#go")
-        page.wait_for_function("document.querySelectorAll('#strip .frame:not(.pending)').length === 1")
+        # A model switch keeps the gallery. An earlier result may finish restoring
+        # before or after this run, so wait for this backend's result, not a total.
+        page.wait_for_function(
+            "!document.body.classList.contains('busy') && gallery.some(entry => entry.backendId === 'tiny')"
+        )
         check(
             "a run reaches the tiny backend",
             len(tiny.jobs) == 1 and tiny.jobs[0].options == {"steps": 5},

@@ -7,14 +7,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, StudioError, UnreadableImage
+from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, OperationMissing, StudioError, UnreadableImage
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
-from studio.l3_interface_adapters.api.json_api import JsonApi, rewrite_document
-from studio.l3_interface_adapters.api.operations import OperationMissing
+from studio.l3_interface_adapters.api.json_api import JsonApi
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
+from studio.l3_interface_adapters.presenters.json_presenter import rewrite_document
 
 # Where the page's own files live. GET /page/<name> serves one of them, and a
 # test points WEB at a directory of its own to reach both rules below.
@@ -67,7 +67,7 @@ def make_handler(
             if path.startswith("/api/v1/"):
                 self._api_post(path)
                 return
-            if self.path == "/voice/operations":
+            if self.path in ("/voice/operations", "/image/operations"):
                 self._start_operation(source="ui")
                 return
             if self.path == "/video/generate":

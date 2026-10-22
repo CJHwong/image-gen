@@ -35,21 +35,23 @@ def load_config(
     backend: str | None = None,
     quantize: int | None = None,
     visible: tuple[str, ...] | None = None,
+    visible_video: tuple[str, ...] | None = None,
+    visible_voice: tuple[str, ...] | None = None,
 ) -> Config:
     """`backend` opens the page on that backend and makes sure the page offers it.
     `quantize` applies to the backend the page opens with. `visible` offers exactly the
-    backends it names, which is what the flag that shows every model passes in."""
+    backends it names. The video and voice overrides follow the same rule."""
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
     default = backend or raw["default_backend"]
     visible = visible if visible else tuple(raw.get("visible_backends", [default]))
     if default not in visible:
         visible = (default, *visible)
     default_video = raw.get("default_video_backend", "ltx25_mlx")
-    visible_video = tuple(raw.get("visible_video_backends", [default_video]))
+    visible_video = visible_video if visible_video else tuple(raw.get("visible_video_backends", [default_video]))
     if default_video not in visible_video:
         visible_video = (default_video, *visible_video)
     default_voice = raw.get("default_voice_backend", "drama3")
-    visible_voice = tuple(raw.get("visible_voice_backends", ["drama3", "auk_base", "auk"]))
+    visible_voice = visible_voice if visible_voice else tuple(raw.get("visible_voice_backends", [default_voice]))
     if default_voice not in visible_voice:
         visible_voice = (default_voice, *visible_voice)
     sections = {name: _settings(value, path.parent) for name, value in raw.items() if isinstance(value, dict)}

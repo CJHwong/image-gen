@@ -1,17 +1,20 @@
 # The backend the page opens with, and the backends it may offer. The page
 # shows a model picker only when it may offer more than one, so the default is
 # the one model and no picker. `--backend` opens on another one and adds it to
-# the list, and `--all-backends` offers every configured backend, flux2 included.
+# the list, and `--all-backends` enables selection in Image, Video and Voice.
+# Optional models require their weights before generation; startup loads no weights.
 default_backend = "qwen21_turbo"
 visible_backends = ["qwen21_turbo"]
 # Video offers LTX-2.5 only, so its header shows the model name without a picker.
-# LTX-2.3 remains an optional backend; add it here only after restoring its weights.
+# LTX-2.3 remains optional; --all-backends exposes it. Restore its weights before use.
 default_video_backend = "ltx25_mlx"
 visible_video_backends = ["ltx25_mlx"]
 default_voice_backend = "drama3"
-visible_voice_backends = ["drama3", "auk_base", "auk"]
+visible_voice_backends = ["drama3"]
 
 [mlx_video]
+# Image-aware LTX enhancement requires mlx-vlm==0.4.3 in this CLI environment.
+# It reads the first attached keyframe and frees Gemma before video rendering.
 # Auto selects a measured reuse profile by output geometry, length, and physical memory.
 # Auto shares prompt enhancement before eligible video reuse.
 # Enhance_only shares enhancement but creates a fresh video pipeline for each clip.
@@ -44,10 +47,12 @@ rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 
 [qwen21_turbo]
+# Active Generate/Edit/batch work uses a wired limit bounded by MLX and 75% of RAM.
+# The previous process limit is restored while idle; precision is unchanged.
 quantize = 0                              # bf16, for the reason above
 model_dir = "~/Library/Caches/models/qwen-image-2.1-turbo"
 # The checkpoint ships its own eight-node sampling schedule and this backend samples
-# it, so 8 steps is the count rather than a setting. `gateways/qwen21_turbo_schedule.py`
+# it, so 8 steps is the count rather than a setting. `gateways/image/shared/qwen21_turbo_schedule.py`
 # holds the table; the README's "Why it looks like this" says why it is not the default one.
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
@@ -68,13 +73,15 @@ rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 
 [auk]
 # AuK Flash runs its pinned environment in a lazy resident child.
-child_script = "studio/l3_interface_adapters/gateways/auk_voice/auk_child.py"
+child_script = "studio/l3_interface_adapters/gateways/audio/auk_runtime/auk_child.py"
 
 [auk_base]
 # AuK uses the same pinned child and shared encoder, with its 32-step Base weights.
 
 [drama3]
+# The child bounds active wired memory by MLX’s recommendation and 75% of RAM,
+# then restores the prior limit while idle. Sampling and precision are unchanged.
 # Eight-bit Drama-3 in its separate pinned MLX Audio script environment.
-child_script = "studio/l3_interface_adapters/gateways/drama_voice/drama3_child.py"
+child_script = "studio/l3_interface_adapters/gateways/audio/drama3/drama3_child.py"
 # Optional: an existing environment with the exact versions declared by the child.
 # python_path = "~/ltx-experiments/drama3-env/bin/python"

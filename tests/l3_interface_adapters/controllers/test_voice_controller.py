@@ -3,7 +3,7 @@ import base64
 import pytest
 
 from studio.l1_entities.errors import InvalidJob
-from studio.l3_interface_adapters.gateways.auk_voice.capabilities import auk_capabilities
+from studio.l3_interface_adapters.gateways.audio.auk_runtime.capabilities import auk_capabilities
 from tests.support.voice_audio import wav
 
 
@@ -181,7 +181,7 @@ def test_voice_controller_rejects_invalid_model_types(backend):
 @pytest.mark.parametrize("variant", ["flash", "base"])
 def test_design_templates_build_the_voice_without_replacing_the_script(variant):
     from studio.l3_interface_adapters.controllers.voice_controller import voice_job as parse
-    from studio.l3_interface_adapters.gateways.auk_voice.capabilities import DESIGN_TEMPLATES
+    from studio.l3_interface_adapters.gateways.audio.auk_runtime.capabilities import DESIGN_TEMPLATES
 
     caps = auk_capabilities(variant)
     for template in DESIGN_TEMPLATES:
@@ -252,7 +252,7 @@ def test_backend_default_mode_and_required_reference_transcript():
 
 def test_drama_reference_limit_is_checked_before_the_engine():
     from studio.l3_interface_adapters.controllers.voice_controller import voice_job as parse
-    from studio.l3_interface_adapters.gateways.drama_voice.capabilities import drama_capabilities
+    from studio.l3_interface_adapters.gateways.audio.drama3.capabilities import drama_capabilities
 
     with pytest.raises(InvalidJob, match="15 seconds or shorter"):
         parse(

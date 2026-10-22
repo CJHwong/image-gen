@@ -513,6 +513,11 @@ def openapi_document() -> dict[str, Any]:
                                 "active": {"type": "string"},
                                 "backends": {"type": "array", "items": {"$ref": "#/components/schemas/Backend"}},
                                 "capabilities": {"$ref": "#/components/schemas/VideoCapabilities"},
+                                "rewrite_modes": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Video-specific rewrite modes, independent of the Image model.",
+                                },
                             },
                         },
                         "voice": {
@@ -595,10 +600,21 @@ def _video_run(operation_id: str, summary: str) -> dict[str, Any]:
 
 
 def _rewrite(operation_id: str, summary: str, workspace: str) -> dict[str, Any]:
+    description = (
+        "Use LTX's native Gemma 3 prompt enhancer, independently of the Image model. "
+        "The first attached reference is read by Gemma vision tower with native LTX image-to-video instructions. "
+        "Later keyframes remain generator inputs; the enhancer does not read audio. "
+        "Use the returned prompt unchanged in Generate to avoid a second enhancement in this server session. "
+        "Changing the prompt or the first reference image, or adding/removing that reference, runs enhancement again. "
+        "Automatic generation enhancement remains enabled. Rewrite shares the GPU lock and supports cancellation."
+        if workspace == "video"
+        else "Rewrite using the selected Image model's prompt rewriter."
+    )
     return {
         "tags": ["images" if workspace == "image" else "videos"],
         "operationId": operation_id,
         "summary": summary,
+        "description": description,
         "requestBody": {
             "required": True,
             "content": {

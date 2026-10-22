@@ -65,6 +65,7 @@ def test_the_page_carries_the_capabilities():
     edit = studio["modes"][1]
     assert edit["id"] == "edit" and edit["min_references"] == 1 and edit["params"][0]["id"] == "steps"
     assert studio["rewrite_modes"] == []
+    assert studio["batch_limit"] == 16
 
 
 def test_a_name_cannot_end_the_data_script():

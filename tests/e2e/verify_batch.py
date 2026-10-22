@@ -32,8 +32,10 @@ import time
 import urllib.parse
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageStat
+from PIL import ImageChops, ImageStat
 from playwright.sync_api import sync_playwright
+
+from tests.support.image_scene import scene_border
 
 PORT = sys.argv[1]
 OUT = tempfile.mkdtemp(prefix="verify-batch-") + "/"
@@ -120,18 +122,7 @@ def source_numbers(page, folder):
 
 def ring(path):
     """The border strip of a picture, which is its scene and not its subject."""
-    image = Image.open(path).convert("RGB").resize((SIDE, SIDE))
-    band = int(SIDE * RING)
-    strips = [
-        image.crop((0, 0, SIDE, band)),
-        image.crop((0, SIDE - band, SIDE, SIDE)),
-        image.crop((0, 0, band, SIDE)),
-        image.crop((band, 0, SIDE, SIDE)),
-    ]
-    out = Image.new("RGB", (SIDE, band * 4))
-    for index, strip in enumerate(strips):
-        out.paste(strip, (0, band * index))
-    return out
+    return scene_border(path, SIDE, RING)
 
 
 def nearest_source(result, sources):
@@ -200,8 +191,8 @@ def watch(page, posts, bodies):
     page.on(
         "request",
         lambda request: (
-            posts.append(parse_post(request))
-            if request.method == "POST" and request.url.endswith("/generate")
+            posts.append(request.post_data_json if request.url.endswith("/image/operations") else parse_post(request))
+            if request.method == "POST" and request.url.endswith(("/generate", "/image/operations"))
             else None
         ),
     )
@@ -209,7 +200,7 @@ def watch(page, posts, bodies):
         "response",
         lambda response: (
             bodies.append(response)
-            if response.request.method == "POST" and response.url.endswith("/generate")
+            if response.request.method == "POST" and response.url.endswith(("/generate", "/image/operations"))
             else None
         ),
     )
@@ -224,7 +215,11 @@ def requests_of(posts):
     """
     by_index = {}
     for post in posts:
-        by_index["1" if not post.get("index") else post["index"]] = post.get("prompt")
+        if "items" in post:
+            for index, item in enumerate(post["items"], 1):
+                by_index[str(index)] = item["prompt"]
+        else:
+            by_index["1" if not post.get("index") else post["index"]] = post.get("prompt")
     return by_index
 
 
@@ -232,6 +227,20 @@ def write_results(bodies, folder):
     """Every result, written out beside the source it edits, and the references it named."""
     claims = []
     for response in bodies:
+        if response.url.endswith("/image/operations"):
+            operation = response.json()
+            request = response.frame.page.request
+            state = request.get(f"http://127.0.0.1:{PORT}" + operation["status_url"]).json()
+            manifest = request.get(f"http://127.0.0.1:{PORT}" + state["result_url"]).json()
+            payload = response.request.post_data_json
+            for item in manifest["items"]:
+                place = item["index"] - 1
+                references = payload["items"][place]["references"]
+                assert len(references) == 1
+                result = request.get(f"http://127.0.0.1:{PORT}" + item["result_url"]).json()
+                Path(f"{folder}out-ref{place}.png").write_bytes(base64.b64decode(result["images"][0]["png_base64"]))
+                claims.append(str(place))
+            continue
         try:
             text = response.text()
         except Exception as error:
@@ -295,8 +304,8 @@ with sync_playwright() as playwright:
 
     sent = requests_of(posts)
     check(
-        "the batch walked the four references in order",
-        sorted(sent) == ["1", "2", "3", "4"] and len(posts) == 4,
+        "one prepared batch contains the four references in order",
+        sorted(sent) == ["1", "2", "3", "4"] and len(posts) == 1 and len(posts[0]["items"]) == 4,
         f"{len(posts)} requests, images {sorted(sent)}",
     )
     check(

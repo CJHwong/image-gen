@@ -406,7 +406,7 @@ itself used.
 
 #### The edit rows, measured 2026-10-10
 
-The 15 edit options ran on this schedule: six steps, which is the only one its distillation samples, no guidance and no negative prompt because it was trained without CFG, one seed, 768 on the short side, each option beside the bare fixture. The fixtures are the base model's own, regenerated at the same seed, prompts and settings, so the pictures are the same and only the editing model differs from the table above. Each sample went through the page's own path: the adapter unmerged, and the viggle schedule supplied for the length of the edit call, which is what `Qwen21TurboBackendGateway` does. A Retouch option's sentence carries the mark's token, so it was sent with the token replaced by the number of the image holding the mask, which is what the page does.
+The 15 edit options ran on this schedule: six steps, which is the only one its distillation samples, no guidance and no negative prompt because it was trained without CFG, one seed, 768 on the short side, each option beside the bare fixture. The fixtures are the base model's own, regenerated at the same seed, prompts and settings, so the pictures are the same and only the editing model differs from the table above. Each sample went through the page's own path: the adapter unmerged, and the viggle schedule supplied for the length of the edit call, which is what `ViggleTurboBackendGateway` does. A Retouch option's sentence carries the mark's token, so it was sent with the token replaced by the number of the image holding the mask, which is what the page does.
 
 | Row | Option | Verdict | What the panel showed |
 |---|---|---|---|
@@ -471,7 +471,7 @@ mode with a negative prompt would send it.
 
 The generate cost was checked twice on 2026-10-06, and both checks were wrong. The first,
 at about 01:00, read 8.0s, 27.8s and 68.7s, and the constant in
-`gateways/viggle/capabilities.py` was replaced on that evidence. The Look sample above
+`gateways/image/viggle_turbo/capabilities.py` was replaced on that evidence. The Look sample above
 ran at about 21s an image at 768 x 768 on 2026-10-05, which agreed with it.
 
 Measured again on 2026-10-06 at 11:25, GPU free, one job at a time, two passes of six
@@ -1240,5 +1240,3 @@ LTX-2.3 keeps its existing templates. Tests reproduce the exact measured prompts
 The supplied audio correlates at 0.999686 with the padded input, with zero sample lag at 16 kHz mono.
 This proves audio preservation, not exact lip alignment. No phoneme alignment score was measured.
 Each prompt has one seed, so these results do not establish reliability across seeds.
-The full prompts, clips, contacts, and manifest are in
-[the experiment report](../../../reports/ltx25-prompt-probes-2026-10-20/README.md).

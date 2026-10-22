@@ -172,7 +172,7 @@ def test_the_full_precision_flag_reaches_the_settings_file(tmp_path, monkeypatch
     until 2026-10-19, which made two documented commands fail at argparse."""
     seen = {}
 
-    def fake_load_config(path, backend=None, quantize=None, visible=None):
+    def fake_load_config(path, backend=None, quantize=None, visible=None, visible_video=None, visible_voice=None):
         seen["quantize"] = quantize
         raise SystemExit(0)
 
@@ -191,8 +191,10 @@ def test_the_all_backends_flag_offers_every_model_the_studio_can_build(tmp_path,
     the registry's own list, so a backend added later is offered by the same flag."""
     seen = {}
 
-    def fake_load_config(path, backend=None, quantize=None, visible=None):
+    def fake_load_config(path, backend=None, quantize=None, visible=None, visible_video=None, visible_voice=None):
         seen["visible"] = visible
+        seen["visible_video"] = visible_video
+        seen["visible_voice"] = visible_voice
         raise SystemExit(0)
 
     monkeypatch.setattr(entry, "load_config", fake_load_config)
@@ -203,13 +205,17 @@ def test_the_all_backends_flag_offers_every_model_the_studio_can_build(tmp_path,
 
     assert seen["visible"] == tuple(entry.BACKENDS)
     assert "flux2" in seen["visible"]
+    assert seen["visible_video"] == tuple(entry.VIDEO_BACKENDS)
+    assert seen["visible_voice"] == tuple(entry.VOICE_BACKENDS)
 
 
 def test_without_the_flag_the_settings_file_decides_what_is_offered(tmp_path, monkeypatch):
     seen = {}
 
-    def fake_load_config(path, backend=None, quantize=None, visible=None):
+    def fake_load_config(path, backend=None, quantize=None, visible=None, visible_video=None, visible_voice=None):
         seen["visible"] = visible
+        seen["visible_video"] = visible_video
+        seen["visible_voice"] = visible_voice
         raise SystemExit(0)
 
     monkeypatch.setattr(entry, "load_config", fake_load_config)
@@ -219,6 +225,8 @@ def test_without_the_flag_the_settings_file_decides_what_is_offered(tmp_path, mo
         entry.main()
 
     assert seen["visible"] is None
+    assert seen["visible_video"] is None
+    assert seen["visible_voice"] is None
 
 
 def test_a_named_list_of_backends_is_what_the_page_offers(tmp_path):

@@ -97,8 +97,10 @@ class RewritePromptUseCase:
         *,
         engine_lock: threading.Lock,
         residency: ModelResidencyGateway,
+        video_rewriter: PromptRewriterGateway | None = None,
     ):
         self._rewriter = rewriter
+        self._video_rewriter = video_rewriter
         self._catalog = catalog
         self._progress = progress
         self._clock = clock
@@ -106,9 +108,14 @@ class RewritePromptUseCase:
         self._residency = residency
 
     def execute(self, request: RewriteRequest) -> RewriteResponse:
+        rewriter = (
+            self._video_rewriter
+            if request.workspace == "video" and self._video_rewriter is not None
+            else self._rewriter
+        )
         if not request.prompt.strip():
             raise InvalidJob("Write something to rewrite first.")
-        if request.mode not in self._rewriter.modes():
+        if request.mode not in rewriter.modes():
             raise InvalidJob(f"This backend rewrites no {request.mode} prompt.")
         if not self._engine_lock.acquire(blocking=False):
             raise BackendBusy("The model is busy with a run in another tab. Wait for it, or cancel it there.")
@@ -122,7 +129,7 @@ class RewritePromptUseCase:
             self._progress.begin()
             progress_started = True
             try:
-                rewrite = self._rewriter.rewrite(
+                rewrite = rewriter.rewrite(
                     request.prompt,
                     request.mode,
                     request.references,
@@ -148,6 +155,6 @@ class RewritePromptUseCase:
             try:
                 if progress_started:
                     self._progress.finish()
-                self._rewriter.release()
+                rewriter.release()
             finally:
                 self._engine_lock.release()

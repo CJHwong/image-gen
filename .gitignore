@@ -15,3 +15,6 @@ collected/
 # The Playwright CLI's own scratch: console logs, page snapshots and downloads
 # from instrument runs. Nothing here is part of the studio.
 .playwright-cli/
+
+# Local experiment evidence and benchmark artifacts
+/reports/

@@ -113,7 +113,9 @@ GUIDANCE = {
         "Prefer startOperation with kind=video and mode=generate for long renders. "
         "Inspect Generate templates for camera moves, composition, dialogue, and sound before constructing a prompt. "
         "Use an exact capabilities shape/frame grid; output duration is num_frames/frame_rate. "
-        "The generation pipeline always enhances the prompt before encoding it; this is independent of Rewrite. "
+        "The generation pipeline enhances the prompt before encoding it; unchanged Rewrite output with the same "
+        "first reference image skips duplicate enhancement in this server session. Image-aware enhancement reads only "
+        "the first attached keyframe; later keyframes and audio remain generator inputs. "
         "Put bare base64 bytes in references/audio, never local paths or example placeholders. "
         "Return media is MP4, not JSON, except on the stub server."
     ),
@@ -133,7 +135,11 @@ GUIDANCE = {
     "rewriteVideoPrompt": (
         "Use this to expand a rough scene description before rendering a video. Send prompt and optional image "
         "references; use the returned text in a separate Generate request. This does not render media and uses "
-        "the shared model slot. Inspect camera/dialogue templates first for a known composition. "
+        "the shared model slot. The native LTX Gemma enhancer reads the first reference image through its vision tower; "
+        "later keyframes remain generator inputs and audio is not read by the enhancer. "
+        "Reuse the returned prompt unchanged with the same first reference image to skip duplicate enhancement in this "
+        "server session. Changing the prompt or first reference image, or adding/removing it, enhances again. "
+        "Inspect camera/dialogue templates first for a known composition. "
         "Use kind=rewrite and workspace=video on startOperation to keep rewriting asynchronous."
     ),
     "generateVoice": (

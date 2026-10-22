@@ -15,15 +15,12 @@ from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
 from studio.l2_use_cases.run_image_use_case import NextRun, RunImageResponse
 from studio.l3_interface_adapters.api.json_api import (
     BATCH_LIMIT,
-    JsonApi,
-    form_value,
-    image_form,
-    next_form,
-    reference_text,
 )
+from studio.l3_interface_adapters.api.request_mapper import next_form
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
+from tests.support.api import api_for
 from tests.support.fakes import fake_capabilities
 
 
@@ -125,55 +122,9 @@ def batch_of(total, each_reference=False, mask=False):
     return FakeController(run=run)
 
 
-def test_a_body_becomes_the_form_the_page_posts():
-    form = image_form(
-        {
-            "prompt": "a pear",
-            "size": "512x512",
-            "seed": 7,
-            "guidance": 2.5,
-            "enhance": True,
-            "each_reference": False,
-            "nothing": None,
-            "references": ["abc", {"png_base64": "data:image/png;base64,def"}],
-        },
-        "edit",
-    )
-
-    assert form["mode"] == "edit"
-    assert form["prompt"] == "a pear"
-    assert form["size"] == "512x512"
-    assert form["seed"] == "7"
-    assert form["guidance"] == "2.5"
-    assert form["enhance"] == "1"
-    assert form["each_reference"] == ""
-    assert "nothing" not in form
-    assert form["references"] == '["abc", "def"]'
-
-
-def test_a_reference_may_come_with_the_prefix_a_browser_hands_back():
-    assert reference_text("data:image/png;base64,QUJD") == "QUJD"
-    assert reference_text("data:image/jpeg;base64, QUJD ") == "QUJD"
-    assert reference_text({"png_base64": "QUJD"}) == "QUJD"
-    assert reference_text({"data": "QUJD"}) == "QUJD"
-
-
-@pytest.mark.parametrize("bad", [{}, {"png_base64": ""}, 7, None, {"data": "  "}])
-def test_a_reference_that_is_not_a_string_is_refused(bad):
-    with pytest.raises(InvalidJob, match="base64 string"):
-        reference_text(bad)
-
-
-def test_a_value_of_no_scalar_kind_is_refused():
-    with pytest.raises(InvalidJob, match="must be a string"):
-        form_value("prompt", {"not": "a string"})
-    with pytest.raises(InvalidJob, match="array of base64 strings"):
-        image_form({"references": "QUJD"}, "generate")
-
-
 def test_the_batch_is_followed_to_its_end_and_answered_whole():
     controller = batch_of(3, each_reference=True, mask=True)
-    answer = JsonApi(controller).image_run({"prompt": "a pear", "count": 3}, "generate")
+    answer = api_for(controller).image_run({"prompt": "a pear", "count": 3}, "generate")
 
     assert len(answer["images"]) == 3
     assert all(image["completed_at"] > 0 for image in answer["images"])
@@ -192,12 +143,12 @@ def test_a_batch_that_never_ends_is_refused_at_the_limit():
     controller = batch_of(BATCH_LIMIT + 5)
 
     with pytest.raises(InvalidJob, match=f"at most {BATCH_LIMIT}"):
-        JsonApi(controller).image_run({"prompt": "a pear"}, "generate")
+        api_for(controller).image_run({"prompt": "a pear"}, "generate")
 
 
 def test_a_rewrite_answers_the_longer_words_and_refuses_a_stop_as_data():
     controller = FakeController()
-    api = JsonApi(controller)
+    api = api_for(controller)
 
     assert api.image_rewrite({"prompt": "pear"}) == {"prompt": "longer words", "size": "1024x1024", "elapsed": 1.2}
     assert controller.forms[-1]["workspace"] == "image"
@@ -209,7 +160,7 @@ def test_a_rewrite_answers_the_longer_words_and_refuses_a_stop_as_data():
 
 
 def test_progress_is_the_page_fields_as_data():
-    assert JsonApi(FakeController()).progress() == {
+    assert api_for(FakeController()).progress() == {
         "running": True,
         "stage": "running",
         "step": 2,
@@ -229,7 +180,7 @@ def test_the_studio_document_names_models_and_capabilities():
         rewrite_modes=("generate",),
         active_video=None,
     )
-    document = JsonApi(FakeController(view=view)).studio()
+    document = api_for(FakeController(view=view)).studio()
 
     assert document["image"]["active"] == "fake"
     assert document["image"]["backends"] == [{"id": "fake", "name": "Fake", "description": ""}]
@@ -245,7 +196,7 @@ def test_the_studio_document_carries_the_video_model_when_there_is_one():
         active_video=fake_video_capabilities(),
         video_backends=(("video-fake", "Video fake", ""),),
     )
-    video = JsonApi(FakeController(view=view)).studio()["video"]
+    video = api_for(FakeController(view=view)).studio()["video"]
 
     assert video["active"] == "video-fake"
     assert video["backends"] == [{"id": "video-fake", "name": "Video fake", "description": ""}]
@@ -255,7 +206,7 @@ def test_the_studio_document_carries_the_video_model_when_there_is_one():
 
 def test_a_video_run_carries_the_mode_the_route_names():
     video = FakeVideo()
-    api = JsonApi(FakeController(), video)
+    api = api_for(FakeController(), video)
 
     result = api.video_run({"prompt": "a clip", "mode": "edit"}, "generate")
 
@@ -265,38 +216,12 @@ def test_a_video_run_carries_the_mode_the_route_names():
 
 
 def test_a_studio_without_a_video_model_refuses_a_video_call():
-    api = JsonApi(FakeController())
+    api = api_for(FakeController())
 
     with pytest.raises(StudioError, match="not configured"):
         api.video_run({"prompt": "a clip"}, "generate")
     with pytest.raises(StudioError, match="not configured"):
         api.cancel_video({"request_id": "r"})
-
-
-def test_next_form_carries_every_field_the_page_posts():
-    form = next_form(
-        NextRun(
-            mode="edit",
-            prompt="p",
-            seed=5,
-            options={"size": "512x512"},
-            total=2,
-            index=2,
-            reference_token="t",
-            backend="fake",
-        )
-    )
-
-    assert form == {
-        "size": "512x512",
-        "mode": "edit",
-        "prompt": "p",
-        "seed": "5",
-        "total": "2",
-        "index": "2",
-        "reference_token": "t",
-        "backend": "fake",
-    }
 
 
 def fake_video_capabilities() -> VideoCapabilities:
@@ -332,11 +257,11 @@ def test_a_video_run_that_names_no_request_gets_one():
     but the controller needs one to tell two renders apart."""
     video = FakeVideo()
 
-    JsonApi(FakeController(), video).video_run({"prompt": "a clip"}, "generate")
+    api_for(FakeController(), video).video_run({"prompt": "a clip"}, "generate")
     named = video.payloads[-1]["request_id"]
 
     assert isinstance(named, str) and len(named) == 32
-    JsonApi(FakeController(), video).video_run({"prompt": "a clip", "request_id": "mine"}, "generate")
+    api_for(FakeController(), video).video_run({"prompt": "a clip", "request_id": "mine"}, "generate")
     assert video.payloads[-1]["request_id"] == "mine"
 
 
@@ -345,7 +270,7 @@ def test_a_video_stop_without_an_id_stops_the_render_in_flight():
     controller = FakeController(state=RunProgress(running=True, request_id="r-1"))
     video = FakeVideo()
 
-    assert JsonApi(controller, video).cancel_video({}) is True
+    assert api_for(controller, video).cancel_video({}) is True
     assert video.payloads[-1] == {"request_id": "r-1"}
 
 
@@ -353,11 +278,11 @@ def test_a_video_stop_with_nothing_in_flight_says_so():
     video = FakeVideo()
 
     with pytest.raises(InvalidJob, match="No video render"):
-        JsonApi(FakeController(), video).cancel_video({})
+        api_for(FakeController(), video).cancel_video({})
 
 
 def test_operations_record_synchronous_runs_without_reference_bytes():
-    api = JsonApi(FakeController(run=lambda _: response()))
+    api = api_for(FakeController(run=lambda _: response()))
     api.image_run({"prompt": "pear", "references": [], "client_id": "tab"}, "generate")
     state = api.state()
     operation = state["operations"][0]
@@ -379,13 +304,13 @@ def test_operations_record_synchronous_runs_without_reference_bytes():
 )
 def test_operations_refuse_invalid_envelopes(payload, message):
     with pytest.raises(InvalidJob, match=message):
-        JsonApi(FakeController()).reserve(payload)
+        api_for(FakeController()).reserve(payload)
 
 
 def test_reserved_operations_reject_other_runs_and_can_stop_before_start():
     from studio.l1_entities.errors import BackendBusy, Cancelled
 
-    api = JsonApi(FakeController())
+    api = api_for(FakeController())
     operation = api.reserve({"kind": "image"})
     assert api.state()["active"]["progress"]["running"]
     with pytest.raises(BackendBusy):
@@ -401,7 +326,7 @@ def test_async_video_and_rewrite_use_original_controller_paths(monkeypatch):
 
     controller = FakeController()
     monkeypatch.setattr(controller, "rewrite_state", lambda: RewriteProgress(running=True, stage="writing"))
-    api = JsonApi(controller, FakeVideo())
+    api = api_for(controller, FakeVideo())
     video = api.reserve({"kind": "video"})
     api.execute_operation(video, {"kind": "video", "prompt": "clip"})
     assert api.operation_result(video["id"]).mp4 == b"mp4"
@@ -422,7 +347,7 @@ def test_json_model_selection_and_release_follow_controllers(monkeypatch):
     monkeypatch.setattr(controller, "switch", lambda form: switched.append(("image", form)))
     monkeypatch.setattr(controller, "release_model", lambda: switched.append("release"))
     monkeypatch.setattr(video, "switch", lambda form: switched.append(("video", form)))
-    api = JsonApi(controller, video)
+    api = api_for(controller, video)
     with pytest.raises(InvalidJob, match="backend"):
         api.switch_backend({}, "image")
     api.switch_backend({"backend": "fake"}, "image")
@@ -434,7 +359,7 @@ def test_json_model_selection_and_release_follow_controllers(monkeypatch):
 def test_targeted_video_cancel_does_not_cancel_another_kind():
     controller = FakeController(state=RunProgress(running=True, kind="video", request_id="render"))
     video = FakeVideo()
-    api = JsonApi(controller, video)
+    api = api_for(controller, video)
     operation = api.reserve({"kind": "video"})
     api.cancel_operation(operation["id"])
     assert video.payloads == []
@@ -443,7 +368,7 @@ def test_targeted_video_cancel_does_not_cancel_another_kind():
 def test_reserved_video_cancellation_survives_before_progress_begins():
     from studio.l1_entities.errors import Cancelled
 
-    api = JsonApi(FakeController(state=RunProgress()), FakeVideo())
+    api = api_for(FakeController(state=RunProgress()), FakeVideo())
     operation = api.reserve({"kind": "video"})
     assert not api.cancellation_requested()
     api.cancel_operation(operation["id"])
@@ -456,7 +381,7 @@ def test_reserved_video_cancellation_survives_before_progress_begins():
 def test_native_batch_owns_one_operation_and_retains_each_image():
     from studio.l1_entities.errors import BackendBusy
 
-    api = JsonApi(batch_of(2))
+    api = api_for(batch_of(2))
     first, operation = api.image_form_run({"prompt": "pear", "count": "2", "client_id": "tab"})
     assert first.next_run is not None
     assert first.next_run.options["operation_id"] == operation["id"]
@@ -474,7 +399,7 @@ def test_native_batch_owns_one_operation_and_retains_each_image():
 def test_native_batch_cancel_between_requests_keeps_partial_output():
     from studio.l1_entities.errors import BackendBusy
 
-    api = JsonApi(batch_of(2))
+    api = api_for(batch_of(2))
     first, operation = api.image_form_run({"prompt": "pear", "count": "2", "client_id": "tab"})
     api.cancel_operation(operation["id"])
     assert first.next_run is not None
@@ -486,7 +411,7 @@ def test_native_batch_cancel_between_requests_keeps_partial_output():
 
 
 def test_native_batch_refuses_invalid_index_and_records_engine_failure():
-    api = JsonApi(FakeController(run=lambda _: (_ for _ in ()).throw(ValueError("failed"))))
+    api = api_for(FakeController(run=lambda _: (_ for _ in ()).throw(ValueError("failed"))))
     with pytest.raises(ValueError):
         api.image_form_run({"prompt": "pear"})
     assert api.state()["operations"][0]["status"] == "failed"
@@ -502,7 +427,7 @@ def test_api_batch_retains_completed_images_after_a_later_failure():
             raise Cancelled("stopped")
         return response(next_run=NextRun("generate", "pear", 2, {}, 2, 2, "", "fake"))
 
-    api = JsonApi(FakeController(run=run))
+    api = api_for(FakeController(run=run))
     with pytest.raises(Cancelled):
         api.image_run({"prompt": "pear", "count": 2}, "generate")
     operation = api.state()["operations"][0]
@@ -511,7 +436,7 @@ def test_api_batch_retains_completed_images_after_a_later_failure():
 
 
 def test_generic_image_cancel_targets_a_paused_batch():
-    api = JsonApi(batch_of(2))
+    api = api_for(batch_of(2))
     _, operation = api.image_form_run({"prompt": "pear", "count": "2"})
     api.cancel_image()
     assert api.state()["active"] is None
@@ -519,7 +444,7 @@ def test_generic_image_cancel_targets_a_paused_batch():
 
 
 def test_generic_rewrite_cancel_targets_its_operation():
-    api = JsonApi(FakeController())
+    api = api_for(FakeController())
     operation = api.reserve({"kind": "rewrite"})
     api.cancel_rewrite()
     assert api.cancellation_requested()
@@ -545,7 +470,7 @@ def test_structured_image_looks_and_templates_use_the_requested_capabilities(mon
     switched = []
     monkeypatch.setattr(controller, "switch", switched.append)
     controller.capabilities = lambda backend: requested.append(backend) or capabilities
-    api = JsonApi(controller)
+    api = api_for(controller)
     api.image_run(
         {
             "backend": "chosen",
@@ -573,7 +498,7 @@ def test_per_reference_prompts_follow_the_whole_batch():
     original = controller.page().active
     capabilities = replace(original, modes=(replace(original.mode("generate"), each_reference=True),))
     controller.capabilities = lambda backend: capabilities
-    JsonApi(controller).image_run(
+    api_for(controller).image_run(
         {
             "prompt": "Change the wall",
             "references": ["a", "b"],
@@ -606,7 +531,7 @@ def test_video_prompt_aids_follow_its_mode_and_templates(monkeypatch):
     )
     video = FakeVideo()
     monkeypatch.setattr(video, "capabilities", lambda backend: capabilities)
-    api = JsonApi(FakeController(), video)
+    api = api_for(FakeController(), video)
     api.video_run(
         {"template": "Scene", "template_values": {"subject": "teapot"}, "looks": {"Camera": "Fixed"}}, "generate"
     )
@@ -642,7 +567,7 @@ def test_image_operation_cancel_preserves_guarded_escalation():
     from studio.l1_entities.errors import BackendBusy
 
     controller = FakeController()
-    api = JsonApi(controller)
+    api = api_for(controller)
     operation = api.reserve({"kind": "image"})
     api.cancel_operation(operation["id"])
     identity, active, guard = controller.watches[0]
@@ -666,7 +591,7 @@ def test_model_switch_and_release_cannot_race_an_operation_reservation(monkeypat
     from studio.l1_entities.errors import BackendBusy
 
     controller = FakeController()
-    api = JsonApi(controller)
+    api = api_for(controller)
     calls = []
 
     def control(*arguments):
@@ -684,7 +609,7 @@ def test_model_switch_and_release_cannot_race_an_operation_reservation(monkeypat
 
 class FakeVoice(VoiceController):
     def __init__(self):
-        from studio.l3_interface_adapters.gateways.auk_voice.capabilities import auk_capabilities
+        from studio.l3_interface_adapters.gateways.audio.auk_runtime.capabilities import auk_capabilities
 
         self._catalog = None
         self._switch = None
@@ -708,7 +633,7 @@ class FakeVoice(VoiceController):
 
 def test_voice_operation_discovery_and_retained_audio():
     voice = FakeVoice()
-    api = JsonApi(FakeController(), voice=voice)
+    api = api_for(FakeController(), voice=voice)
     assert api.studio()["voice"]["active"] == "auk"
     assert api.voice_capabilities()["name"] == "AuK Flash"
     operation = api.reserve({"kind": "voice", "text": "Hello", "voice": "warm"})
@@ -721,7 +646,7 @@ def test_voice_operation_discovery_and_retained_audio():
 
 
 def test_voice_is_optional():
-    api = JsonApi(FakeController())
+    api = api_for(FakeController())
     with pytest.raises(StudioError, match="Voice generation"):
         api.voice_capabilities()
 
@@ -740,7 +665,7 @@ def test_explicit_batches_keep_each_result(kind):
             completed(index, result)
 
     controller = batch_of(1)
-    api = JsonApi(controller, cast(VideoController, SimpleNamespace(run_batch=run_batch)), FakeVoice())
+    api = api_for(controller, cast(VideoController, SimpleNamespace(run_batch=run_batch)), FakeVoice())
     payload = {"kind": kind, "items": [{"prompt": "one", "text": "one"}, {"prompt": "two", "text": "two"}]}
     operation = api.reserve(payload)
     assert operation["batch_total"] == 2
@@ -771,7 +696,7 @@ def test_batch_keeps_earlier_items_when_a_later_image_fails():
             raise InvalidJob("the second item failed")
         return response()
 
-    api = JsonApi(FakeController(run=run))
+    api = api_for(FakeController(run=run))
     payload = {"kind": "image", "items": [{"prompt": "one"}, {"prompt": "two"}]}
     operation = api.reserve(payload)
     with pytest.raises(InvalidJob, match="second item"):
@@ -788,7 +713,7 @@ def test_readonly_backend_capabilities_do_not_switch_models(monkeypatch):
 
     controller = FakeController()
     monkeypatch.setattr(controller, "capabilities", lambda backend_id: fake_capabilities())
-    api = JsonApi(
+    api = api_for(
         controller, cast(VideoController, SimpleNamespace(capabilities=lambda backend_id: fake_video_capabilities()))
     )
     assert api.backend_capabilities("image", "fake")["backend_id"] == "fake"
@@ -803,13 +728,13 @@ def test_readonly_backend_capabilities_do_not_switch_models(monkeypatch):
 
 
 def test_operation_workspace_must_match_its_media_kind():
-    api = JsonApi(FakeController())
+    api = api_for(FakeController())
     with pytest.raises(InvalidJob, match="workspace must match"):
         api.reserve({"kind": "voice", "workspace": "video"})
 
 
 def test_batch_progress_accounts_for_completed_items():
-    api = JsonApi(FakeController())
+    api = api_for(FakeController())
     operation = api.reserve({"kind": "image"})
     api._operations.batch_started(operation["id"], 2, 4)
     progress = api.operation(operation["id"])["progress"]
@@ -826,7 +751,7 @@ def test_voice_batch_progress_never_repeats_a_finished_take_on_the_next_index(mo
 
     from studio.l1_entities.voice_job import SpeechResult
     from studio.l2_use_cases.run_voice_use_case import RunVoiceUseCase
-    from studio.l3_interface_adapters.gateways.auk_voice.capabilities import auk_capabilities
+    from studio.l3_interface_adapters.gateways.audio.auk_runtime.capabilities import auk_capabilities
     from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
 
     progress = InMemoryProgressGateway()
@@ -834,7 +759,7 @@ def test_voice_batch_progress_never_repeats_a_finished_take_on_the_next_index(mo
     use_case = RunVoiceUseCase(backend, progress, threading.Lock(), Mock())
     controller = FakeController()
     monkeypatch.setattr(controller, "progress", progress.snapshot)
-    api = JsonApi(controller, voice=VoiceController(use_case, auk_capabilities("flash")))
+    api = api_for(controller, voice=VoiceController(use_case, auk_capabilities("flash")))
     payload = {"kind": "voice", "voice": "A clear calm narrator.", "items": [{"text": "One."}, {"text": "Two."}]}
     operation = api.reserve(payload)
     fractions = []
@@ -865,13 +790,13 @@ def test_voice_batch_progress_never_repeats_a_finished_take_on_the_next_index(mo
 
 
 def test_explicit_backend_must_be_text():
-    api = JsonApi(FakeController())
+    api = api_for(FakeController())
     with pytest.raises(InvalidJob, match="backend must be a model id"):
         api.image_run({"backend": 5, "prompt": "pear"}, "generate")
 
 
 def test_optional_video_catalog_does_not_force_an_unavailable_switch():
-    api = JsonApi(FakeController(), FakeVideo())
+    api = api_for(FakeController(), FakeVideo())
     api._select_requested_backend("video", {"backend": "video-fake"})
 
 
@@ -880,7 +805,7 @@ def test_native_image_batch_shared_progress_keeps_completed_fraction(each_refere
     from dataclasses import replace
 
     controller = batch_of(4, each_reference=each_reference)
-    api = JsonApi(controller)
+    api = api_for(controller)
     snapshots = []
     original_run = controller._runner
 
@@ -920,14 +845,14 @@ def test_native_image_batch_shared_progress_keeps_completed_fraction(each_refere
 @pytest.mark.parametrize("label", ["", "1 image", "1 of 1", "0 of 4", "5 of 4", "2 of 0", "two of 4", "2 of 4 extra"])
 def test_native_image_progress_ignores_non_batch_labels(label):
     controller = FakeController(state=RunProgress(running=True, step=2, total=8, label=label))
-    api = JsonApi(controller)
+    api = api_for(controller)
     operation = api.reserve({"kind": "image"}, source="ui")
     assert api.operation(operation["id"])["progress"] == api.progress()
 
 
 def test_stopping_native_image_batch_keeps_completed_fraction():
     controller = FakeController(state=RunProgress(running=True, step=0, total=0, label="2 of 4", stopping=True))
-    api = JsonApi(controller)
+    api = api_for(controller)
     operation = api.reserve({"kind": "image"}, source="ui")
     api.cancel_operation(operation["id"])
     shared = api.operation(operation["id"])
@@ -939,7 +864,7 @@ def test_stopping_native_image_batch_keeps_completed_fraction():
 @pytest.mark.parametrize("kind,source", [("image", "api"), ("video", "ui"), ("rewrite", "ui")])
 def test_native_image_progress_label_does_not_change_other_operations(kind, source, monkeypatch):
     controller = FakeController(state=RunProgress(running=True, step=2, total=8, label="2 of 4"))
-    api = JsonApi(controller)
+    api = api_for(controller)
     operation = api.reserve({"kind": kind}, source=source)
     monkeypatch.setattr(api, "rewrite_state", lambda: {"stage": "writing"})
     expected = api.rewrite_state() if kind == "rewrite" else api.progress()
@@ -949,9 +874,9 @@ def test_native_image_progress_label_does_not_change_other_operations(kind, sour
 def test_omitted_voice_mode_uses_the_active_backend_default():
     from unittest.mock import Mock
 
-    from studio.l3_interface_adapters.gateways.drama_voice.capabilities import drama_capabilities
+    from studio.l3_interface_adapters.gateways.audio.drama3.capabilities import drama_capabilities
 
     voice = VoiceController(Mock(), drama_capabilities())
-    api = JsonApi(FakeController(), voice=voice)
+    api = api_for(FakeController(), voice=voice)
     operation = api.reserve({"kind": "voice", "text": "Hello"})
     assert operation["mode"] == "generate" and operation["backend"] == "drama3"

@@ -31,8 +31,8 @@ export function mount(canvas, edge, number) {
   canvas.append(card);
 }
 
-// Exposure only grows with a sweep. A drop, at the next image of a batch or a
-// new run, jumps back to the left edge at once.
+// Exposure grows across the whole operation. A new run can reset the plate,
+// which jumps back to the left edge without sweeping backward.
 function paint(plate, running, percent) {
   const rewind = percent < (parseFloat(plate.style.getPropertyValue('--exposed')) || 0);
   plate.classList.toggle('rewind', rewind);

@@ -12,8 +12,8 @@ from jsonschema import Draft202012Validator
 from studio.l1_entities.errors import InvalidJob, UnsupportedMode
 from studio.l3_interface_adapters.api.openapi import openapi_document
 from studio.l3_interface_adapters.controllers.voice_controller import voice_job
-from studio.l3_interface_adapters.gateways.auk_voice.capabilities import auk_capabilities
-from studio.l3_interface_adapters.gateways.drama_voice.capabilities import drama_capabilities
+from studio.l3_interface_adapters.gateways.audio.auk_runtime.capabilities import auk_capabilities
+from studio.l3_interface_adapters.gateways.audio.drama3.capabilities import drama_capabilities
 
 schema = openapi_document()["components"]["schemas"]["VoiceRequest"]
 Draft202012Validator.check_schema(schema)

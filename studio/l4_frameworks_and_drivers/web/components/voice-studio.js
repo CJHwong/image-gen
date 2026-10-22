@@ -202,6 +202,15 @@ class VoiceStudio extends LitElement {
     if (this.needsReference && !this.reference) return 'Add a reference recording';
     if (this.referenceLimitReason) return this.referenceLimitReason;
     if (this.hasParam('ref_text') && !this.reference?.transcript?.trim()) return 'Transcribe the reference recording';
+    for (const param of this.currentMode?.params || []) {
+      if (param.kind !== 'number') continue;
+      const value = this.engineOptions[param.id] ?? param.default;
+      if (!Number.isFinite(value) || (param.minimum != null && value < param.minimum)
+          || (param.maximum != null && value > param.maximum) || (param.integer && !Number.isInteger(value))) {
+        const label = param.id === 'max_tokens' ? 'Audio token limit' : param.id.replaceAll('_', ' ');
+        return label + ' must be between ' + param.minimum + ' and ' + param.maximum;
+      }
+    }
     if (!this.templateComplete) return 'Fill the template fields';
     if (this.mode === 'design' && !this.voice.trim()) {
       return this.script.trim() ? 'Choose a voice template or write your own' : 'Add a script and choose a voice template';
@@ -908,7 +917,7 @@ class VoiceStudio extends LitElement {
               <input id=${'voice-param-' + param.id} type="number" min=${param.minimum ?? nothing} max=${param.maximum ?? nothing}
                 step=${param.step || (param.integer ? 1 : 0.1)} .value=${String(this.engineOptions[param.id] ?? param.default)} ?disabled=${this.locked}
                 @input=${event => { this.engineOptions = {...this.engineOptions, [param.id]: Number(event.target.value)}; this.persist(true); }}>
-              <span class="caption">${param.id === 'max_tokens' ? 'Safety limit per script chunk. Higher values allow longer output but may prolong repetition.' : param.hint}</span></label>`)}
+              <span class="caption">${param.id === 'max_tokens' ? '64–2048 audio frames per script chunk. Higher values may prolong repetition.' : param.hint}</span></label>`)}
             ${this.capabilities.loading?.note ? html`<p class="caption voice-note">${this.capabilities.loading.note}</p>` : nothing}
           </div>
         </details>

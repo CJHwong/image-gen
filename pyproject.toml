@@ -7,7 +7,7 @@ dependencies = [
     # The mflux 0.21.0 release, tag v.0.21.0. It carries the qwen21 text-to-image
     # port, the instruction-edit variant with the vision tower, the viggle_turbo
     # scheduler, and LoRA loading. The edit variant is why there is no diffusers
-    # child any more: see gateways/qwen21/PORTABILITY.md.
+    # child any more: see gateways/image/qwen21/PORTABILITY.md.
     "mflux @ git+https://github.com/mflux-community/mflux@f63b4f0f00c8dba5de94f478c9e4be62dbc70ddc",
     "huggingface-hub",
     "pillow",
@@ -48,8 +48,8 @@ ignore = ["E501"]
 [tool.ty.src]
 exclude = [
     "tests/e2e/verify_*.py",
-    "studio/l3_interface_adapters/gateways/auk_voice/auk_child.py",
-    "studio/l3_interface_adapters/gateways/drama_voice/drama3_child.py",
+    "studio/l3_interface_adapters/gateways/audio/auk_runtime/auk_child.py",
+    "studio/l3_interface_adapters/gateways/audio/drama3/drama3_child.py",
 ]
 
 # Branch coverage as well as statement coverage. A statement can run while one side

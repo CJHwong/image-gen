@@ -14,6 +14,7 @@ class StudioView:
     rewrite_modes: tuple[str, ...] = ()  # the modes a prompt rewriter serves, empty when there is none
     active_video: VideoCapabilities | None = None
     video_backends: tuple[tuple[str, str, str], ...] = ()
+    video_rewrite_modes: tuple[str, ...] = ()
 
 
 class DescribeStudioUseCase:
@@ -24,10 +25,12 @@ class DescribeStudioUseCase:
         catalog: BackendCatalogGateway,
         rewriter: PromptRewriterGateway,
         video_catalog: VideoBackendCatalogGateway | None = None,
+        video_rewriter: PromptRewriterGateway | None = None,
     ):
         self._catalog = catalog
         self._rewriter = rewriter
         self._video_catalog = video_catalog
+        self._video_rewriter = video_rewriter
 
     def capabilities(self, backend_id: str) -> Capabilities:
         return self._catalog.get(backend_id).capabilities()
@@ -52,6 +55,7 @@ class DescribeStudioUseCase:
             rewrite_modes=self._rewriter.modes(),
             active_video=active_video,
             video_backends=video_backends,
+            video_rewrite_modes=self._video_rewriter.modes() if self._video_rewriter else (),
         )
 
     def _offered(self, backend_id: str) -> tuple[str, str, str]:

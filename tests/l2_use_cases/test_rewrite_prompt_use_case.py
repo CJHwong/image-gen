@@ -333,3 +333,16 @@ def test_a_rewrite_releases_its_lock_if_it_cannot_release_the_previous_model():
     assert progress.stages == [] and rewriter.releases == 1
     assert runner._engine_lock.acquire(blocking=False)
     runner._engine_lock.release()
+
+
+def test_video_rewrite_uses_its_own_enhancer_and_releases_it():
+    image = Rewriter(PromptRewrite(prompt="image words"))
+    video = Rewriter(PromptRewrite(prompt="video motion"))
+    runner = use_case(Catalog(), image, Progress())
+    runner._video_rewriter = video
+    result = runner.execute(RewriteRequest("A cup", "generate", workspace="video"))
+    assert result.prompt == "video motion"
+    assert image.releases == 0 and video.releases == 1
+    image_runner = use_case(Catalog(), image, Progress())
+    image_runner._video_rewriter = video
+    assert image_runner.execute(RewriteRequest("A cup", "generate")).prompt == "image words"

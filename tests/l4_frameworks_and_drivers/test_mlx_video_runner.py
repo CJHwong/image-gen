@@ -1068,6 +1068,7 @@ def enable_cpu_enhancement(tmp_path):
         "def _build_parser():\n"
         " p=argparse.ArgumentParser()\n"
         " p.add_argument('command');p.add_argument('-p',dest='prompt');p.add_argument('--seed',type=int,default=-1);p.add_argument('--gemma',default='gemma')\n"
+        " p.add_argument('--image',dest='images',default=None)\n"
         " original=p.parse_known_args\n"
         " p.parse_args=lambda args:original(args)[0]\n"
         " return p\n"
@@ -1274,3 +1275,34 @@ def test_mixed_precision_runner_batches_use_individual_children(tmp_path, monkey
     monkeypatch.setattr(runner, "run", lambda job, *args: calls.append(job.fast_mode))
     runner.run_batch([first, second], lambda *_: None, lambda *_: None, None, lambda: False)
     assert calls == [True, False]
+
+
+def test_manually_enhanced_prompt_skips_only_duplicate_native_enhancement(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    runner = MlxVideoRunner(
+        {"cli_path": cli(tmp_path)},
+        "pack",
+        True,
+        enhanced_prompt=lambda prompt, references: prompt == "A directed shot." and not references,
+    )
+    runner.run(VideoJob("A directed shot.", 384, 384, 9, 24, 7, enhance=True))
+    runner.run(VideoJob("A directed shot. Changed.", 384, 384, 9, 24, 7, enhance=True))
+    assert "--enhance-prompt" not in commands[0]
+    assert "--enhance-prompt" in commands[1]
+
+
+def test_image_enhancement_uses_vision_child_without_an_audio_track(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    python = tmp_path / "python"
+    python.touch()
+    runner = MlxVideoRunner({"cli_path": cli(tmp_path)}, "pack", True)
+    reference = VideoReference("first.png", b"pixels", 0, 1.0)
+    runner.run(VideoJob("Move right.", 384, 384, 9, 24, 7, references=(reference,), enhance=True))
+    command = commands[0]
+    assert command[:1] == [str(python)]
+    assert Path(command[1]).name == "mlx_video_generation_child.py"
+    assert command[2] == "generate"
+    assert "--enhance-prompt" in command
+    assert "--image" in command

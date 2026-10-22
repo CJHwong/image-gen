@@ -18,10 +18,17 @@ import sys
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from studio.l3_interface_adapters.gateways.qwen21.rewriter import cache_line
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter import cache_line
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable
-from studio.l4_frameworks_and_drivers.main import BACKENDS, REWRITERS, create_studio, qwen21_rewrite_models
+from studio.l4_frameworks_and_drivers.main import (
+    BACKENDS,
+    REWRITERS,
+    VIDEO_BACKENDS,
+    VOICE_BACKENDS,
+    create_studio,
+    qwen21_rewrite_models,
+)
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
 
@@ -37,7 +44,7 @@ def parse_args():
     parser.add_argument(
         "--all-backends",
         action="store_true",
-        help="offer every configured backend in the page's picker, including the ones studio.toml hides",
+        help="enable model selection for Image, Video and Voice, including models studio.toml hides",
     )
     parser.add_argument(
         "-q",
@@ -74,6 +81,8 @@ def main():
             backend=args.backend,
             quantize=args.quantize,
             visible=tuple(BACKENDS) if args.all_backends else None,
+            visible_video=tuple(VIDEO_BACKENDS) if args.all_backends else None,
+            visible_voice=tuple(VOICE_BACKENDS) if args.all_backends else None,
         )
         studio = create_studio(config, stub=args.stub)
     except ConfigError as error:

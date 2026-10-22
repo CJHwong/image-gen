@@ -20,6 +20,7 @@
 <script type="module" src="/page/lib/form.js"></script>
 <script type="module" src="/page/components/popup-menu.js"></script>
 <script type="module" src="/page/components/stage.js"></script>
+<script type="module" src="/page/components/studio-guide.js"></script>
 <script type="module" src="/page/lib/htmx.js"></script>
 <script type="module" src="/page/lib/theme.js"></script>
 <script type="module" src="/page/components/size-chips.js"></script>
@@ -83,7 +84,6 @@
         <button type="button" id="media-voice-mode" aria-pressed="false" hidden>Voice</button>
       </nav>
       <div class="readout">
-        <span class="status" id="status" role="status" aria-live="polite" hidden><span class="dot"></span><span id="status-text"></span></span>
         <button type="button" id="guide-toggle" class="icon-btn" aria-expanded="false"
           title="How to use this studio" aria-label="How to use this studio"><svg class="icon"><use href="#i-info"/></svg></button>
         <div class="menu-anchor">
@@ -93,16 +93,25 @@
         </div>
       </div>
     </header>
-    <section id="shared-operation" class="shared-operation" role="status" hidden>
-      <span id="shared-operation-label"></span>
-      <progress id="shared-operation-progress" max="100" hidden aria-label="Operation progress"></progress>
-      <button id="shared-operation-cancel" type="button" class="pill">Cancel</button>
+    <section id="shared-operation" class="shared-operation" aria-label="Current operation" hidden>
+      <span class="operation-indicator" aria-hidden="true"></span>
+      <div class="operation-copy">
+        <span id="shared-operation-label" role="status" aria-live="polite"></span>
+        <span id="shared-operation-detail"></span>
+      </div>
+      <div class="operation-metrics" aria-hidden="true">
+        <span id="shared-operation-percent"></span><span id="shared-operation-elapsed"></span>
+      </div>
+      <button id="shared-operation-cancel" type="button" class="pill"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span>Cancel</span></button>
+      <progress id="shared-operation-progress" max="100" aria-label="Overall operation progress"></progress>
     </section>
     <section id="shared-rewrite-result" class="shared-operation" hidden>
       <label for="shared-rewrite-text">Rewritten prompt</label>
       <textarea id="shared-rewrite-text" readonly rows="3"></textarea>
       <button id="shared-rewrite-use" type="button" class="pill">Use prompt</button>
     </section>
+
+    <div id="workspace-guide-host"></div>
 
     <section class="stage" id="image-stage">
       <div class="canvas" id="canvas"></div>
@@ -141,8 +150,8 @@
     <form id="form" class="mode-generate" data-media-mode="image" hx-post="/generate" hx-target="#incoming" hx-swap="beforeend">
       <input type="hidden" name="backend" value="__BACKEND__">
       <div class="controls">
-        <div id="voice-controls" class="mode-controls" hidden></div>
-        <div id="image-controls" class="mode-controls">
+        <fieldset id="voice-controls" class="mode-controls" hidden disabled></fieldset>
+        <fieldset id="image-controls" class="mode-controls">
         <div class="modes" role="radiogroup" aria-label="Image mode">
           <input type="radio" name="mode" id="mode-generate" value="generate" checked>
           <label for="mode-generate"><svg class="icon"><use href="#i-sparkle"/></svg>Generate</label>
@@ -281,9 +290,9 @@
             </div>
           </div>
         </details>
-        </div>
+        </fieldset>
 
-        <div id="video-controls" class="mode-controls video-controls" hidden>
+        <fieldset id="video-controls" class="mode-controls video-controls" hidden disabled>
           <!-- What this form makes: a clip drawn from the prompt, or a clip changed by an
                adapter. The same radio group the image form draws, built from the record and
                hidden for a model that has one way of working. -->
@@ -301,12 +310,7 @@
                   <svg class="icon" aria-hidden="true"><use href="#i-caret"/></svg></button>
                 <button type="button" class="pill" id="video-templates-toggle" aria-expanded="false"
                   aria-controls="video-templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
-                <!-- The video prompt is lengthened by the backend's own rewriter, the one
-                     the image form uses for a generate prompt: a video is drawn from
-                     words, and this workspace's picture is a frame the clip must hold
-                     rather than the thing the rewriter is asked about. The button
-                     carries the same three verbs the image form's does, and `hidden`
-                     picks one, never a rule in the cascade. -->
+                <!-- Video uses LTX's native enhancer, independently of the Image model. -->
                 <button type="button" class="pill" id="video-rewrite-toggle" hidden
                   title="Rewrite the prompt into a longer instruction before generating"><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle">Rewrite</span><span class="rewrite-cancel" hidden>Cancel</span><span class="rewrite-stopping" hidden>Stopping&hellip;</span></button>
               </div>
@@ -419,7 +423,7 @@
               </div>
             </div>
           </details>
-        </div>
+        </fieldset>
       </div>
 
       <div class="footer" id="image-footer">
@@ -473,7 +477,9 @@
   document.body.addEventListener('htmx:configRequest', function (event) {
     event.detail.headers['X-Studio-Client'] = CLIENT_ID;
     event.detail.headers['X-Studio-Library'] = LIBRARY_ID;
-    if (event.detail.elt === form && drafts) event.detail.parameters.draft_id = drafts.submit('image');
+    if (event.detail.elt === form) {
+      event.detail.parameters.draft_id = drafts?.submit('image') || crypto.randomUUID();
+    }
   });
   document.body.addEventListener('htmx:confirm', function (event) {
     if (sharedBusy() && event.detail.path !== '/cancel') event.preventDefault();
@@ -539,6 +545,7 @@
   const videoStudio = document.getElementById('video-studio');
   const voiceStudio = document.getElementById('voice-studio');
   const requestedWorkspace = new URLSearchParams(location.search).get('workspace');
+  let guide;
   let mediaMode = ['video', 'voice'].includes(requestedWorkspace) ? requestedWorkspace : 'image';
   let workspaceSwitchPending = false;
   let videoRunState = 'idle';
@@ -658,6 +665,7 @@
       voiceStudio.stopRecording?.();
       voiceStudio.pausePlayback?.();
     }
+    if (mediaMode !== next) guide?.close(false);
     mediaMode = next;
     form.dataset.mediaMode = mediaMode;
     const video = mediaMode === 'video';
@@ -675,6 +683,9 @@
     document.getElementById('video-controls').hidden = !video;
     document.getElementById('voice-controls').hidden = !voice;
     document.getElementById('image-controls').hidden = video || voice;
+    document.getElementById('image-controls').disabled = video || voice;
+    document.getElementById('video-controls').disabled = !video;
+    document.getElementById('voice-controls').disabled = !voice;
     setWorkspaceControlsDisabled();
     renderMediaActions();
     renderBackendSelector();
@@ -899,6 +910,10 @@
     document.getElementById('video-adapter-name').textContent = chosen ? chosen.label : 'Effect';
     videoAdaptersToggle.setAttribute('aria-expanded', String(videoAdaptersMenu.hidden === false));
     document.getElementById('video-adapter-hint').textContent = chosen ? chosen.hint : '';
+    // The page owns Video's mode. Its Look components must redraw when the
+    // available rows change, even when none of the saved picks changed.
+    document.querySelectorAll('#video-look look-rows, #video-look look-values, #video-look look-adds')
+      .forEach(element => element.requestUpdate?.());
     syncVideoGenerateButton();
   }
 
@@ -1453,8 +1468,8 @@
     let settings;
     let seed;
     // The run is made from the words in the box, which the rewrite button may have
-    // lengthened first, and it always asks the pipeline for the video model's own enhancer:
-    // that pass is what turns a note into a directed shot, and it costs no page step.
+    // lengthened first. The backend uses LTX's native enhancer and recognizes its
+    // unchanged Rewrite outputs, avoiding duplicate work.
     // A Look pick is appended after those words, the way the image form adds its own. The
     // rewrite sees the box alone, because the Look is added here and not written into it.
     const typedPrompt = document.getElementById('video-prompt').value;
@@ -1631,6 +1646,7 @@
       studio: STUDIO,
       modes: MODES,
       maxBatch: MAX_BATCH,
+      batchLimit: STUDIO.batch_limit,
       learnedCost: learnedCost,
       el: {
         form: form,
@@ -1646,7 +1662,6 @@
         countMenu: countMenu,
         templatesToggle: templatesToggle,
         templatesMenu: templatesMenu,
-        statusText: statusText,
       },
       notify: showToast,
       busy: busy,
@@ -1659,6 +1674,7 @@
       store: function () { return formState; },
       gallery: function () { return gallery; },
       view: function () { return view; },
+      videoReferences: function () { return videoStudio.imageReferences.map(reference => reference.base64); },
       references: function () { return references; },
       setReferences: function (next) { references = next; },
       renderStage: renderStage,
@@ -1806,7 +1822,6 @@
     renderStage();
   }
 
-  const statusText = document.getElementById('status-text');
 
   function renderStrip() {
     const wrap = document.getElementById('strip-wrap');
@@ -1831,7 +1846,11 @@
   // The wipe itself belongs to components/image-strip.js, which draws it and
   // owns whether it is on. The stage bar asks for the switch and places it.
 
-  document.getElementById('guide-toggle').addEventListener('click', function () { stage.openGuide(); });
+  document.addEventListener('studio-guide-ready', function (event) { guide = event.detail; });
+  document.getElementById('guide-toggle').addEventListener('click', function () {
+    const family = activeModelFamily();
+    guide?.open(mediaMode, family?.backend?.id, family?.capabilities);
+  });
 
   // ---- Menus -----------------------------------------------------------------
   // The mechanics belong to components/popup-menu.js: one menu open at most, and
@@ -1865,7 +1884,6 @@
     stage = event.detail.configure({
       canvas: canvas,
       stageBar: stageBar,
-      statusText: statusText,
       promptInput: promptInput,
       referenceInput: referenceInput,
       work: document.querySelector('.work'),
@@ -2113,7 +2131,7 @@
 
   function imageDraft() {
     return {...run.snapshotInputs(), mode: formApi.currentMode().id, eachText: formApi.eachText(),
-      eachReference: form.querySelector('input[name=each_reference]:checked')?.value || '1'};
+      eachReference: form.querySelector('input[name=each_reference]:checked')?.value ?? ''};
   }
 
   function videoDraft() {
@@ -2173,7 +2191,7 @@
         const params = {...snapshot.params};
         (MODES[snapshot.mode]?.params || []).forEach(param => { params[param.id] = String(param.default); });
         return {...snapshot, view: null, prompt: '', negative: '', seed: '', count: '1', params, look: {}, references: [],
-          eachReference: '1', eachText: {}, region: {strokes: null, text: {}}};
+          eachReference: '', eachText: {}, region: {strokes: null, text: {}}};
       },
     });
     const savedWorkspace = keeping && localStorage.getItem('studio-draft-workspace');
@@ -2185,6 +2203,9 @@
     event.detail.configure({
       clientId: CLIENT_ID,
       libraryId: LIBRARY_ID,
+      prepareNativeCancel: function (operation) {
+        if (operation.kind === 'image' && operation.client_id === CLIENT_ID) run?.prepareCancel(operation);
+      },
       notify: showToast,
       video: function () { return videoStudio; },
       voice: function () { return voiceStudio; },
@@ -2274,18 +2295,20 @@
           if (drafts) drafts.restore('image');
         }
         const video = state.video;
+        if (STUDIO.video && video) STUDIO.video.rewrite_modes = video.rewrite_modes || [];
         if (video && video.active !== STUDIO.video?.backend?.id) {
           changed = true;
           if (drafts) drafts.pause('video');
           STUDIO.video = {backend: {id: video.active, name: video.capabilities.name, badge: video.capabilities.badge},
             backends: video.backends.map(function (one) { return [one.id, one.name, one.description]; }),
-            capabilities: video.capabilities};
+            capabilities: video.capabilities, rewrite_modes: video.rewrite_modes || []};
           syncVideoFastMode();
           syncVideoMode();
           if (drafts) drafts.restore('video');
         }
         if (changed) renderBackendSelector();
       },
+      finishImageOperation: function (operation) { run?.finishOperation(operation); },
       addImages: async function (operation, images, offset = 0) {
         for (let index = 0; index < images.length; index += 1) {
           const image = images[index];
@@ -2298,8 +2321,14 @@
             src: URL.createObjectURL(blob), b64: image.png_base64, at: (image.completed_at || operation.finished_at) * 1000,
             backend: operation.model, backendId: operation.backend, precision: operation.settings.precision || '',
             typed: image.prompt, look: null, negative: operation.settings.negative || '', sources: [], before: null});
+          // JSON numbers cannot retain seeds above 2^53; batch item settings
+          // keep the exact decimal text submitted by the form.
+          if (operation.batch_total && typeof operation.settings.seed === 'string'
+              && /^\d+$/.test(operation.settings.seed.trim())) entry.seed = BigInt(operation.settings.seed.trim()).toString();
+          run?.decorateImage(operation, image, entry, index + offset);
           const admitted = admit(entry);
           if (!admitted) continue;
+          arrivedId = id;
           if (view === null || (!sharedOperation && observedImageResult
               && (operation.id === observedImageResult || operation.id.startsWith(observedImageResult + ':')))) view = id;
           if (kept) await kept.keep(admitted);
@@ -2356,7 +2385,6 @@
         progressSlot: progressSlot,
         incoming: incoming,
         countToggle: countToggle,
-        statusText: statusText,
       },
       notify: showToast,
       busy: busy,
@@ -2497,6 +2525,7 @@
       return;
     }
     const backend = family.backend;
+    guide?.sync(mediaMode, backend.id);
     const backends = family.backends || [];
     toggle.querySelector('.name').textContent = backend.name;
     toggle.disabled = sharedBusy() || backends.length < 2 || !menus || busy() || voiceStudio.locked || videoRunState !== 'idle';

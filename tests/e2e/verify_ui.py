@@ -118,8 +118,15 @@ def watch_runs(page, into):
     """Keep every posted run, so an assertion can read what the engine was sent."""
 
     def note(request):
-        if request.method == "POST" and request.url.endswith("/generate"):
+        if request.method != "POST":
+            return
+        if request.url.endswith("/generate"):
             into.append(parse_post(request))
+        elif request.url.endswith("/image/operations"):
+            payload = request.post_data_json
+            assert 1 < len(payload["items"]) <= 16
+            for index, item in enumerate(payload["items"], 1):
+                into.append({**payload, **item, "index": str(index)})
 
     page.on("request", note)
 
@@ -2434,19 +2441,15 @@ with sync_playwright() as playwright:
         locked.is_disabled(),
         f"disabled {locked.is_disabled()}, title {locked.get_attribute('title')!r}",
     )
-    # The readout is the only live word on a press, and a press over three parts takes about
-    # three times as long as one. It names the part, its place, and the whole press: it used
-    # to quote the one-part time for every press, whatever its size.
-    said = ""
-    for _ in range(40):
-        written.wait_for_timeout(200)
-        said = written.locator("#status").inner_text().strip()
-        if " of 3" in said:
-            break
+    # Rewrites use the same server-owned status as generation, without a second
+    # local readout or an unmeasured estimate for the whole UI rewrite queue.
+    written.locator("#shared-operation:not([hidden])").wait_for()
+    said = written.locator("#shared-operation-label").inner_text().strip()
     check(
-        "the readout names the part and what the whole press costs",
-        written.locator("#status").is_visible() and " of 3" in said and "1 min 30s in all" in said,
-        f"visible {written.locator('#status').is_visible()}, {said!r}",
+        "the shared status names the active rewrite and its elapsed time",
+        ("Rewriting" in said or "Preparing" in said)
+        and "elapsed" in written.locator("#shared-operation-elapsed").inner_text(),
+        said,
     )
     # A run would free the rewriter the press is writing with, so the run waits for the press.
     # Cmd+Enter obeys the same rule for free, since it asks the button's own disabled state.
@@ -2914,14 +2917,15 @@ with sync_playwright() as playwright:
     plain.dispatch_event("#prompt", "input")
     plain.click("#go")
     plain.locator(RUNNING).wait_for(state="visible", timeout=30000)
+    plain.locator("#shared-operation:not([hidden])").wait_for()
     check(
         "the run button is called Cancel with no stylesheet at all",
-        plain.get_by_role("button", name="Cancel", exact=True).count() == 1,
+        plain.locator("#form").get_by_role("button", name="Cancel", exact=True).count() == 1,
         plain.locator("#go").aria_snapshot(),
     )
     check(
         "the run readout is a status a role query reaches while a run goes",
-        "status" in plain.get_by_role("status").evaluate_all("nodes => nodes.map((node) => node.id)"),
+        "shared-operation-label" in plain.get_by_role("status").evaluate_all("nodes => nodes.map((node) => node.id)"),
         str(plain.get_by_role("status").evaluate_all("nodes => nodes.map((node) => node.id)")),
     )
     plain.locator(RUNNING).wait_for(state="hidden", timeout=600000)
