@@ -85,6 +85,21 @@ def image_examples(edit: bool = False) -> dict[str, Any]:
 def video_examples(edit: bool = False) -> dict[str, Any]:
     if edit:
         return {
+            "custom_no_lora": {
+                "summary": "Edit a clip using your own prompt, without a LoRA",
+                "description": "Replace clip.data with actual MP4 bytes. Choose a supported shape nearest the clip and snap its frame count to the model grid. Custom uses the base model's clip conditioning, with no effect weights to install.",
+                "value": {
+                    "backend": "ltx25_mlx",
+                    "adapter": "custom",
+                    "prompt": "The same shot in warm evening light, with the same subjects and composition.",
+                    "width": 384,
+                    "height": 384,
+                    "num_frames": 49,
+                    "frame_rate": 24,
+                    "seed": 7,
+                    "clip": {"name": "source.mp4", "data": "<replace with base64 of your MP4>"},
+                },
+            },
             "deblur": {
                 "summary": "Sharpen a soft clip with the Deblur effect",
                 "description": "Replace clip.data with the raw base64 bytes of your MP4. The literal DEBLUR trigger, output size, and frame count follow this effect's measured recipe.",

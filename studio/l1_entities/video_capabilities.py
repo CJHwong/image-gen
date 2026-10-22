@@ -43,7 +43,9 @@ class VideoMode:
 
 @dataclass(frozen=True)
 class VideoAdapter:
-    """One LoRA a run can carry, and the prompt and strength that go with it.
+    """One edit recipe, and the prompt and strength that go with it.
+
+    An empty file denotes Custom, which conditions on the clip without a task LoRA.
 
     The prompt is not decoration here. These adapters are triggered: four of them answer to a
     literal word, one wants an empty prompt, one wants the empty scene described rather than

@@ -444,7 +444,10 @@ def openapi_document() -> dict[str, Any]:
                     "properties": {
                         "prompt": {"type": "string", "minLength": 1},
                         "backend": {"type": "string"},
-                        "adapter": {"type": "string", "description": "An adapter id from /api/v1/studio"},
+                        "adapter": {
+                            "type": "string",
+                            "description": "An adapter id from discovery. Choose custom for experimental clip conditioning without loading or downloading any task LoRA, and write your own change in prompt. Source fidelity and edit adherence are not yet validated. Other ids select specialized LoRA effects.",
+                        },
                         "adapter_strength": {"type": "number"},
                         "width": {"type": "integer", "description": "Read the adapter's measured width"},
                         "height": {"type": "integer", "description": "Read the adapter's measured height"},

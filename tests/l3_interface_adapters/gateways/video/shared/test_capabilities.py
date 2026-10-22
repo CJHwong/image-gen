@@ -24,6 +24,7 @@ def test_the_2_5_pack_offers_generate_and_the_seven_effects():
         "Slow push-in",
     ]
     assert [adapter.id for adapter in capabilities.adapters] == [
+        "custom",
         "day-to-night",
         "water-simulation",
         "clean-plate",
@@ -33,6 +34,17 @@ def test_the_2_5_pack_offers_generate_and_the_seven_effects():
         "upscale-2x",
     ]
     assert [one.id for one in capabilities.adapters if one.doubles_output] == ["upscale-2x"]
+
+
+def test_custom_edit_uses_no_lora_or_preset_prompt_and_keeps_the_clip_geometry():
+    custom = ltx25_mlx_capabilities().adapters_for("edit")[0]
+
+    assert custom.id == "custom"
+    assert custom.label == "Custom"
+    assert custom.file == custom.prompt == custom.card == ""
+    assert (custom.width, custom.height, custom.num_frames) == (0, 0, 0)
+    assert "No LoRA" in custom.hint
+    assert custom.min_strength == custom.strength == custom.max_strength == 1.0
 
 
 def test_every_effect_renders_inside_the_model_s_bounds():

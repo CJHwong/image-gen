@@ -101,6 +101,15 @@ UPSCALE_PROMPT = (
 
 VIDEO_ADAPTERS = (
     VideoAdapter(
+        id="custom",
+        label="Custom",
+        hint="No LoRA: experimental clip conditioning with your own prompt; source fidelity may vary",
+        mode="edit",
+        file="",
+        min_strength=1.0,
+        max_strength=1.0,
+    ),
+    VideoAdapter(
         id="day-to-night",
         label="Day to night",
         hint="Relight a daylight clip as the same shot at night",

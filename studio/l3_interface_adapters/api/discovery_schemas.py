@@ -110,10 +110,13 @@ def discovery_schemas() -> dict[str, Any]:
                 "label": string,
                 "hint": string,
                 "mode": string,
-                "file": string,
+                "file": {
+                    "type": "string",
+                    "description": "LoRA filename. Empty for Custom: no task LoRA is loaded or downloaded.",
+                },
                 "prompt": {
                     "type": "string",
-                    "description": "Use this measured trigger or scene instruction when selecting this adapter.",
+                    "description": "Use this measured trigger or scene instruction when selecting an effect. Custom has no preset: write your own desired change.",
                 },
                 "prompt_mode": {"enum": ["text", "optional", "empty"]},
                 "strength": number,

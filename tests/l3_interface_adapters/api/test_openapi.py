@@ -42,6 +42,24 @@ def test_structured_video_example_uses_the_measured_template():
     assert job.width == 384 and job.num_frames == 121
 
 
+def test_custom_no_lora_example_is_a_valid_video_edit_and_never_an_image_example():
+    document = openapi_document()
+    paths = document["paths"]
+    examples = paths["/api/v1/videos/edit"]["post"]["requestBody"]["content"]["application/json"]["examples"]
+    body = {
+        **examples["custom_no_lora"]["value"],
+        "mode": "edit",
+        "clip": {"name": "clip.mp4", "data": base64.b64encode(b"clip bytes").decode()},
+    }
+
+    job = video_job(body, ltx25_mlx_capabilities())
+
+    assert job.edit is not None and job.edit.lora_file == ""
+    assert job.edit.adapter == "custom"
+    image_examples = paths["/api/v1/images/edit"]["post"]["requestBody"]["content"]["application/json"]["examples"]
+    assert "custom_no_lora" not in image_examples
+
+
 def test_image_example_uses_the_official_turbo_schedule():
     document = openapi_document()
     examples = document["paths"]["/api/v1/images/generate"]["post"]["requestBody"]["content"]["application/json"][

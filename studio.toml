@@ -29,6 +29,7 @@ ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
 model_ltx25 = "dgrauet/ltx-2.5-mlx-q8"
 model_ltx23 = "dgrauet/ltx-2.3-mlx-q8"
 # The seven LTX-2.5 effects, one file each, fetched from the Creative Lab collection.
+# Custom Edit uses no task LoRA and does not need this directory or a download.
 lora_dir = "~/Library/Caches/models/ltx-2.5-loras"
 # Fetch an effect's weights when the file is not there. A download is a side effect the
 # person did not ask for, so it is off by default. On, the studio fetches the one file

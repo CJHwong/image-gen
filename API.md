@@ -147,7 +147,13 @@ This request uses the measured camera template:
 For a video effect, read the adapter record before you build the request.
 Its prompt, strength, geometry, and frame count form one recipe.
 A deblur trigger cannot replace a scene instruction for another effect.
-Use the named `deblur` or `day_to_night` example as a starting point.
+Use the named `deblur` or `day_to_night` example for specialized effects.
+For a freeform Video Edit without a task LoRA, choose `adapter: "custom"` and supply your
+own prompt and clip. No LoRA file or download is needed. Choose a supported shape nearest
+the input clip and snap its length to the frame grid; Custom declares zero geometry in
+discovery because it does not impose an effect-specific size or duration.
+The `custom_no_lora` example includes the complete payload.
+Custom is experimental; source fidelity and edit adherence are not yet validated on the real model.
 
 ## Encode actual media
 

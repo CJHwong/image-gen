@@ -240,15 +240,18 @@ class MlxVideoRunner:
         """
         clip = root / "conditioning.mp4"
         clip.write_bytes(edit.clip)
-        lora = self._lora(edit, cancelled)
+        if edit.lora_file:
+            lora = self._lora(edit, cancelled)
+            entrypoint = [self._cli, "ic-lora", "--lora", str(lora), f"{edit.strength:g}"]
+        else:
+            python = self._checked(
+                str(Path(self._cli).parent / "python"), "The MLX CLI needs its environment's python."
+            )
+            entrypoint = [python, str(Path(__file__).with_name("mlx_video_edit_child.py"))]
         command = [
-            self._cli,
-            "ic-lora",
+            *entrypoint,
             "-p",
             job.prompt,
-            "--lora",
-            str(lora),
-            f"{edit.strength:g}",
             "--video-conditioning",
             str(clip),
             "1.0",

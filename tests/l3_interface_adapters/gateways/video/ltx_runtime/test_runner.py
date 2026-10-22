@@ -475,6 +475,26 @@ def test_an_effect_job_builds_the_single_stage_ic_lora_command(tmp_path, monkeyp
     assert "--seed" in command
 
 
+def test_custom_edit_needs_no_lora_directory_or_download_and_uses_the_engine_python(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    python = tmp_path / "python"
+    python.write_text("")
+    job = VideoJob(
+        "Make the mug blue", 384, 384, 49, 24, 7, edit=VideoEdit("custom", 1.0, "", b"clip bytes", "clip.mp4")
+    )
+
+    make_runner({"cli_path": cli(tmp_path)}, "pack", False).run(job)
+
+    command = commands[0]
+    assert command[0] == str(python)
+    assert Path(command[1]).name == "mlx_video_edit_child.py"
+    assert "--lora" not in command
+    assert command[command.index("--video-conditioning") + 2] == "1.0"
+    assert command[command.index("-p") + 1] == "Make the mug blue"
+    assert "--single-stage" in command
+
+
 def test_a_missing_effect_is_fetched_from_an_unrelated_working_directory(tmp_path, monkeypatch):
     commands = []
     real_execute = MlxVideoRunner._execute

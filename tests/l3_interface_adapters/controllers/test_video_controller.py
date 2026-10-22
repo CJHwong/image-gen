@@ -439,6 +439,22 @@ def test_an_edit_job_carries_the_clip_and_the_adapter_it_was_measured_with():
     assert job.edit.stage_2_conditioning is True
 
 
+def test_custom_edit_is_validated_like_an_edit_but_carries_no_lora():
+    from studio.l3_interface_adapters.gateways.video.shared.capabilities import ltx25_mlx_capabilities
+
+    job = video_job(
+        payload(mode="edit", adapter="custom", clip=clip_payload(), width=384, height=384, num_frames=49),
+        ltx25_mlx_capabilities(),
+    )
+
+    assert job.edit is not None
+    assert job.edit.adapter == "custom"
+    assert job.edit.lora_file == ""
+    assert job.edit.clip == b"clip bytes"
+    assert job.prompt == "A kite rises above the beach"
+    assert job.enhance is False
+
+
 def test_a_doubling_edit_may_ask_for_twice_a_declared_shape():
     """The upscaler's card wants a reference at half the target's linear resolution, so the
     one adapter that declares it may ask for a shape the ladder does not hold: twice one

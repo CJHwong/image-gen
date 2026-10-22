@@ -98,6 +98,12 @@ The model selector follows the active workspace. Each workspace keeps its own se
 
 The image-count control expands multiple results into explicit items and submits one asynchronous prepared batch through `/image/operations`, the UI identity wrapper around the same operation API. Per-reference edits cycle references and their own instructions in item order, with one exact decimal seed sequence. The server emits the batch item limit; the count menu limits results per reference so the total fits the same API envelope. Shared polling imports completed items incrementally, including in the submitting tab and after reload. The originating tab decorates results with its Look and reference comparison metadata; precision is retained on the operation for reloads. Cancellation or a failed submission restores consumed inputs. Single-image forms retain their existing htmx transport. Explicit API batches use the same batch use case and one reservation. Image progress is a poll of `/progress`. Video progress is a poll of `/video/progress`, which includes the active request ID. Every tab also polls `/api/v1/state` from startup and follows API or other-tab operations. It sends cancellation to `/video/cancel` with the same ID. The legacy route stops only that matching run. The shared operation route cancels by operation ID. The MLX runner combines sampler steps across stages into one count. It ignores weight-loading counters. The page keeps progress below 100% until the clip is ready. After denoising, it shows Finishing the clip while decoding and saving continue. A video cancel terminates the LTX child and releases the shared lock after it exits. The timeline keeps source clips and reference keyframes. A rewrite is one request of its own, and its phase is a poll of `/rewrite/state`: the page offers a cancel only while the model is writing, because a stop cannot land during the load.
 
+Video Edit recipes may declare an empty LoRA filename for Custom. The controller still
+requires a clip and prompt, validates the model's normal geometry, and carries an explicit
+edit job. The runner starts a small owned child using the native conditioning pipeline with
+an empty LoRA list; it never resolves the LoRA directory or downloads effect weights.
+This base-model conditioning path is experimental pending real source-fidelity checks.
+
 ## One Voice request
 
 1. The Voice component sends a script or edit instruction to `/voice/operations` with its browser identities.
