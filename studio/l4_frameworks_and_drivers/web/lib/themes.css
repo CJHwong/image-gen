@@ -1,0 +1,149 @@
+/* Studio themes dress the same components in every workspace. Patterns live on
+   the desk behind media, never on an image, video, or waveform's content. */
+#theme-menu { max-height: calc(100dvh - 76px); overflow-y: auto; overscroll-behavior: contain; }
+:root[data-theme=blueprint], [data-theme=blueprint] .stage {
+  color-scheme: dark;
+  --chrome: #102d50; --chrome-2: #173a61; --chrome-3: #224a73;
+  --line: #42658a; --line-strong: #6c91b4;
+  --text: #edf5ff; --text-2: #c7dcf2; --text-3: #adc9e4;
+  --accent: #85dcf0; --accent-fill: #bceaf5; --on-accent: #102c4a;
+  --accent-soft: rgba(133, 220, 240, .12);
+  --danger: #ffb3a8; --danger-fill: #a92929;
+  --film: #081e34; --plate: #0d2641; --marker: #85dcf0; --edge-ink: #bceaf5;
+  --box: #123454; --box-hi: #193e60; --box-lo: #0c2947;
+  --body: none; --face: none;
+  --serif: var(--mono);
+  --shadow: 0 12px 32px rgba(0, 9, 27, .25), 0 0 0 1px rgba(173, 217, 255, .16);
+}
+[data-theme=blueprint] :is(.stage, .video-preview-area, .voice-preview-area) {
+  background-image: linear-gradient(rgba(156, 208, 246, .10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(156, 208, 246, .10) 1px, transparent 1px),
+    linear-gradient(rgba(156, 208, 246, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(156, 208, 246, .035) 1px, transparent 1px);
+  background-size: 48px 48px, 48px 48px, 12px 12px, 12px 12px;
+  background-blend-mode: normal;
+}
+[data-theme=blueprint] :is(.workspace-tabs, .modes, .seg, .chip, textarea, .audio-preview-wave) { border-radius: 2px; }
+[data-theme=blueprint] :is(.topbar, .footer) { box-shadow: inset 0 -1px 0 rgba(173, 217, 255, .12); }
+[data-theme=blueprint] :is(.workspace-tabs button, .modes button, .eyebrow, .voice-generation-status strong) {
+  font-family: var(--mono);
+}
+[data-theme=blueprint] .audio-preview-wave {
+  background-image: linear-gradient(rgba(156, 208, 246, .10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(156, 208, 246, .10) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+:root[data-theme=cel], [data-theme=cel] .stage {
+  color-scheme: light;
+  --chrome: #f6f1e6; --chrome-2: #eee6d5; --chrome-3: #e4dac6;
+  --line: #c4c8ca; --line-strong: #8999ad;
+  --text: #242c38; --text-2: #435363; --text-3: #48576a;
+  --accent: #254f91; --accent-fill: #b43830; --on-accent: #ffffff;
+  --accent-soft: rgba(37, 79, 145, .08);
+  --danger: #98332c; --danger-fill: #b43830;
+  --film: #253448; --plate: #1d2a3b; --marker: #dc6552; --edge-ink: #b5cee8;
+  --box: #f8f5ed; --box-hi: #fffdf7; --box-lo: #eee9dc;
+  --body: var(--paper); --face: var(--paper);
+  --shadow: 0 9px 20px rgba(45, 58, 74, .08), 3px 3px 0 #e4e7e6, 4px 4px 0 #b8c5cf;
+}
+[data-theme=cel] :is(.stage, .video-preview-area, .voice-preview-area) {
+  background-image: repeating-linear-gradient(0deg, transparent 0 31px, rgba(74, 118, 173, .07) 31px 32px), var(--paper);
+  background-blend-mode: normal, soft-light;
+}
+[data-theme=cel] .topbar {
+  background-image: radial-gradient(ellipse 5px 3px at center, #8b9eaf 90%, transparent 100%);
+  background-size: 88px 8px; background-position: center bottom; background-repeat: repeat-x;
+  background-blend-mode: normal;
+}
+[data-theme=cel] :is(.workspace-tabs, .modes, textarea, .audio-preview-wave) { border-radius: 3px; }
+[data-theme=cel] .workspace-tabs button[aria-pressed=true] { box-shadow: inset 0 -2px 0 var(--accent); }
+[data-theme=cel] :is(.caption, .voice-output-details, .video-output-details) {
+  background-image: linear-gradient(90deg, rgba(180, 56, 48, .65) 0 2px, transparent 2px);
+  background-size: 100% 100%;
+}
+[data-theme=cel] .audio-preview-wave { box-shadow: 3px 3px 0 #dce3e8; }
+
+:root[data-theme=broadcast], [data-theme=broadcast] .stage {
+  color-scheme: dark;
+  --chrome: #202529; --chrome-2: #2a3035; --chrome-3: #353d43;
+  --line: #535b60; --line-strong: #818783;
+  --text: #f2eee4; --text-2: #d0c9b9; --text-3: #b8b2a8;
+  --accent: #ffb99c; --accent-fill: #b63a30; --on-accent: #ffffff;
+  --accent-soft: rgba(255, 185, 156, .10);
+  --danger: #ffada4; --danger-fill: #b63a30;
+  --film: #111619; --plate: #101518; --marker: #ef765f; --edge-ink: #dec997;
+  --box: #182024; --box-hi: #242f32; --box-lo: #131a1d;
+  --body: var(--satin); --face: var(--satin);
+  --serif: var(--sans);
+  --shadow: 0 14px 30px rgba(0, 0, 0, .35), 0 0 0 1px rgba(231, 226, 210, .13);
+}
+[data-theme=broadcast] .topbar {
+  border-bottom-color: #a99a76;
+  box-shadow: inset 0 -3px 0 #151a1d;
+}
+[data-theme=broadcast] :is(.workspace-tabs, .modes, .seg, .audio-preview-wave) { border-radius: 3px; }
+[data-theme=broadcast] .workspace-tabs button { font-family: var(--mono); }
+[data-theme=broadcast] .workspace-tabs button[aria-pressed=true] {
+  background: #ebe4d3; color: #252b2e; box-shadow: inset 0 -3px 0 #b63a30;
+}
+[data-theme=broadcast] :is(.video-tv-frame, .audio-preview-wave) {
+  box-shadow: inset 0 0 0 3px #101619, 0 0 0 1px #59615f, 0 8px 24px rgba(0, 0, 0, .25);
+}
+[data-theme=broadcast] .audio-preview-wave {
+  background-image: repeating-linear-gradient(90deg, transparent 0 23px, rgba(222, 201, 151, .10) 23px 24px);
+}
+[data-theme=broadcast] .audio-preview-wave-bar-selected { fill: #dec997; }
+[data-theme=broadcast] #shared-operation-progress::-webkit-progress-value {
+  background: repeating-linear-gradient(90deg, #dec997 0 10px, #252b2e 10px 12px);
+}
+[data-theme=broadcast] #shared-operation-progress::-moz-progress-bar {
+  background: repeating-linear-gradient(90deg, #dec997 0 10px, #252b2e 10px 12px);
+}
+
+:root[data-theme=risograph], [data-theme=risograph] .stage {
+  color-scheme: light;
+  --chrome: #f4eddc; --chrome-2: #e9dfc7; --chrome-3: #ddd2b8;
+  --line: #a9b7a6; --line-strong: #6d8b7e;
+  --text: #1d4548; --text-2: #31595b; --text-3: #3f5c5a;
+  --accent: #12656a; --accent-fill: #176569; --on-accent: #ffffff;
+  --accent-soft: rgba(18, 101, 106, .08);
+  --danger: #9c3a34; --danger-fill: #a63c35;
+  --film: #173b3c; --plate: #103032; --marker: #f1a093; --edge-ink: #e6cf9c;
+  --box: #f8f2e4; --box-hi: #fffaee; --box-lo: #eee3cb;
+  --body: var(--paper); --face: var(--paper);
+  --serif: Georgia, ui-serif, serif;
+  --shadow: 4px 4px 0 rgba(190, 76, 60, .25), -1px -1px 0 rgba(18, 101, 106, .25);
+}
+[data-theme=risograph] .topbar {
+  border-bottom-color: #176569;
+  box-shadow: inset 0 -3px 0 rgba(190, 76, 60, .25);
+}
+[data-theme=risograph] :is(.workspace-tabs, .modes, .seg, textarea, .audio-preview-wave) { border-radius: 1px; }
+[data-theme=risograph] .workspace-tabs button[aria-pressed=true] {
+  box-shadow: 2px 2px 0 #c96556; background: #176569; color: #fffaf0;
+}
+[data-theme=risograph] :is(.audio-preview-wave, .card) { box-shadow: var(--shadow); }
+[data-theme=risograph] :is(.stage, .video-preview-area, .voice-preview-area) {
+  background-image: radial-gradient(rgba(18, 101, 106, .11) .6px, transparent .6px), var(--paper);
+  background-size: 6px 6px, auto; background-blend-mode: normal, soft-light;
+}
+
+/* The film strip intentionally stays dark for evaluating generated media.
+   Labels and focus rings need their own palette, independent of the desk. */
+:is([data-theme=blueprint], [data-theme=cel], [data-theme=broadcast], [data-theme=risograph]) .strip-wrap {
+  --text: #f4f4ef; --text-2: #c9c9c2; --text-3: #a8b0b3;
+  --accent: #f4f4ef;
+}
+:is([data-theme=blueprint], [data-theme=cel], [data-theme=broadcast], [data-theme=risograph]) .frame .no { color: #a8b0b3; }
+:is([data-theme=blueprint], [data-theme=cel], [data-theme=broadcast], [data-theme=risograph]) .frame.selected .no { color: #f4f4ef; }
+:is([data-theme=blueprint], [data-theme=cel], [data-theme=broadcast], [data-theme=risograph]) .video-empty { color: var(--text); }
+:is([data-theme=blueprint], [data-theme=cel], [data-theme=broadcast], [data-theme=risograph]) .video-empty > span { color: var(--text-2); }
+:is([data-theme=blueprint], [data-theme=cel], [data-theme=broadcast], [data-theme=risograph]) .video-empty-mark {
+  color: var(--text-3); border-color: var(--line-strong);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is([data-theme=blueprint], [data-theme=cel], [data-theme=broadcast], [data-theme=risograph]) * {
+    scroll-behavior: auto;
+  }
+}

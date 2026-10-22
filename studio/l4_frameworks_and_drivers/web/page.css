@@ -1075,22 +1075,28 @@
 #shared-rewrite-result { flex-wrap: wrap; }
 #shared-rewrite-text { width: 100%; }
 
-.voice-generation { width: min(680px, 100%); display: grid; gap: 14px; padding: 28px 0; }
-.voice-generation-wave { width: 100%; overflow: hidden; }
-.voice-generation-wave svg { display: block; width: 100%; height: auto; }
-.voice-generation-bars line { stroke: var(--text); opacity: .22; stroke-width: 5px; stroke-linecap: round;
-  transform-box: fill-box; transform-origin: center; animation: voice-generation-pulse 1.3s ease-in-out infinite alternate;
-  animation-delay: var(--bar-delay); }
-.voice-generation-fill line { stroke: var(--accent); opacity: 1; }
-.voice-generation-scan { animation: voice-generation-scan 2s ease-in-out infinite; }
-.voice-generation-status { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.voice-generation-status strong { font: 18px var(--serif); }
-.voice-generation-status .num { color: var(--text-2); font-size: 12px; }
-.voice-generation > p { margin: 0; color: var(--text-3); }
-@keyframes voice-generation-pulse { from { transform: scaleY(.55); } to { transform: scaleY(1); } }
-@keyframes voice-generation-scan { from { transform: translateX(-160px); } to { transform: translateX(640px); } }
+.voice-generation { width: min(900px, 100%); }
+.voice-generation-wave { overflow: hidden; cursor: default; }
+.voice-generation-wave::before { opacity: .35; }
+.voice-generation-wave > svg { left: 12px; width: calc(100% - 24px); }
+.voice-generation-bars line { stroke: var(--text); opacity: .18; stroke-width: 4px; stroke-linecap: round;
+  transform-box: fill-box; transform-origin: center; }
+.voice-generation-outline line { transform: scaleY(.14); }
+.voice-generation-fill line { stroke: var(--accent); opacity: .9; }
+.voice-generation-wave rect { transition: width .45s ease-out; }
+.voice-generation[data-phase=preparing] .voice-generation-outline line {
+  animation: voice-generation-pulse 1.8s ease-in-out infinite alternate; animation-delay: var(--bar-delay); }
+.voice-generation[data-phase=finishing] .voice-generation-fill { animation: voice-generation-shimmer 1.8s ease-in-out infinite alternate; }
+.voice-generation[data-phase=stopping] .voice-generation-fill { opacity: .45; }
+.voice-generation-note { min-height: 34px; display: flex; align-items: center; margin: 0;
+  color: var(--text-3); font: 11px/1.6 var(--sans); }
+.voice-result-ready .audio-preview-wave > svg { animation: voice-generation-ready .35s ease-out; }
+@keyframes voice-generation-pulse { from { transform: scaleY(.10); opacity: .16; } to { transform: scaleY(.22); opacity: .35; } }
+@keyframes voice-generation-shimmer { from { opacity: .65; } to { opacity: 1; } }
+@keyframes voice-generation-ready { from { opacity: .25; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .voice-generation-bars line, .voice-generation-scan { animation: none; }
+  .voice-generation-bars line, .voice-generation-fill, .voice-result-ready .audio-preview-wave > svg { animation: none !important; }
+  .voice-generation-wave rect { transition: none; }
 }
 
   /* The guide survives preview redraws and belongs to the active workspace. */

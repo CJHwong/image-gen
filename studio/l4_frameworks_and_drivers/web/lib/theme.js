@@ -16,7 +16,8 @@ import { get, set, subscribe } from './state.js';
 import { menuItem, toggleMenu } from '../components/popup-menu.js';
 
 const THEMES = [['', 'Darkroom'], ['leica', 'Leica M'], ['kodak', 'Kodak Instamatic'],
-  ['polaroid', 'Polaroid SX-70']];
+  ['polaroid', 'Polaroid SX-70'], ['blueprint', 'Blueprint'], ['cel', 'Cel Studio'],
+  ['broadcast', 'Broadcast'], ['risograph', 'Risograph']];
 
 function savedTheme() {
   return document.documentElement.dataset.theme || '';

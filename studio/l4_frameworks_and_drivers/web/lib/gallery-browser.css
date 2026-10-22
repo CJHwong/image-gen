@@ -1,0 +1,75 @@
+/* Shared browsing controls. The film stays dark in every theme, like the compact strip. */
+.strip-head:has(gallery-browser) { flex-wrap: wrap; justify-content: flex-start; gap: 8px 16px; }
+.strip-head:has(gallery-browser) > span:first-child { flex: 1; min-width: min(150px, 100%); }
+.strip-head:has(gallery-browser) > .strip-actions { order: 3; margin-left: auto; }
+gallery-browser { display: contents; color-scheme: dark; }
+.gallery-browse-toggle { order: 2; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.gallery-browse-toggle .icon { width: 13px; height: 13px; }
+.strip-wrap:has(gallery-browser[expanded]) > .strip { display: none; }
+.gallery-browser-panel { order: 4; flex: 1 0 100%; min-width: 0; color: #ddd; padding-top: 8px; }
+.gallery-browser-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.gallery-browser-tools input[type=search] { flex: 1 1 220px; min-width: 100px; width: 100%; }
+.gallery-browser-tools input[type=search], .gallery-browser-tools select {
+  height: 32px; min-height: 32px; padding: 4px 9px; margin: 0; border: 1px solid #555;
+  border-radius: 5px; background: #252525; color: #eee; font: 11px/1.4 var(--sans);
+}
+.gallery-browser-tools select {
+  appearance: none; -webkit-appearance: none;
+  width: auto; max-width: 170px; padding-right: 32px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23bbb' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 12px 12px;
+}
+.gallery-browser-tools select option { color: #eee; background: #252525; }
+.gallery-browser-tools input[type=search]::placeholder { color: #aaa; }
+.gallery-browser-tools input:focus-visible, .gallery-browser-tools select:focus-visible,
+.gallery-browser-panel button:focus-visible { outline: 2px solid var(--accent-fill, #ddd); outline-offset: 3px; }
+.gallery-browser-panel .text-btn { color: #ccc; display: inline-flex; align-items: center; gap: 5px; }
+.gallery-browser-panel .text-btn:hover { color: #fff; }
+.gallery-browser-panel .text-btn:disabled { opacity: .4; cursor: default; }
+.gallery-browser-panel .text-btn[aria-pressed=true] { color: #fff; text-decoration: underline; text-underline-offset: 4px; }
+.gallery-group-toggle { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 11px; }
+.gallery-group-toggle input, .gallery-check input { width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--accent-fill, #ddd); }
+.gallery-browser-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; min-height: 38px; font-size: 11px; color: #bbb; }
+.gallery-browser-summary [role=status] { margin-right: auto; }
+.gallery-browser-panel .gallery-remove { color: #f6aaaa; }
+.gallery-browser-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+  gap: 16px; padding: 12px 8px 16px; max-height: clamp(110px, 28dvh, 320px); overflow-y: auto;
+  overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #555 transparent; }
+.gallery-card { position: relative; min-width: 0; padding: 8px; border: 1px solid transparent; border-radius: 5px; }
+.gallery-card.checked { border-color: #bbb; background: #282828; }
+.gallery-card .frame { width: 100%; gap: 6px; }
+.gallery-card .still { width: 100%; height: 80px; background: #242424; display: grid; place-items: center; }
+.gallery-card img { width: 100%; height: 100%; object-fit: contain; }
+.gallery-card .mark { inset: -6px -5px -7px; width: calc(100% + 10px); height: calc(100% + 13px); }
+.gallery-card .no { color: #aaa; }
+.gallery-card .selected .no { color: #fff; }
+.gallery-duration, .gallery-batch-count { position: absolute; right: 4px; bottom: 4px; padding: 2px 4px;
+  background: #111d; color: #eee; border-radius: 3px; font: 10px/1.4 var(--mono); }
+.gallery-batch-count { top: 4px; bottom: auto; }
+.gallery-wave { width: 100%; height: 48px; fill: none; stroke: #ccc; stroke-width: 1.4; }
+.gallery-no-preview { color: #bbb; font: 10px/1.4 var(--mono); }
+.gallery-check { position: absolute; z-index: 2; top: 4px; left: 4px; display: flex;
+  padding: 5px; background: #171717; border: 1px solid #777; border-radius: 4px; cursor: pointer; }
+.gallery-card-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; overflow-wrap: anywhere; margin: 8px 0 3px; color: #ddd; font-size: 11px; line-height: 1.4; }
+.gallery-card-facts { margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: #aaa; font: 9px/1.5 var(--mono); }
+.gallery-no-results { grid-column: 1 / -1; display: grid; place-items: center; gap: 12px; padding: 26px; color: #ccc; }
+.gallery-no-results strong { font-size: 12px; font-weight: 500; }
+.gallery-browser-error { color: #f6aaaa; font-size: 11px; }
+.gallery-pending { align-self: start; padding: 8px; }
+.gallery-pending .still { width: 100%; height: 80px; min-width: 100px; display: grid; place-items: center;
+  gap: 8px; padding: 12px; color: #ddd; font-size: 11px; }
+@media (max-width: 600px) {
+  .gallery-browser-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  .gallery-browser-tools input[type=search] { flex-basis: 100%; }
+  .gallery-browser-tools select { flex: 1 1 110px; max-width: none; min-width: 0; }
+  .gallery-browser-tools { gap: 8px 10px; }
+}
+
+/* Sixteen small frames cover at most two seconds; full video decoders are released. */
+video-gallery-preview { display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; }
+video-gallery-preview > img { width: 100%; height: 100%; object-fit: contain; }
+.video-gallery-sheet { display: block; width: 100%; height: 100%; overflow: hidden; }
+.video-gallery-sheet image { animation: video-gallery-loop var(--loop-duration, 2s) steps(16, end) infinite; }
+@keyframes video-gallery-loop { from { transform: translateX(0); } to { transform: translateX(-2048px); } }

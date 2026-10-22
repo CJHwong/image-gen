@@ -717,9 +717,12 @@ with sync_playwright() as playwright:
     # labels it is not using, so two of them showing at once means a rule has
     # taken the choice back from the DOM, which is what a failed stylesheet used
     # to look like. The same claim is made with the stylesheet refused at the end.
+    # Scope the form: the shared-operation footer also offers Cancel once its
+    # event arrives. Waiting for that footer makes both controls deterministic.
+    page.locator("#shared-operation:not([hidden])").wait_for()
     check(
         "the run button is called Cancel and nothing else",
-        page.get_by_role("button", name="Cancel", exact=True).count() == 1,
+        page.locator("#form").get_by_role("button", name="Cancel", exact=True).count() == 1,
         page.locator("#go").aria_snapshot(),
     )
     # The progress card is the page's own drawing of a run, and the module that

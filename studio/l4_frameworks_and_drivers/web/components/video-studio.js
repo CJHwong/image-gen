@@ -2,6 +2,8 @@ import { LitElement, html, nothing, render as renderTemplate } from 'https://cdn
 import { closeMenus, menuItem, toggleMenu } from './popup-menu.js';
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
 import {pencilLoop} from './gallery-marker.js';
+import './gallery-browser.js';
+import {galleryBatch, galleryView, rememberGalleryView} from '../lib/gallery-view.js';
 
 let nextClipId = 1;
 
@@ -308,6 +310,9 @@ class VideoStudio extends LitElement {
     this.galleryStore = store;
     this.keepEnabled = keeping;
     if (!keeping) return;
+    const restore = !this.galleryRestored && !this.clips.length;
+    const preferred = restore ? galleryView('video').selected : null;
+    this.galleryRestored = true;
     await this.updateComplete;
     const records = await store.loadVideos();
     records.forEach((record) => {
@@ -339,6 +344,7 @@ class VideoStudio extends LitElement {
       this.addClip(clip);
       if (!clip.thumbnailBlob) this.createThumbnail(clip);
     });
+    if (restore && this.clips.some(clip => clip.id === preferred)) this.selectClip(preferred);
   }
 
   setStoragePersisted(value) {
@@ -348,6 +354,7 @@ class VideoStudio extends LitElement {
 
   setKeeping(keeping) {
     this.keepEnabled = keeping;
+    rememberGalleryView('video', {}, keeping);
     if (!keeping) {
       this.clips.forEach((clip) => { clip.keptInBrowser = false; });
       this.renderVideoGallery();
@@ -1348,6 +1355,20 @@ class VideoStudio extends LitElement {
     return true;
   }
 
+  async togglePlayback() {
+    const video = this.querySelector('#video-preview-root video');
+    if (!video) return;
+    if (!video.paused) video.pause();
+    else {
+      try { await video.play(); }
+      catch (error) {
+        if (error.name !== 'AbortError' && video.isConnected && video === this.querySelector('#video-preview-root video')) {
+          this.setError('Playback failed: ' + error.message);
+        }
+      }
+    }
+  }
+
   // Gallery deletion removes the media. Clearing an edit input uses clearEditTarget instead.
   async removeClip(id, persist = true) {
     const removed = this.clips.find(function (clip) { return clip.id === id; });
@@ -1377,8 +1398,9 @@ class VideoStudio extends LitElement {
     this.announceSelection();
   }
 
-  async downloadAllVideos() {
-    const outputs = this.clips.filter((clip) => clip.kind === 'generated' && !clip.stub && clip.url).reverse();
+  async downloadAllVideos(ids = null) {
+    const outputs = this.clips.filter((clip) => clip.kind === 'generated' && !clip.stub && clip.url
+      && (!ids || ids.includes(clip.id))).reverse();
     if (!outputs.length) return;
     const details = [];
     try {
@@ -1394,7 +1416,7 @@ class VideoStudio extends LitElement {
       saveFile(metadataUrl, mediaDownloadName({kind: 'video', text: 'metadata', at: Date.now(), extension: 'json'}));
       setTimeout(() => URL.revokeObjectURL(metadataUrl), 10000);
     } catch (error) {
-      this.setError('Download all stopped: ' + error.message);
+      this.setError((ids ? 'Download selected stopped: ' : 'Download all stopped: ') + error.message);
     }
   }
 
@@ -1503,6 +1525,7 @@ class VideoStudio extends LitElement {
 
   renderSelectedClip() {
     const clip = this.selectedClip();
+    if (clip?.kind === 'generated') rememberGalleryView('video', {selected: clip.id}, this.keepEnabled);
     this.renderPreview();
     this.renderVideoGallery();
     this.renderOutputDetails();
@@ -1752,6 +1775,16 @@ class VideoStudio extends LitElement {
         ?hidden=${!outputs.length && !this.pendingRender}>
         <div class="strip-head video-gallery-head">
           <span id="video-gallery-note">${note}</span>
+          <gallery-browser workspace="video" .items=${newestFirst.map(clip => ({id: clip.id,
+            number: outputs.indexOf(clip) + 1, text: clip.metadata?.prompt, name: clip.name,
+            model: clip.metadata?.modelName, mode: clip.metadata?.mode, seed: clip.metadata?.seed,
+            at: clip.createdAt, batch: galleryBatch(clip.metadata?.operationId, true),
+            thumbnail: clip.thumbnailUrl, video: clip.stub ? null : clip.url, duration: clip.duration, downloadable: !clip.stub && Boolean(clip.url)}))}
+            .selectedId=${this.selectedClipId} .keeping=${this.keepEnabled}
+            .pending=${Boolean(this.pendingRender)} .pendingSelected=${renderOnScreen}
+            .showPending=${() => this.showRenderMonitor()} .choose=${id => this.selectClip(id)}
+            .removeItem=${async id => { await this.removeClip(id); return !this.clips.some(clip => clip.id === id); }}
+            .download=${ids => this.downloadAllVideos(ids)} .playback=${() => this.togglePlayback()}></gallery-browser>
           <span class="strip-actions">
             <button class="text-btn" type="button" id="video-gallery-download"
               data-action="download-all-videos" ?hidden=${!downloadable.length}>Download all</button>
@@ -1778,7 +1811,10 @@ class VideoStudio extends LitElement {
                 aria-pressed=${clip.id === this.selectedClipId && !renderOnScreen}
                 data-action="select-clip" data-clip-id=${clip.id}>
                 <span class="still video-clip-thumb">
-                  ${clip.thumbnailUrl
+                  ${clip.url && !clip.stub
+                    ? html`<video-gallery-preview .source=${clip.url} .poster=${clip.thumbnailUrl}
+                      .blocked=${Boolean(this.pendingRender)}></video-gallery-preview>`
+                    : clip.thumbnailUrl
                     ? html`<img src=${clip.thumbnailUrl} alt="">`
                     : html`<span class="video-clip-placeholder" title=${clip.thumbnailError || ''}>
                       ${clip.stub ? 'STUB' : clip.thumbnailError ? 'NO PREVIEW' : 'PREVIEW'}

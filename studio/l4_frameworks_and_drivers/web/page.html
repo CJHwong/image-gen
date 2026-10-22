@@ -40,6 +40,8 @@
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <link rel="stylesheet" href="/page/page.css">
 <link rel="stylesheet" href="/page/lib/audio-preview.css">
+<link rel="stylesheet" href="/page/lib/themes.css">
+<link rel="stylesheet" href="/page/lib/gallery-browser.css">
 </head>
 <body>
 <svg width="0" height="0" style="position: absolute" aria-hidden="true">
@@ -124,6 +126,7 @@
     <section class="strip-wrap" id="strip-wrap" hidden>
       <div class="strip-head">
         <span id="strip-note"></span>
+        <gallery-browser id="image-gallery-browser" workspace="image"></gallery-browser>
         <span class="strip-actions">
           <button type="button" class="text-btn" id="download-gallery">Download all</button>
           <button type="button" class="text-btn" id="clear-gallery">Clear all</button>
@@ -936,6 +939,10 @@
     if (chosen.prompt && (!box.value.trim() || box.value === videoAdapterSeed)) {
       videoAdapterSeed = chosen.prompt;
       box.value = chosen.prompt;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    } else if (!chosen.prompt && box.value === videoAdapterSeed) {
+      videoAdapterSeed = '';
+      box.value = '';
       box.dispatchEvent(new Event('input', { bubbles: true }));
     }
     syncVideoMode();
@@ -2037,7 +2044,7 @@
 
   // With nothing on the stage, the newest image takes it.
   function showNewest() {
-    if (view === null && gallery.length && !references.length) view = gallery[0].id;
+    if (view === null && gallery.length && !references.length) view = strip.preferredId() ?? gallery[0].id;
     renderStrip();
     renderStage();
   }
@@ -2474,11 +2481,17 @@
   // keeps the shown frame's box across its own redraw, so the correction lives
   // where the redraw does. The key is the page's, because full screen shares it.
   document.addEventListener('keydown', function (event) {
+    if (event.defaultPrevented || event.target.closest('gallery-browser, dialog, [role="dialog"]')) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.target.closest('input, textarea, select, [contenteditable]')) return;
     if (document.querySelector('.menu:not([hidden])')) return;
     if (mediaMode === 'voice') {
-      if (event.key === ' ') { event.preventDefault(); voiceStudio.querySelector('audio-preview')?.play(); }
+      if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+        if (voiceStudio.stepTake(event.key === 'ArrowRight' ? 1 : -1)) event.preventDefault();
+      }
+      if (event.key === ' ' && (!event.target.closest('button, a, [role="button"]') || event.target.closest('.frame'))) {
+        event.preventDefault(); voiceStudio.querySelector('audio-preview')?.play();
+      }
       return;
     }
     if (event.key === 'f' && document.fullscreenEnabled && (gallery.length || busy())) {
@@ -2486,15 +2499,19 @@
       stage.toggleFullscreen();
     }
     if (mediaMode === 'video' && event.target.closest('video')) return;
+    if (mediaMode === 'video' && event.key === ' '
+        && (!event.target.closest('button, a, [role="button"]') || event.target.closest('.frame'))) {
+      event.preventDefault(); videoStudio.togglePlayback(); return;
+    }
     if (event.key === 'ArrowRight') {
       if (mediaMode === 'video') {
         if (videoStudio.stepClip(1)) event.preventDefault();
-      } else strip.step(1);
+      } else if (strip.step(1)) event.preventDefault();
     }
     if (event.key === 'ArrowLeft') {
       if (mediaMode === 'video') {
         if (videoStudio.stepClip(-1)) event.preventDefault();
-      } else strip.step(-1);
+      } else if (strip.step(-1)) event.preventDefault();
     }
   });
 

@@ -69,12 +69,26 @@ with sync_playwright() as tool:
         == "none",
     )
     page.emulate_media(reduced_motion="no-preference")
+    preparing_bounds = wave.bounding_box()
     page.screenshot(path="/tmp/voice-generation-desktop.png")
     pending.pop().continue_()
     page.unroute("**/voice/operations")
     finished(page, 1)
     check("the completed result replaces generation", page.locator("#voice-generation").count() == 0)
     check("the completed result restores the player", page.locator("audio-preview").count() == 1)
+    page.wait_for_function("document.getElementById('voice-studio').previewReady")
+    player_bounds = page.locator(".audio-preview-wave").bounding_box()
+    check(
+        "generation and the finished player share waveform dimensions",
+        abs(player_bounds["width"] - preparing_bounds["width"]) < 1
+        and abs(player_bounds["height"] - preparing_bounds["height"]) < 1,
+    )
+    check(
+        "the real waveform fades in when ready",
+        page.locator(".audio-preview-wave > svg").evaluate("wave => getComputedStyle(wave).animationName")
+        == "voice-generation-ready",
+    )
+
     check("success removes the pending tile", page.locator(".voice-render-pending").count() == 0)
 
     page.get_by_role("combobox", name="Playback speed", exact=True).select_option("1.5")
@@ -141,25 +155,59 @@ with sync_playwright() as tool:
     check("generation fits the phone viewport", bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= 390)
     page.screenshot(path="/tmp/voice-generation-phone.png")
 
+    progress_override = {"step": 4, "total": 10}
+
     def completed_progress(route):
         answer = route.fetch()
         state = answer.json()
         if state.get("active", {}).get("id") == operation["id"]:
-            state["active"]["progress"] = {"step": 10, "total": 10}
+            state["active"]["progress"] = progress_override
         route.fulfill(response=answer, json=state)
 
     observer.route("**/api/v1/state", completed_progress)
+    observer.wait_for_function(
+        "document.querySelector('.voice-generation-wave')?.getAttribute('aria-valuenow') === '40'"
+    )
+    check(
+        "the waveform resolves according to server progress",
+        observer.locator("#voice-generation-clip rect").get_attribute("width") == "256",
+    )
+    check(
+        "generation holds resolved bars steady",
+        observer.locator(".voice-generation-fill line").first.evaluate("line => getComputedStyle(line).animationName")
+        == "none",
+    )
+    check(
+        "the animation is identified as illustrative",
+        "Illustrative waveform" in observer.locator(".voice-generation-note").inner_text(),
+    )
+    check(
+        "progress and elapsed time stay in the shared operation bar",
+        observer.locator(".voice-generation-status .num").count() == 0,
+    )
+    progress_override = {"step": 10, "total": 10}
     observer.wait_for_function(
         "document.querySelector('.voice-generation-wave')?.getAttribute('aria-valuenow') === '99'"
     )
     check(
         "unfinished operations cap progress at ninety-nine",
-        observer.locator(".voice-generation-status .num").inner_text() == "99%",
+        observer.locator(".voice-generation-wave").get_attribute("aria-valuenow") == "99",
     )
     check(
         "complete engine steps show a finishing label",
         observer.locator(".voice-generation-status strong").inner_text() == "Finishing audio",
     )
+    check(
+        "finishing holds the waveform with a subtle shimmer",
+        observer.locator(".voice-generation-fill").evaluate("wave => getComputedStyle(wave).animationName")
+        == "voice-generation-shimmer",
+    )
+    observer.emulate_media(reduced_motion="reduce")
+    check(
+        "reduced motion disables finishing shimmer",
+        observer.locator(".voice-generation-fill").evaluate("wave => getComputedStyle(wave).animationName") == "none",
+    )
+    observer.emulate_media(reduced_motion="no-preference")
     observer.unroute("**/api/v1/state")
     cancel = context.request.post(URL + "/api/v1/operations/" + operation["id"] + "/cancel")
     check("the API operation accepts cancellation", cancel.status == 204)

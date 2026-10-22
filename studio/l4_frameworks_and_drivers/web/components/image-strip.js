@@ -29,6 +29,8 @@ import { repeat } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/directives/repeat
 import { get, subscribe } from '../lib/state.js';
 import {pencilLoop} from './gallery-marker.js';
 import {mediaDownloadName} from '../lib/download-name.js';
+import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
+import './gallery-browser.js';
 
 // The page's helpers, on `image-strip-ready`.
 let page = null;
@@ -86,13 +88,32 @@ class ImageStrip extends LitElement {
   step(delta) {
     const order = (get('busy') ? ['progress'] : []).concat(this.entries().map((entry) => entry.id));
     const next = order[order.indexOf(page.view()) + delta];
-    if (next === undefined) return;
+    if (next === undefined) return false;
     this.pendingStep = { focus: this.contains(document.activeElement) };
     page.show(next);
+    return true;
   }
 
   updated() {
     if (!page) return;
+    const browser = document.getElementById('image-gallery-browser');
+    if (browser) {
+      browser.items = this.entries().map(entry => ({id: entry.id, number: page.frameNumber(entry.id),
+        text: entry.prompt, description: entry.look?.sent, model: entry.backend || entry.backendId,
+        mode: entry.mode, seed: entry.seed, at: entry.at, thumbnail: entry.src,
+        batch: galleryBatch(entry.operationId, true), downloadable: Boolean(entry.src)}));
+      browser.selectedId = get('view');
+      browser.keeping = page.keeping();
+      browser.pending = get('busy');
+      browser.pendingSelected = get('view') === 'progress';
+      browser.showPending = () => page.show('progress');
+      browser.choose = id => page.show(id);
+      browser.removeItem = id => { remove(id); return !this.entries().some(entry => entry.id === id); };
+      browser.download = ids => download(ids);
+    }
+    if (this.entries().some(entry => entry.id === get('view'))) {
+      rememberGalleryView('image', {selected: get('view')}, page.keeping());
+    }
     // The waiting frame takes its width from the shape of the run in flight,
     // which is the page's. It is read here rather than mirrored, because a
     // mirror of the run's shape is a copy that can disagree with it.
@@ -256,11 +277,11 @@ function saveFile(url, name) {
 // since an image file holds no prompt.
 // The files leave one at a time, because a browser drops downloads that come
 // too close together. A batch of edits shares one source, saved once.
-function download() {
+function download(ids = null) {
   const befores = new Map();
   const facts = [];
   const pause = function () { return new Promise(function (resolve) { setTimeout(resolve, 300); }); };
-  const saving = page.gallery().slice().reverse().reduce(function (previous, entry) {
+  const saving = page.gallery().filter(entry => !ids || ids.includes(entry.id)).slice().reverse().reduce(function (previous, entry) {
     return previous.then(function () {
       const file = page.fileName(entry);
       saveFile(entry.src, file);
@@ -278,12 +299,12 @@ function download() {
       });
     });
   }, Promise.resolve());
-  saving.then(function () {
+  return saving.then(function () {
     const url = URL.createObjectURL(new Blob([JSON.stringify(facts, null, 2)], { type: 'application/json' }));
     saveFile(url, mediaDownloadName({kind: 'image', text: 'metadata', at: Date.now(), extension: 'json'}));
     setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
   }).catch(function (error) {
-    page.notify('error', 'Download all stopped: ' + error.message);
+    page.notify('error', (ids ? 'Download selected stopped: ' : 'Download all stopped: ') + error.message);
   });
 }
 
@@ -343,8 +364,9 @@ const handle = {
   },
   step: function (delta) {
     const element = document.querySelector('image-strip');
-    if (element) element.step(delta);
+    return element ? element.step(delta) : false;
   },
+  preferredId: function () { return preferredGalleryId('image', page.gallery(), page.keeping()); },
 };
 
 // The door. The page registered its listener while the markup was parsed, and

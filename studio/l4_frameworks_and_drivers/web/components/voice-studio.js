@@ -4,8 +4,10 @@ import {clearVoice, loadVoice, saveVoice} from '../lib/voice-store.js';
 import {closeMenus, toggleMenu} from './popup-menu.js';
 import './run-button.js';
 import './audio-preview.js';
-import {mediaDownloadName} from '../lib/download-name.js';
+import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
 import {pencilLoop} from './gallery-marker.js';
+import './gallery-browser.js';
+import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
 
 const DEFAULT_CAPABILITIES = {name: 'Drama-3', modes: []};
 
@@ -265,7 +267,8 @@ class VoiceStudio extends LitElement {
     this.segments = (stored.segments || []).map(segment => ({...segment,
       takes: segment.takes.filter(take => !this.removed.has(take.id) && take.createdAt > this.cutoff).map(take => this.hydrate(take)),
     })).filter(segment => segment.inScript !== false || segment.takes.length);
-    this.selectedId = stored.selectedId || null;
+    this.selectedId = preferredGalleryId('voice', this.segments.flatMap(segment => segment.takes), this.options.keeping?.() !== false)
+      || stored.selectedId || null;
     if (this.mode !== 'edit') this.setScript(this.script);
   }
 
@@ -624,6 +627,7 @@ class VoiceStudio extends LitElement {
   }
 
   async setKeeping(keep) {
+    rememberGalleryView('voice', {}, keep);
     if (keep) this.persist(true);
     else {
       this.storageEpoch += 1;
@@ -645,6 +649,7 @@ class VoiceStudio extends LitElement {
     this.invalidateTrack();
     this.segments = this.segments.map(segment => segment.id === segmentId ? {...segment, selected: takeId} : segment);
     this.selectedId = takeId;
+    rememberGalleryView('voice', {selected: takeId}, this.options.keeping?.() !== false);
     this.persist(false, {segmentId, takeId});
   }
 
@@ -655,10 +660,21 @@ class VoiceStudio extends LitElement {
     const moves = {ArrowRight: Math.min(index + 1, buttons.length - 1), ArrowLeft: Math.max(0, index - 1), Home: 0, End: buttons.length - 1};
     if (!(event.key in moves)) return;
     event.preventDefault();
+    event.stopPropagation();
     const button = buttons[moves[event.key]];
     button.click();
     button.focus();
     button.scrollIntoView({block: 'nearest', inline: 'nearest'});
+  }
+
+  stepTake(delta) {
+    const clips = this.segments.flatMap(segment => segment.takes.map(take => ({segment, take})))
+      .sort((a, b) => b.take.createdAt - a.take.createdAt);
+    const next = clips[clips.findIndex(({take}) => take.id === this.previewItem?.take?.id) + delta];
+    if (!next) return false;
+    this.selectTake(next.segment.id, next.take.id);
+    this.updateComplete.then(() => this.querySelector('.voice-clip.selected')?.scrollIntoView({block: 'nearest', inline: 'nearest'}));
+    return true;
   }
 
   pausePlayback() {
@@ -939,6 +955,9 @@ class VoiceStudio extends LitElement {
   }
 
   updated(changes) {
+    if (changes.has('selectedId') && this.selectedId) {
+      rememberGalleryView('voice', {selected: this.selectedId}, this.options.keeping?.() !== false);
+    }
     if (changes.has('busy')) this.options.onBusyChange?.();
     if (!this.locked && (changes.has('busy') || changes.has('activeOperation'))) this.trimReferenceIfNeeded();
     const controls = document.getElementById('voice-controls');
@@ -1047,6 +1066,22 @@ class VoiceStudio extends LitElement {
     clips.sort((first, second) => (second.take?.createdAt ?? Infinity) - (first.take?.createdAt ?? Infinity));
     return html`<section class="strip-wrap voice-gallery" id="voice-gallery" aria-label="Voice gallery" ?hidden=${!clips.length && !rendering}>
       <div class="strip-head"><span>${this.takesCount} ${this.takesCount === 1 ? 'clip' : 'clips'}</span>
+        <gallery-browser workspace="voice" .items=${clips.map(({segment, take}) => ({id: take.id,
+          number: this.clipNumber(take), text: segment.text, description: take.voice, model: take.model,
+          mode: take.mode, seed: take.seed, at: take.createdAt, duration: take.duration, peaks: take.peaks,
+          batch: galleryBatch(take.id), downloadable: Boolean(take.blob)}))}
+          .selectedId=${item?.take?.id} .keeping=${this.options.keeping?.() !== false}
+          .pending=${rendering} .pendingSelected=${this.showingGeneration}
+          .showPending=${() => { this.pausePlayback(); this.showGeneration = true; this.detailsOpen = false; }}
+          .choose=${id => { const found = clips.find(({take}) => take.id === id); if (found) this.selectTake(found.segment.id, id); }}
+          .removeItem=${id => { this.removeTake(id); return !this.segments.some(segment => segment.takes.some(take => take.id === id)); }}
+          .download=${async ids => {
+            for (const {segment, take} of clips.filter(({take}) => ids.includes(take.id))) {
+              downloadAudio(take.blob, mediaDownloadName({kind: 'audio', text: segment.text,
+                at: take.createdAt, id: take.id, extension: mediaExtension(take.blob.type, 'wav')}));
+              await new Promise(resolve => setTimeout(resolve, 300));
+            }
+          }} .playback=${() => this.querySelector('audio-preview')?.play()}></gallery-browser>
         <span class="strip-actions"><button type="button" class="text-btn" ?disabled=${!this.takesCount} @click=${() => {
           if (confirm('Remove all completed audio clips from this browser?')) this.clearCompleted();
         }}>Clear all</button></span></div>
@@ -1076,25 +1111,26 @@ class VoiceStudio extends LitElement {
     let label = editing ? 'Editing audio' : 'Generating audio';
     if (!progress.step) label = 'Preparing audio';
     if (progress.total > 0 && progress.step >= progress.total) label = 'Finishing audio';
-    if (this.stopping || operation?.status === 'stopping') label = 'Stopping audio';
+    let phase = !progress.step ? 'preparing' : progress.total > 0 && progress.step >= progress.total ? 'finishing' : 'generating';
+    if (this.stopping || operation?.status === 'stopping') { label = 'Stopping audio'; phase = 'stopping'; }
     const bars = Array.from({length: 64}, (_, index) => {
       const height = 12 + Math.abs(Math.sin(index * 0.73) * Math.cos(index * 0.19)) * 68;
       return svg`<line x1=${index * 10 + 5} x2=${index * 10 + 5} y1=${50 - height / 2} y2=${50 + height / 2}
         style=${'--bar-delay: ' + (-index * 0.07).toFixed(2) + 's'}></line>`;
     });
-    return html`<section class="voice-generation" id="voice-generation" role="status" aria-label="Audio generation" aria-atomic="true">
-      <div class="voice-generation-wave" role="progressbar" aria-label="Audio generation progress"
+    return html`<section class="voice-generation audio-preview" id="voice-generation" data-phase=${phase}
+      aria-label="Audio generation">
+      <div class="audio-preview-heading voice-generation-status"><strong>${label}</strong><span>${operation?.model || this.capabilities.name}</span></div>
+      <div class="audio-preview-wave voice-generation-wave" role="progressbar" aria-label="Audio generation progress"
         aria-valuemin="0" aria-valuemax="100" aria-valuenow=${percent === null ? nothing : percent}
         aria-valuetext=${percent === null ? label : label + ', ' + percent + '%'}>
-        <svg viewBox="0 0 640 100" aria-hidden="true">
-          <defs><clipPath id="voice-generation-clip"><rect class=${percent === null ? 'voice-generation-scan' : ''}
-            width=${percent === null ? 160 : percent * 6.4} height="100"></rect></clipPath></defs>
-          <g class="voice-generation-bars">${bars}</g>
+        <svg viewBox="0 0 640 100" preserveAspectRatio="none" aria-hidden="true">
+          <defs><clipPath id="voice-generation-clip"><rect width=${percent === null ? 0 : percent * 6.4} height="100"></rect></clipPath></defs>
+          <g class="voice-generation-bars voice-generation-outline">${bars}</g>
           <g class="voice-generation-bars voice-generation-fill" clip-path="url(#voice-generation-clip)">${bars}</g>
         </svg>
       </div>
-      <div class="voice-generation-status"><strong>${label}</strong><span class="num">${percent === null ? operation?.started_at ? Math.max(0, Math.floor(Date.now() / 1000 - operation.started_at)) + ' s elapsed' : '' : percent + '%'}</span></div>
-      <p class="caption">${operation?.model || this.capabilities.name}</p>
+      <p class="voice-generation-note">Illustrative waveform · ${phase === 'finishing' ? 'Saving your audio' : phase === 'stopping' ? 'Waiting for generation to stop' : 'Audio becomes playable when generation completes'}</p>
     </section>`;
   }
 
@@ -1104,7 +1140,7 @@ class VoiceStudio extends LitElement {
       @drop=${event => { event.preventDefault(); this.addReference(event.dataTransfer.files[0]); }}>
       <div class="voice-preview-area stage">
         <div id="voice-preview-pane">
-          ${this.showingGeneration ? this.renderGeneration() : item?.take ? html`<audio-preview id="voice-audio-preview" .blob=${item.take.blob}
+          ${this.showingGeneration ? this.renderGeneration() : item?.take ? html`<audio-preview id="voice-audio-preview" class=${this.previewReady ? 'voice-result-ready' : ''} .blob=${item.take.blob}
             .downloadText=${item.segment.text} .downloadAt=${item.take.createdAt} .downloadId=${item.take.id} .speed=${this.previewSpeed}
             .label=${'Audio ' + this.clipNumber(item.take)}
             .locked=${this.locked} @audio-preview-play=${() => this.pausePlayback()}
