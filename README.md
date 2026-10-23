@@ -3,7 +3,7 @@
 A local Image, Video, and Voice studio for Apple Silicon, with a shared UI and API.
 
 - **Image:** generate and edit with Qwen Image Turbo, references, and region marking.
-- **Video:** create clips with LTX-2.5 from text, keyframes, and audio; apply model-specific editing effects.
+- **Video:** create clips with LTX-2.5 from text, keyframes, and audio; apply editing effects or turn a layout animation and look image into a rendered shot.
 - **Voice:** generate speech and clone voices with Drama-3; use AuK for voice design and instruction edits.
 
 Run ordered batches through the API and watch progress and results in the browser, synchronized across tabs.

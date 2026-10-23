@@ -583,6 +583,9 @@
     // refuses an edit without one. The button said nothing about it and the run came back
     // as a server error, so the gate asks here and the second line says what it wants.
     if (mode.needs_clip && !videoAdapterInForce()) return 'Pick an effect';
+    if (mode.min_references && (videoStudio.imageReferences || []).length < mode.min_references) return 'Add a look image from the first frame';
+    if (mode.max_references && (videoStudio.imageReferences || []).length > mode.max_references) return 'Keep one look image';
+    if (mode.reference_frame_index != null && videoStudio.imageReferences?.[0]?.frameIndex !== mode.reference_frame_index) return 'Set the look image to frame 0';
     if (!prompt) return mode.needs_clip ? 'Describe the change' : 'Write a prompt';
     if (/\[[^\]\n]+\]/.test(prompt)) return 'Fill in the [brackets]';
     return '';
@@ -605,7 +608,7 @@
     const mode = videoModeInForce();
     const unfilled = /\[[^\]\n]+\]/.test(prompt);
     const ready = mode.needs_clip
-      ? Boolean(prompt && !unfilled && videoClip.id && !videoClip.stub && videoAdapterInForce())
+      ? Boolean(prompt && !unfilled && videoClip.id && !videoClip.stub && videoAdapterInForce() && !videoRunReason())
       : Boolean(prompt && !unfilled);
     button.disabled = sharedBusy() || waiting || rewriting || (videoRunState === 'idle' && !ready);
     document.getElementById('video-go-sub').textContent =
@@ -755,6 +758,7 @@
   }
 
   function shareReferencesWithVideo() {
+    chooseVideoMode('generate');
     references.forEach(function (reference) {
       videoStudio.addImageReference({
         id: reference.id,
@@ -763,8 +767,6 @@
         base64: reference.b64,
       });
     });
-    // References feed a generate run, so the handoff opens Generate.
-    chooseVideoMode('generate');
     setMediaMode('video');
   }
 
@@ -800,7 +802,9 @@
   function videoModeInForce() {
     const list = videoModeList();
     if (!list.length) return {id: 'generate', label: 'Generate', hint: '', needs_clip: false};
-    return list.find(function (mode) { return mode.id === videoMode; }) || list[0];
+    const mode = list.find(function (mode) { return mode.id === videoMode; }) || list[0];
+    const adapter = (videoCapabilities()?.adapters || []).find(one => one.id === videoAdapter && one.mode === mode.id);
+    return adapter ? {...mode, min_references: adapter.min_references || 0, max_references: adapter.max_references || 0, reference_frame_index: adapter.reference_frame_index} : mode;
   }
 
   function videoAdapters() {
@@ -865,10 +869,12 @@
     // Edit offers video files only, one per pick, and the component refuses an image that
     // arrives anyway. Generate keeps both kinds.
     document.getElementById('video-reference-tray').hidden = mode.max_references === 0;
+    document.querySelector('#video-reference-tray strong').textContent = mode.min_references ? 'Look image' : 'Image references';
     // The Look rows are the mode's: Generate carries them, and an edit's prompt is the
     // effect's own words, so the section has no rows there and stays away.
     document.getElementById('video-look').hidden = !(mode.looks && mode.looks.length);
     videoStudio.needsClip = mode.needs_clip;
+    videoStudio.maxReferences = mode.max_references;
     // The slot draws the edit's target, so a mode change redraws it: a generated clip that the
     // run left selected belongs in the slot, not only in the gallery. This runs at startup
     // too, before `video-studio.js` has upgraded the element, so the method is asked for
@@ -882,20 +888,20 @@
     // Generate reads images and a track, Edit reads a clip. The chooser offers only what the
     // mode reads. A drop and a paste never pass through this filter, so the component still
     // reads each file's own type and refuses the wrong one.
-    mediaUpload.accept = mode.needs_clip ? EDIT_MEDIA : GENERATE_MEDIA;
-    mediaUpload.multiple = !mode.needs_clip;
+    mediaUpload.accept = mode.needs_clip ? EDIT_MEDIA + (mode.max_references ? ',.png,.jpg,.jpeg,.webp' : '') : GENERATE_MEDIA;
+    mediaUpload.multiple = !mode.needs_clip || mode.max_references > 0;
     // Edit's block is the image form's block, word for word: one labelled slot, a zone that
     // takes the click, and no "Optional" on the one input the mode cannot run without. The
     // panel's own Add button goes, because the zone is the door.
     const mediaZone = document.getElementById('video-media-empty');
-    mediaZone.setAttribute('aria-label', mode.needs_clip ? 'Add the clip to edit' : 'Add image references or audio');
-    mediaZone.querySelector('strong').textContent = mode.needs_clip
+    mediaZone.setAttribute('aria-label', mode.min_references ? 'Add a layout clip and look image' : mode.needs_clip ? 'Add the clip to edit' : 'Add image references or audio');
+    mediaZone.querySelector('strong').textContent = mode.min_references ? 'Add a layout clip and look image' : mode.needs_clip
       ? 'Add the clip to edit' : 'Add an image reference or audio';
     mediaZone.querySelector('span').textContent = mode.needs_clip
       ? 'Drop, paste or choose one.' : 'Optional. Drop, paste or choose one.';
     const panelHead = document.getElementById('video-source-panel').querySelector('.video-source-panel-head strong');
     panelHead.textContent = mode.needs_clip ? 'Clip to edit' : 'Media';
-    document.querySelector('#video-source-panel [data-action="add-media"]').hidden = mode.needs_clip;
+    document.querySelector('#video-source-panel [data-action="add-media"]').hidden = mode.needs_clip && !mode.max_references;
     // One clip needs no group heading: the panel's own label already says what it is.
     const groupHead = document.querySelector('#video-source-group .video-source-group-head');
     if (groupHead) groupHead.hidden = mode.needs_clip;
@@ -1026,15 +1032,13 @@
 
   function shareImageWithVideo(entry) {
     dataUrlFor(entry).then(function (src) {
+      chooseVideoMode('generate');
       videoStudio.addImageReference({
         id: 'image-' + entry.id,
         name: 'Image ' + entry.seed,
         src: src,
         base64: base64FromDataUrl(src),
       });
-      // The image is a keyframe for a generate run, so the handoff opens Generate whatever
-      // the video workspace was last set to.
-      chooseVideoMode('generate');
       setMediaMode('video');
     }).catch(function (error) {
       showToast('error', 'The image did not load as a video reference: ' + error.message);
@@ -1306,6 +1310,9 @@
     this.setAttribute('aria-pressed', String(this.getAttribute('aria-pressed') !== 'true'));
     syncVideoSeedSummary();
     document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'}));
+  });
+  document.addEventListener('draft-change', function (event) {
+    if (event.detail === 'video') syncVideoGenerateButton();
   });
   document.getElementById('video-prompt').addEventListener('input', function () {
     syncVideoGenerateButton();

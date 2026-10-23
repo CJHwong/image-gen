@@ -778,7 +778,7 @@ class VideoStudio extends LitElement {
     if (!sourceGroup || !referenceTray || !emptyState) return;
     const hasClips = this.shownClips().length > 0;
     // An edit takes no image references, so one left from Generate stays out of its panel.
-    const hasReferences = !this.needsClip && this.imageReferences.length > 0;
+    const hasReferences = (!this.needsClip || this.maxReferences > 0) && this.imageReferences.length > 0;
     const hasAudio = !this.needsClip && Boolean(this.audio);
     sourceGroup.hidden = !hasClips;
     referenceTray.hidden = !hasReferences;
@@ -1151,7 +1151,7 @@ class VideoStudio extends LitElement {
     // An edit changes one clip. The page sets this from the mode, and it covers the chooser,
     // a drop and a paste: an image is not an edit input, and taking none of the batch is the
     // honest answer when one arrives beside a clip.
-    if (this.needsClip && Array.from(files).some((file) => isImageFile(file) || isAudioFile(file))) {
+    if (this.needsClip && Array.from(files).some((file) => (isImageFile(file) && !this.maxReferences) || isAudioFile(file))) {
       this.setError('An edit changes a clip. Choose a video file.');
       return;
     }

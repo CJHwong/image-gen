@@ -630,3 +630,19 @@ def test_video_batch_rejects_mixed_fast_mode_before_running():
             lambda *_: None,
             lambda: False,
         )
+
+
+def test_layout_edit_requires_exactly_one_first_frame_look_image():
+    from studio.l3_interface_adapters.gateways.video.shared.capabilities import ltx25_mlx_capabilities
+
+    caps = ltx25_mlx_capabilities()
+    value = payload(mode="edit", adapter="layout-to-render", clip=clip_payload(), width=768, height=448, num_frames=49)
+    look = {"name": "look.png", "image": png_data(), "frame_index": 0, "strength": 1.0}
+    for refs in ([], [look, look]):
+        with pytest.raises(InvalidJob, match="needs between 1 and 1"):
+            video_job({**value, "references": refs}, caps)
+    with pytest.raises(InvalidJob, match="look image must use frame_index 0"):
+        video_job({**value, "references": [{**look, "frame_index": 8}]}, caps)
+    job = video_job({**value, "references": [look]}, caps)
+    assert job.edit is not None and job.edit.stage_2_conditioning
+    assert len(job.references) == 1 and not job.enhance

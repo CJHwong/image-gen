@@ -26,8 +26,15 @@ The 720 class is 1280×704; the 1080 class is 1920×1088.
 An audio track selects the guided audio-to-video pipeline and is padded when shorter than the requested clip.
 The input track is returned with the video; this route does not promise lip synchronization.
 
-LTX-2.5 Edit exposes Day to Night, Water Simulation, Clean Plate, Deblur, Decompression, Restore, and Upscale 2×.
+LTX-2.5 Edit exposes Day to Night, Water Simulation, Clean Plate, Deblur, Decompression, Restore, Upscale 2×, and Layout to Render.
 Each effect declares its own geometry, duration, and conditioning settings.
+Layout to Render requires a layout/playblast clip and one art-directed image derived from its first frame.
+In Edit, choose the adapter, add both inputs through Media, and describe the finished materials and lighting.
+It uses eight low-resolution steps, a trained 2× latent upscale, and three full-resolution steps with both references.
+The public look image uses frame 0; Studio maps it to the engine's virtual position -1.
+Keep the clip's dimensions on the 64-pixel grid and length at 8k+1 frames, at 24 fps.
+The official known-good size is 1920×1088. Source audio is not preserved.
+See the [official workflow](https://docs.ltx.io/open-source-model/vfx-post-production/layout-to-render).
 
 Video Rewrite and automatic Generate enhancement use native Gemma instructions.
 Image-aware enhancement reads the first keyframe. Later keyframes remain generator inputs.

@@ -65,10 +65,10 @@ SHAPES = (
 )
 
 
-# The seven LTX-2.5 effects. The port's default IC-LoRA path is two-stage and applies the
-# reference at half resolution, which turns these adapters into a tiled artifact. Its
-# single-stage path applies the reference at full resolution throughout, and that is the one
-# these weights answer to: restore and upscale both return the scene on it (2026-10-20).
+# Existing effects retain their measured single-stage recipes (2026-10-20).
+# Layout to Render uses its own two-stage recipe. Its earlier mosaic was traced
+# to the port silently leaving its upscaler untrained when v1_1 was absent;
+# the dedicated child requires the LTX-2.5 pack's v1_0 weights (2026-10-23).
 DAY_TO_NIGHT_PROMPT = (
     "A realistic nighttime scene of the same place: deep blue moonlight, warm street lamps "
     "and lit shop windows, deep natural shadows. Only the lighting changes from day to "
@@ -108,6 +108,18 @@ VIDEO_ADAPTERS = (
         file="",
         min_strength=1.0,
         max_strength=1.0,
+    ),
+    VideoAdapter(
+        id="layout-to-render",
+        label="Layout to Render",
+        hint="Turn a layout animation into a finished shot. Add a look image made from its first frame; describe the finished materials and lighting.",
+        mode="edit",
+        file="ltx-2.5-22b-ic-lora-layout-to-render-1.0.safetensors",
+        stage_2_conditioning=True,
+        min_references=1,
+        max_references=1,
+        reference_frame_index=0,
+        card="Layout-To-Render",
     ),
     VideoAdapter(
         id="day-to-night",

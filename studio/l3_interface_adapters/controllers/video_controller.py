@@ -82,6 +82,16 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
     frame_rate = _frame_rate(payload.get("frame_rate"), capabilities)
     seed = _seed(payload.get("seed"), capabilities)
     references = _references(payload.get("references", []), num_frames, capabilities)
+    if adapter is not None and not adapter.min_references <= len(references) <= adapter.max_references:
+        raise InvalidJob(
+            f"{adapter.label} needs between {adapter.min_references} and {adapter.max_references} image references."
+        )
+    if (
+        adapter is not None
+        and adapter.reference_frame_index is not None
+        and any(reference.frame_index != adapter.reference_frame_index for reference in references)
+    ):
+        raise InvalidJob(f"The look image must use frame_index {adapter.reference_frame_index}.")
     return VideoJob(
         prompt,
         width,

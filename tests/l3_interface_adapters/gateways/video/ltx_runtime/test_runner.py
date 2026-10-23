@@ -1289,3 +1289,34 @@ def test_image_enhancement_uses_vision_child_without_an_audio_track(tmp_path, mo
     assert command[2] == "generate"
     assert "--enhance-prompt" in command
     assert "--image" in command
+
+
+def test_layout_edit_forwards_the_look_and_uses_two_stage_child(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    executable = cli(tmp_path)
+    (tmp_path / "python").touch()
+    loras = tmp_path / "loras"
+    loras.mkdir()
+    (loras / "layout.safetensors").touch()
+    runner = make_runner({"cli_path": executable, "lora_dir": str(loras)}, "pack", False)
+    job = VideoJob(
+        "Weathered stone in summer sunlight",
+        768,
+        448,
+        49,
+        24,
+        42,
+        references=(VideoReference("look.png", b"look bytes", 0, 1.0),),
+        edit=VideoEdit(
+            "layout-to-render", 1.0, "layout.safetensors", b"clip bytes", "clip.mp4", stage_2_conditioning=True
+        ),
+    )
+    runner.run(job)
+    command = commands[0]
+    assert command[1].endswith("mlx_layout_to_render_child.py")
+    assert command[2] == "ic-lora"
+    assert "--single-stage" not in command
+    assert command[command.index("--stage2-steps") + 1] == "3"
+    assert command[command.index("--refine-steps") + 1] == "3"
+    assert command[command.index("--image") + 2 :] == ["-1", "1", "0"]

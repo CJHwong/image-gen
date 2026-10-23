@@ -629,3 +629,20 @@ Their IDs work with the existing Image, Video, Voice and batch operation endpoin
 the selected model's modes, parameters, sizes and limits; built-in model recipes do not apply
 implicitly to plugins. A plugin without its own rewriter has no Rewrite capability.
 See [adding a model](docs/how-to/add-a-model-plugin.md) and [the plugin contract](docs/reference/model-plugins.md).
+
+
+## Layout to Render
+
+Use `POST /api/v1/videos/edit` with `adapter: "layout-to-render"`, or submit the same
+payload through `/api/v1/operations` with `kind: "video", mode: "edit"`.
+The layout MP4 in `clip` supplies camera, framing and motion. Exactly one image in `references`
+must depict its first frame with the desired materials and lighting (`frame_index: 0`, recommended
+`strength: 1`). Studio maps that image to virtual position -1 and reapplies both references in
+both stages. Other shipped Edit adapters accept no image references.
+Describe the finished shot in one or two sentences; avoid describing the clay/blockout source.
+Use 24 fps, supported dimensions divisible by 64 and 8k+1 frames. The official known-good size
+is 1920×1088. Install the Layout-To-Render adapter and the LTX-2.5 pack's v1_0 spatial upscaler;
+missing upscaler files fail clearly. Source audio is not preserved.
+The rendered docs contain a complete example with explicit base64 placeholders.
+[Official guide](https://docs.ltx.io/open-source-model/vfx-post-production/layout-to-render) ·
+[Model card](https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render).

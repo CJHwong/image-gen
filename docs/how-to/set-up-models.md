@@ -32,6 +32,16 @@ uv run hf auth login
 The engine downloads the video pack on first generation (about 72 GB).
 To use Video Edit effects, accept each adapter’s terms and either place its file in `[mlx_video].lora_dir`
 or enable `[mlx_video].fetch_loras`. The default leaves adapter downloads disabled and reports the missing path.
+For **Layout to Render**, accept the [adapter terms](https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render), then download to the default adapter directory:
+
+```sh
+uv run --with huggingface-hub hf download Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render \
+  ltx-2.5-22b-ic-lora-layout-to-render-1.0.safetensors \
+  --local-dir ~/Library/Caches/models/ltx-2.5-loras
+```
+
+The LTX-2.5 pack must include `spatial_upscaler_x2_v1_0.safetensors` and its `_config.json`.
+Studio checks both before this adapter runs; the pinned engine otherwise silently leaves the upscaler untrained.
 LTX-2.3 requires its own pack and is optional.
 
 ## Default Voice: Drama-3

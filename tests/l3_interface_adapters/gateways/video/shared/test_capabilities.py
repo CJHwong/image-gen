@@ -25,6 +25,7 @@ def test_the_2_5_pack_offers_generate_and_the_seven_effects():
     ]
     assert [adapter.id for adapter in capabilities.adapters] == [
         "custom",
+        "layout-to-render",
         "day-to-night",
         "water-simulation",
         "clean-plate",

@@ -232,17 +232,22 @@ class MlxVideoRunner:
         output: Path,
         cancelled: Callable[[], bool] | None = None,
     ) -> list[str]:
-        """An effect run, on the single-stage path.
+        """Keep existing effects on their measured single-stage recipes.
 
-        The port's default IC-LoRA path is two-stage and applies the reference at half
-        resolution, which turns a 2.5 effect into a tiled artifact. The single-stage path
-        applies the reference at full resolution throughout, and the 2.5 weights answer to it.
+        Layout to Render uses a dedicated two-stage child, which forwards the look image
+        and requires trained upscaler weights instead of the pinned port's random fallback.
         """
         clip = root / "conditioning.mp4"
         clip.write_bytes(edit.clip)
         if edit.lora_file:
             lora = self._lora(edit, cancelled)
             entrypoint = [self._cli, "ic-lora", "--lora", str(lora), f"{edit.strength:g}"]
+            if edit.stage_2_conditioning:
+                python = self._checked(
+                    str(Path(self._cli).parent / "python"), "The MLX CLI needs its environment's python."
+                )
+                child = Path(__file__).with_name("mlx_layout_to_render_child.py")
+                entrypoint = [python, str(child), *entrypoint[1:]]
         else:
             python = self._checked(
                 str(Path(self._cli).parent / "python"), "The MLX CLI needs its environment's python."
@@ -275,6 +280,13 @@ class MlxVideoRunner:
         ]
         if job.seed is not None:
             command.extend(("--seed", str(job.seed)))
+        if edit.stage_2_conditioning:
+            command.remove("--single-stage")
+            command[command.index("--stage2-steps") + 1] = "3"
+            command.extend(("--upsample-only", "--refine-steps", "3"))
+            images = self._write_references(job, root)
+            for path, reference in zip(images, job.references, strict=True):
+                command.extend(("--image", str(path), "-1", f"{reference.strength:g}", "0"))
         return command
 
     def _lora(self, edit: VideoEdit, cancelled: Callable[[], bool] | None = None) -> Path:

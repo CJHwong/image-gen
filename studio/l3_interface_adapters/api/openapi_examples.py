@@ -85,6 +85,30 @@ def image_examples(edit: bool = False) -> dict[str, Any]:
 def video_examples(edit: bool = False) -> dict[str, Any]:
     if edit:
         return {
+            "layout_to_render": {
+                "summary": "Render a layout animation using an art-directed first-frame image",
+                "description": "Replace both base64 placeholders. The clay/playblast clip supplies camera and object motion. Make the look image from its first frame, preserving geometry; describe the finished shot, not the clay source. Exactly one image is required with frame_index 0; Studio places it at virtual time -1 in both engine stages. Use 24 fps, 64-pixel dimensions and 8k+1 frames; 1920x1088 is the official known-good size. Install the Layout-To-Render LoRA first. Source audio is not preserved. See https://docs.ltx.io/open-source-model/vfx-post-production/layout-to-render .",
+                "value": {
+                    "backend": "ltx25_mlx",
+                    "adapter": "layout-to-render",
+                    "adapter_strength": 1,
+                    "prompt": "A weathered stone well in golden summer grass, rough stone and timber in warm sunlight.",
+                    "width": 1920,
+                    "height": 1088,
+                    "num_frames": 49,
+                    "frame_rate": 24,
+                    "seed": 42,
+                    "clip": {"name": "layout.mp4", "data": "<replace with base64 of your layout MP4>"},
+                    "references": [
+                        {
+                            "name": "look.png",
+                            "image": "<replace with base64 of your look image>",
+                            "frame_index": 0,
+                            "strength": 1,
+                        }
+                    ],
+                },
+            },
             "custom_no_lora": {
                 "summary": "Edit a clip using your own prompt, without a LoRA",
                 "description": "Replace clip.data with actual MP4 bytes. Choose a supported shape nearest the clip and snap its frame count to the model grid. Custom uses the base model's clip conditioning, with no effect weights to install.",

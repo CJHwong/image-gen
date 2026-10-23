@@ -9,3 +9,8 @@ The [distributed weight card](https://huggingface.co/smcleod/AuK-MLX-8bit) decla
 The complete Voice stack therefore retains that research license restriction. Do not treat it as entirely MIT-licensed.
 
 Drama-3 weights use the [Fish Audio Community License 1.0](https://huggingface.co/mlx-community/fish-audio-drama-3-8bit/blob/fedc7cc92bab5a180709cbaae6208d10b390bb97/LICENSE). Its community commercial eligibility and hosted-service terms differ from the MLX Audio code license.
+
+
+LTX-2.5 and its Layout to Render adapter carry the
+[LTX-2.x Community License](https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render#license).
+The third-party MLX port's code license does not replace the model-weight terms.

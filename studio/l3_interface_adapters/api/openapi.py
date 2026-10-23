@@ -448,6 +448,20 @@ def openapi_document() -> dict[str, Any]:
                             "type": "string",
                             "description": "An adapter id from discovery. Choose custom for experimental clip conditioning without loading or downloading any task LoRA, and write your own change in prompt. Source fidelity and edit adherence are not yet validated. Other ids select specialized LoRA effects.",
                         },
+                        "references": {
+                            "type": "array",
+                            "description": "layout-to-render requires exactly one art-directed image made from the layout's first frame, frame_index 0 and strength 1 recommended. Studio forwards it at virtual time -1 in both stages. Other shipped Edit effects accept no images. Read adapter min_references and max_references from discovery.",
+                            "items": {
+                                "type": "object",
+                                "required": ["name", "image", "frame_index", "strength"],
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "image": {"type": "string", "contentEncoding": "base64"},
+                                    "frame_index": {"type": "integer"},
+                                    "strength": {"type": "number"},
+                                },
+                            },
+                        },
                         "adapter_strength": {"type": "number"},
                         "width": {"type": "integer", "description": "Read the adapter's measured width"},
                         "height": {"type": "integer", "description": "Read the adapter's measured height"},

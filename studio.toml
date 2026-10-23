@@ -28,7 +28,8 @@ cli_path = "~/ltx-experiments/ltx-2-mlx/.venv/bin/ltx-2-mlx"
 ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
 model_ltx25 = "dgrauet/ltx-2.5-mlx-q8"
 model_ltx23 = "dgrauet/ltx-2.3-mlx-q8"
-# The seven LTX-2.5 effects, one file each, fetched from the Creative Lab collection.
+# LTX-2.5 effects, including Layout to Render, each use their own adapter file.
+# Layout to Render also requires the pack's v1_0 spatial upscaler weights and config.
 # Custom Edit uses no task LoRA and does not need this directory or a download.
 lora_dir = "~/Library/Caches/models/ltx-2.5-loras"
 # Fetch an effect's weights when the file is not there. A download is a side effect the

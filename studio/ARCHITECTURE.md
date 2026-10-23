@@ -210,3 +210,11 @@ The composition root injects the bounded active-memory scope into the official Q
 Local experiment evidence and research notes live outside the checkout. The repository
 keeps product setup, API documentation and measured conclusions, rather than raw reports.
 The `reports/` and `research_notes/` ignore rules prevent accidental reintroduction.
+
+
+Layout to Render declares adapter-specific image bounds separately from Edit's normal zero-image mode.
+The controller validates one first-frame look image and the browser uses the same declared bounds.
+Its dedicated MLX child preserves virtual reference time -1, uses ancestral sampling and reapplies
+conditioning in both stages. It loads the LTX-2.5 v1_0 spatial upscaler explicitly and refuses missing
+weights/config; the pinned IC-LoRA loader otherwise looks for v1_1 and silently keeps random weights.
+Existing single-stage effects retain their sampling paths. The external engine checkout is not patched.
