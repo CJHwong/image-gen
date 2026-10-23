@@ -19,3 +19,7 @@ collected/
 # Local experiment evidence and benchmark artifacts
 /reports/
 /research_notes/
+
+# Personal agent rules for this machine; never published
+AGENTS.local.md
+CLAUDE.local.md

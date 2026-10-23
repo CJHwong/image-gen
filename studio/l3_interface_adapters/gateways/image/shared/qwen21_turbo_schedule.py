@@ -9,7 +9,7 @@ checkpoint. The model card says the opposite of what that does: "The recommended
 Setting `num_inference_steps` alone does not override it." So the studio was
 sampling a distilled checkpoint off the schedule it was distilled for.
 
-Measured 2026-10-16 on the office machine, one prompt and two seeds at 768 x 768,
+Measured 2026-10-16 on the M5 Pro, one prompt and two seeds at 768 x 768,
 the shipped table against the linear one: RMS 26.3 and 35.3 between the pairs, as
 large as the gap between 8 and 40 steps, with the linear table 2.5 to 3.1 higher
 on edge energy and the shipped one up to 3.6x on clipped highlights. Two seeds and

@@ -812,7 +812,7 @@ one question, `colours`, whose true answer with nothing drawn is none, so the re
 button can ask it before the module arrives.
 
 Six checks read the press on the stub. What they do not settle is the real rewriter's own
-wording for a row: one rewrite of a row on the office machine answers whether its answer
+wording for a row: one rewrite of a row on the M5 Pro answers whether its answer
 names the area itself, which would double the phrase the page wraps around it.
 
 The page also says the rule where a user reads it, which the manual had never done: the
@@ -823,7 +823,7 @@ words you typed and leaves the Look to the run. That last one answers a dead but
 an empty box the Rewrite button is off, and its reason had been a tooltip alone, where the
 run button's reason is the line under it. Four more checks read those four places.
 
-`verify_page.py` passed 183 of 183 on the office machine, against the tree the stub run
+`verify_page.py` passed 183 of 183 on the M5 Pro, against the tree the stub run
 verified. One of its checks reads the branch this change touched: its generate run picks
 the Overcast Look, and the check at 619 asserts the caption ends in that Look, muted.
 `verify_capabilities.py` stays at 61 of 61, `verify_storage.py` at 20 of 20, and
@@ -901,7 +901,7 @@ whole point: that is read on the model, by the spike above and by `tests/e2e/ver
 which makes four pictures of four subjects and edits them twice, once without a press and once
 with one, and reads the pairing between a result and its picture off their backgrounds.
 
-That run was made on the office machine, four pictures of four subjects and one instruction in
+That run was made on the M5 Pro, four pictures of four subjects and one instruction in
 the user's words. The press filled all four rows in 102 seconds, about 25 each, and each
 instruction is about its own picture: the red-green macaw, the black cat with its own window
 frame and navy drape, and one that warns against rendering its subject as a rabbit. The fourth
@@ -918,7 +918,7 @@ it lands in is the user's to correct.
 
 A browser reads the files of one pick one at a time, and the reads finish in their own order. The
 list used to be built as each read landed, so its order followed how long each read took rather
-than what was picked. Measured on the office machine with four pictures in one pick: their
+than what was picked. Measured on the M5 Pro with four pictures in one pick: their
 sources came back as 1, 4, 2, 3 instead of 1, 2, 3, 4, and the background comparison between a
 result and its picture named the pair that had changed places. Nothing misled anyone about which
 picture was which, since the thumbnail, the row and the result all carry the same picture, and

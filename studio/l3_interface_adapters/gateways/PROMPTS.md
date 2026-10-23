@@ -215,7 +215,7 @@ Every Look option was added to "a cat wearing a suit" at 768 x 768, 20 steps, gu
 
 ### The edit Look test, measured 2026-10-10
 
-Eighteen options ran on Qwen-Image-2.1, bf16, on the office machine (M5 Pro, 64 GB), one seed, 20 steps, 768 on the short side, true CFG 1.0, no negative prompt. The seed was 20261010 and it was the same for every sample, so a difference in a pair is the sentence and nothing else. Two fixtures were generated at the same settings, one portrait for the Retouch row and one street for the other five, and each option ran beside its own fixture, which is the control: for an edit the question is what the sentence changed, and the bare fixture is the picture it started from.
+Eighteen options ran on Qwen-Image-2.1, bf16, on the M5 Pro (64 GB), one seed, 20 steps, 768 on the short side, true CFG 1.0, no negative prompt. The seed was 20261010 and it was the same for every sample, so a difference in a pair is the sentence and nothing else. Two fixtures were generated at the same settings, one portrait for the Retouch row and one street for the other five, and each option ran beside its own fixture, which is the control: for an edit the question is what the sentence changed, and the bare fixture is the picture it started from.
 
 | Fixture | Size | What it is |
 |---|---|---|
@@ -430,7 +430,7 @@ Fifteen of 15 landed, so this backend offers the whole catalog and not a subset.
 
 **The mark still does not bound a retouch.** The blemish sample marked a patch of cheek 62 px wide at 768, and the freckles cleared across the whole cheek, including well outside the mark. That is the same finding the base model's table records, so a Retouch pick on six steps changes the area its sentence names rather than the area the mark covers.
 
-**What this sample does not settle.** One seed per option, the bar the generate rows were held to and no more. Six steps is the only schedule this distillation runs, so there is no second step count to compare against, and whether these sentences would hold at another count is not a question this model can be asked. The two fixtures are one portrait and one street, so the exposure, white balance and grade verdicts are statements about those scenes. The Retouch sentences were measured at one mark shape each, drawn by a script, and not by a hand with the brush. The timings were 10 to 23 s an image at 768 x 512 and 29 to 37 s at 768 x 768, on the office machine, with nothing else on the GPU.
+**What this sample does not settle.** One seed per option, the bar the generate rows were held to and no more. Six steps is the only schedule this distillation runs, so there is no second step count to compare against, and whether these sentences would hold at another count is not a question this model can be asked. The two fixtures are one portrait and one street, so the exposure, white balance and grade verdicts are statements about those scenes. The Retouch sentences were measured at one mark shape each, drawn by a script, and not by a hand with the brush. The timings were 10 to 23 s an image at 768 x 512 and 29 to 37 s at 768 x 768, on the M5 Pro, with nothing else on the GPU.
 
 #### The options the first pass left out, measured 2026-10-06
 
@@ -550,7 +550,7 @@ never falls, which is what a peak is.
 
 The page's note claimed that the rewriter reads the pictures, so its answer names the one
 it read. Four pictures of four different subjects were put to it: a golden retriever, a
-black cat, a grey rabbit and a red parrot, each generated on the office machine at the
+black cat, a grey rabbit and a red parrot, each generated on the M5 Pro at the
 first tier size the form offers, eight steps. The same words go with them both ways:
 "make it a chihuahua sitting in a dog bed".
 
@@ -583,7 +583,7 @@ subject's own words in it, which is a reader and not a judgement.
 
 The official Turbo checkpoint samples its own eight-node sigma table, so the aids
 were sampled on that schedule rather than inherited. Measured 2026-10-16 on the
-office machine, eight steps on that table, seed 1234, 768 x 768, bf16.
+M5 Pro, eight steps on that table, seed 1234, 768 x 768, bf16.
 
 The fixture was "a cat wearing a suit", the one the Look test used. Each option ran
 next to the bare prompt, one contact sheet per row. Two rows are about people and a
@@ -986,7 +986,7 @@ taken on, and two figures from two scenes say nothing about either engine.
 
 Every figure above comes from the engine, driven with the sentence and the palette the
 page writes. The page's own path was never run on this backend: its tool and its brush
-were checked against the stub. Three runs close that, on the office M5 Pro against a
+were checked against the stub. Three runs close that, on the M5 Pro against a
 server on this backend, and nothing in them is a fixture. The page drew the scene, the
 mark is a mouse stroke on the print, the sentence is the page's own, and the mask scored
 is the one the page posted.
@@ -1032,7 +1032,7 @@ The top quarter is in the measure because a subject walking across a locked-off 
 it alone: a strip that moves says the frame itself moved. That is what separates a camera
 move from a walk.
 
-Seed 7, the office machine, one clip each. The clips cost 308 to 496 seconds each, 430.9 for
+Seed 7, the M5 Pro, one clip each. The clips cost 308 to 496 seconds each, 430.9 for
 the first.
 
 Four more clips followed. One re-sampled the light template with a different wording, and
@@ -1143,7 +1143,7 @@ is a plausible reading of the words and a poor soundtrack.
 
 Ten prompts, one from the 2.5 prompt guide and nine from the vendor's published samples, were
 sent to `/api/v1/videos/generate` with no template and no words of this studio's own. Every
-clip ran at 384 x 384, 121 frames and seed 7 on the office M5 Pro, 115 to 207 seconds each.
+clip ran at 384 x 384, 121 frames and seed 7 on the M5 Pro, 115 to 207 seconds each.
 Each clip was judged on a contact sheet at 1:1, and the cuts and the audio were measured;
 "change" is a spike in the frame difference that the sheet confirms is a cut, not a re-render.
 
@@ -1185,16 +1185,16 @@ the crowd; at 1024 x 576 and 49 frames it emptied the street. Each adapter carri
 | Restore | 960 x 544, 97 | Colour and detail return on damaged footage, with a warm cast |
 | Upscale 2x | twice the clip | 384 to 768, faces, hands and the floor planks at 1:1. 399.1 s through the API |
 
-The times are the studio's own run on the office M5 Pro, with no other GPU job on the
+The times are the studio's own run on the M5 Pro, with no other GPU job on the
 machine: one clip, seed 7, one effect per request through `/api/v1/videos/edit`.
 
-Water's card asks for 1920 x 1088. On the office M5 Pro with 64 GB, that single-stage edit fails with insufficient Metal memory during reference encoding. The `--upsample-only` alternative writes a clip, but its frames contain dense noise and tiles. Neither run validates water at that size. Water stays at the measured 1280 x 704 pair.
+Water's card asks for 1920 x 1088. On the M5 Pro with 64 GB, that single-stage edit fails with insufficient Metal memory during reference encoding. The `--upsample-only` alternative writes a clip, but its frames contain dense noise and tiles. Neither run validates water at that size. Water stays at the measured 1280 x 704 pair.
 
 The form offers 1920 x 1088 for generation. That does not validate edits at the same size. Deblur and decompression were trained at 960 x 544. Their cards name 1920 x 1088 for production, but only the trained pair has a valid measured result here.
 
 With `fetch_loras = true`, the current runner fetched Deblur into an empty directory through `/api/v1/videos/edit`. The downloaded file matches the existing verified adapter byte for byte. Cancel returned 204, the edit returned `{"cancelled": true}`, and the engine child exited in 0.163 seconds. A separate server check confirms that Cancel stops a stalled download and releases the shared run lock.
 
-Portrait checks use `/api/v1/videos/edit` on the office M5 Pro with 64 GB, seed 7. Each check compares its first, middle and last frames with the input.
+Portrait checks use `/api/v1/videos/edit` on the M5 Pro with 64 GB, seed 7. Each check compares its first, middle and last frames with the input.
 
 | Effect | Portrait output | Seconds | Visual result |
 | --- | --- | --- | --- |
@@ -1224,7 +1224,7 @@ path, so Dub is deferred and would need that engine restored.
 ### LTX-2.5 speech and camera probes (2026-10-20)
 
 Six sequential asynchronous API operations use seed 7, 384 x 384, 121 frames, and 24 fps.
-The office M5 Pro runs one GPU job at a time. Source digests match before and after every run.
+The M5 Pro runs one GPU job at a time. Source digests match before and after every run.
 
 | Probe | Seconds | Verdict |
 | --- | --- | --- |

@@ -258,7 +258,7 @@ def _capabilities(backend_id: str, name: str, edit: bool = False) -> VideoCapabi
         # The port accepts any side on the 64 pixel grid; the form keeps its own bounds so a
         # typo cannot ask for a shape the model was never sampled at.
         min_dimension=256,
-        # 1080p class. Measured on the office M5 Pro: a 1920 x 1088 generate of 97 frames
+        # 1080p class. Measured on the M5 Pro: a 1920 x 1088 generate of 97 frames
         # took 790 s on 2.5 q8 and stayed inside 64 GB, on the distilled two-stage path.
         max_dimension=1920,
         dimension_step=64,

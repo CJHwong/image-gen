@@ -23,7 +23,8 @@ batch_policy = "auto"
 # LTX-2.5 Fast mode is selected per request in Video Advanced or with API fast_mode=true.
 # It uses float16 transformer computation with the same q8 weights; generated details can differ.
 # The third-party MLX port, its 8-bit pack, and ffmpeg for padding a short track. The
-# paths are the office machine's; a laptop runs the stub and never reads them.
+# paths are examples from one Apple Silicon install; set them to your own. A machine that
+# runs only the stub never reads them.
 cli_path = "~/ltx-experiments/ltx-2-mlx/.venv/bin/ltx-2-mlx"
 ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
 model_ltx25 = "dgrauet/ltx-2.5-mlx-q8"

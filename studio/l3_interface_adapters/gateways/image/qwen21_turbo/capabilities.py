@@ -20,7 +20,7 @@ from studio.l3_interface_adapters.gateways.image.shared.qwen_image_controls impo
     steps_param,
 )
 
-# Measured 2026-10-16 on the office machine, an M5 Pro with 64 GB and bf16 weights,
+# Measured 2026-10-16 on the M5 Pro with 64 GB and bf16 weights,
 # on the checkpoint's own eight-node table. Two runs at each of three sizes (0.26,
 # 0.59 and 1.05 MP) after a warmup. The step cost is fitted from the run's own step
 # timestamps, which is the only measurement of it that the fixed cost cannot move,
