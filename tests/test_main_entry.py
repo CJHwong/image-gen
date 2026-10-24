@@ -60,6 +60,24 @@ def test_a_good_run_serves_until_ctrl_c_then_frees_the_engine(tmp_path, monkeypa
     assert "Models load on first use" in printed and "Loading Qwen" not in printed
 
 
+def test_an_allowed_origin_reaches_the_handler_without_its_slash(tmp_path, monkeypatch):
+    """A URL copied from the browser bar ends in a slash, and an Origin header never does."""
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    server_class = Mock(return_value=server)
+    monkeypatch.setattr(entry, "ThreadingHTTPServer", server_class)
+    proxy = "https://my-mac.example.ts.net:8765"
+    argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path)), "--allow-origin", proxy + "/")
+
+    entry.main()
+
+    request = SimpleNamespace(
+        headers={"Host": "my-mac.example.ts.net:8765", "Origin": proxy},
+        server=SimpleNamespace(server_address=("127.0.0.1", 8765)),
+    )
+    assert server_class.call_args.args[1]._from_this_page(request) is True
+
+
 def test_the_startup_line_names_the_rewriters_before_the_click(tmp_path, monkeypatch, capsys):
     """The first rewrite in a mode fetches about 19 GB with the progress bar off, so
     the page looks merely busy. The wait has to be visible before the button is pressed."""

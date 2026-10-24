@@ -324,8 +324,14 @@ def plugin_factories(plugins: ModelPlugins | None, kind: str, stub: bool) -> dic
     return {name: partial(plugins.build, kind, name, stub=stub) for name in plugins.ids(kind)} if plugins else {}
 
 
-def create_studio(config: Config, stub: bool = False, plugins: ModelPlugins | None = None) -> Studio:
-    """With `stub`, each backend keeps its form and fakes its engine: for work on the page."""
+def create_studio(
+    config: Config,
+    stub: bool = False,
+    plugins: ModelPlugins | None = None,
+    allowed_origins: tuple[str, ...] = (),
+) -> Studio:
+    """With `stub`, each backend keeps its form and fakes its engine: for work on the page.
+    `allowed_origins` are the pages at another address that may post, such as a proxy."""
     plugins = plugins if plugins is not None else discover_plugins()
     backends = build_backends(config, plugins, stub)
     enhancer = Gemma3PromptEnhancer(config.backend("mlx_video"), SubprocessRunner().execute)
@@ -368,6 +374,7 @@ def create_studio(config: Config, stub: bool = False, plugins: ModelPlugins | No
         default_voice_id=config.default_voice_backend,
         visible_voice_ids=config.visible_voice_backends,
         video_rewriters=video_rewriters,
+        allowed_origins=allowed_origins,
     )
 
 
@@ -385,6 +392,7 @@ def assemble_studio(
     visible_voice_ids=(),
     video_rewriter: PromptRewriterGateway | None = None,
     video_rewriters: dict | None = None,
+    allowed_origins: tuple[str, ...] = (),
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
     gpu = GpuThread()
@@ -472,7 +480,7 @@ def assemble_studio(
         batches=PrepareBatchUseCase(),
     )
     return Studio(
-        handler=make_handler(controller, presenter, video_controller, api),
+        handler=make_handler(controller, presenter, video_controller, api, allowed_origins),
         catalog=catalog,
         video_catalog=video_catalog,
         residency=residency,

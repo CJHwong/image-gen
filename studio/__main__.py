@@ -11,6 +11,7 @@ USAGE:
     uv run studio --port 9000
     uv run studio --backend qwen21 -q 8
     uv run studio --stub --port 8832   # the page on fake engines, for page work
+    uv run studio --allow-origin https://my-mac.example.ts.net:8765   # behind a proxy
 """
 
 import argparse
@@ -59,6 +60,13 @@ def parse_args():
         action="store_true",
         help="fake every engine: timed steps and placeholder images, no weights, no GPU. For work on the page",
     )
+    parser.add_argument(
+        "--allow-origin",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="let a page at this origin post, such as a Tailscale serve URL. Repeat it for more than one",
+    )
     return parser.parse_args()
 
 
@@ -86,7 +94,12 @@ def main():
             visible_video=(*VIDEO_BACKENDS, *plugins.ids("video")) if args.all_backends else None,
             visible_voice=(*VOICE_BACKENDS, *plugins.ids("voice")) if args.all_backends else None,
         )
-        studio = create_studio(config, stub=args.stub, plugins=plugins)
+        studio = create_studio(
+            config,
+            stub=args.stub,
+            plugins=plugins,
+            allowed_origins=tuple(origin.rstrip("/") for origin in args.allow_origin),
+        )
     except ConfigError as error:
         sys.exit(f"Bad settings in {args.config}: {error}")
     except EngineUnavailable as error:

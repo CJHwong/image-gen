@@ -31,7 +31,11 @@ def make_handler(
     presenter: HtmlPresenter,
     video_controller: VideoController | None = None,
     api: JsonApi | None = None,
+    allowed_origins: tuple[str, ...] = (),
 ) -> type[BaseHTTPRequestHandler]:
+    """`allowed_origins` are pages at another address that may post here, such as
+    a Tailscale serve URL that proxies to this port."""
+
     class StudioHandler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args) -> None:
             """Silence the access log. Prompts live in POST bodies, and none of
@@ -397,9 +401,15 @@ def make_handler(
         def _from_this_page(self) -> bool:
             """Any site open in the browser can post here. Its page sends its own
             Origin. With DNS rebinding its host name points here, and then its
-            Host header names that site. So a POST must name this server in both."""
+            Host header names that site. So a POST must name this server in both.
+
+            An allowed origin passes on its own. A proxy such as Tailscale serve
+            gives the page an https origin and a host name that this server did not
+            bind. A foreign page cannot send that origin, with or without rebinding."""
             host = self.headers.get("Host", "")
             origin = self.headers.get("Origin")
+            if origin is not None and origin in allowed_origins:
+                return True
             if origin is not None and origin != f"http://{host}":
                 return False
             address = self.server.server_address
