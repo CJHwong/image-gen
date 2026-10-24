@@ -5,6 +5,7 @@ import urllib.request
 from dataclasses import replace
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -88,6 +89,33 @@ def test_the_viggle_backend_offers_the_same_prompt_rewriters(tmp_path: Path):
     )
     built = build_rewriters(settings(tmp_path, settings_text))
     assert built["viggle_turbo"].modes() == ("generate", "edit")
+
+
+def test_the_rewriter_is_quantized_as_its_backend_section_says(tmp_path: Path, monkeypatch):
+    from studio.l4_frameworks_and_drivers import main as main_module
+
+    factory = Mock()
+    monkeypatch.setitem(main_module.REWRITERS, "qwen21_turbo", factory)
+    models = 'rewrite_generate_model = "Qwen/PE-T2I"\nrewrite_edit_model = "Qwen/PE-I2I"\n'
+    head = 'default_backend = "qwen21_turbo"\n[qwen21_turbo]\nquantize = 0\nmodel_dir = "weights"\n'
+
+    build_rewriters(settings(tmp_path, head + models + "rewrite_quantize = 8\n"))
+    assert factory.call_args == (({"generate": "Qwen/PE-T2I", "edit": "Qwen/PE-I2I"},), {"quantize": 8})
+
+    build_rewriters(settings(tmp_path, head + models))
+    assert factory.call_args.kwargs == {"quantize": 0}  # a section without the key keeps bf16
+
+
+@pytest.mark.parametrize("value", ["7", "16", '"8"', "true", "false", "-4"])
+def test_a_rewrite_quantize_mlx_cannot_load_is_named_at_start(tmp_path: Path, value: str):
+    """MLX quantizes to 2, 3, 4, 5, 6 or 8 bits. Any other value used to pass, load the
+    card, then fail the first Rewrite with MLX's own message."""
+    models = 'rewrite_generate_model = "Qwen/PE-T2I"\nrewrite_edit_model = "Qwen/PE-I2I"\n'
+    head = 'default_backend = "qwen21_turbo"\n[qwen21_turbo]\nquantize = 0\nmodel_dir = "weights"\n'
+    config = settings(tmp_path, head + models + f"rewrite_quantize = {value}\n")
+
+    with pytest.raises(ConfigError, match=r"rewrite_quantize under \[qwen21_turbo\] must be 0, 2, 3, 4, 5, 6 or 8"):
+        build_rewriters(config)
 
 
 def test_a_backend_with_no_rewriter_settings_gets_none(tmp_path: Path):

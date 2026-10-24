@@ -23,6 +23,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `default_voice_backend`, `visible_voice_backends` | Initial and available Voice models. |
 | Image backend `quantize` | Weight quantization; 0 is the default. |
 | Image backend `model_dir` / `lora_path` | Local weights or adapter path, where supported. |
+| Image backend `rewrite_generate_model`, `rewrite_edit_model`, `rewrite_quantize` | Prompt rewriter for each mode, and its load-time quantization. 0, the default, keeps full precision; 2, 3, 4, 5, 6 and 8 are the widths MLX offers, and any other value stops the studio at start. The shipped `studio.toml` sets 8. |
 | `[mlx_video].cli_path`, `ffmpeg_path` | Separate Video executable and media tool. |
 | `[mlx_video].model_ltx25`, `model_ltx23` | Video pack identifiers. |
 | `[mlx_video].lora_dir`, `fetch_loras` | Effect adapter directory and opt-in download policy. |

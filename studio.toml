@@ -48,6 +48,10 @@ quantize = 0
 # image one serves edit. Neither is fetched until the toggle is first used.
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
+# Unlike the image model, a rewriter is quantized: it writes one token at a time and
+# each token reads the whole card, so 8-bit halves a rewrite, 39.7s to 20.4s on
+# 2026-10-23. The card is quantized as it loads; 0 keeps bf16.
+rewrite_quantize = 8
 
 [qwen21_turbo]
 # Active Generate/Edit/batch work uses a wired limit bounded by MLX and 75% of RAM.
@@ -59,6 +63,7 @@ model_dir = "~/Library/Caches/models/qwen-image-2.1-turbo"
 # holds the table; `docs/explanation/design-decisions.md` explains why it differs from the default table.
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
+rewrite_quantize = 8                      # as [qwen21]
 
 [flux2]
 quantize = 0
@@ -73,6 +78,7 @@ lora_path = "~/Library/Caches/models/viggle-turbo/Qwen-Image-2.1-viggle-turbo-v0
 # depend on which weights draw the image.
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
+rewrite_quantize = 8                      # as [qwen21]
 
 [auk]
 # AuK Flash runs its pinned environment in a lazy resident child.

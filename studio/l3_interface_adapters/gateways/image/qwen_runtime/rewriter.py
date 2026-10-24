@@ -11,8 +11,20 @@ that never rewrites never pays it.
 
 The two models do not both fit beside anything, so this adapter keeps at most one
 resident and drops it when the other mode asks.
+
+Writing is bound by memory bandwidth: every token reads the whole card. So a card
+quantized as it loads writes about twice as fast. Measured 2026-10-23 on an M5 Pro,
+ten requests each at the card's own sampling:
+
+    precision   load    write, mean (range)       greedy, same opening words as bf16
+    bf16        5.0s    39.7s (20.6 to 68.7)      -
+    8-bit       4.4s    20.4s (13.4 to 33.8)      17 to 193 of them
+    4-bit       4.2s    23.5s (11.5 to 41.7)      1 to 6, and quoted text split apart
+
+4-bit is not faster in practice: it writes longer answers. 8-bit is the setting.
 """
 
+import contextlib
 import io
 import json
 import re
@@ -30,6 +42,9 @@ from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import rel
 # The card's own sampling settings, and its token budget. Measured 2026-09-27:
 # 317 to 505 tokens out in 22 to 32s, so the budget is never reached.
 MAX_TOKENS = 16384
+
+# mlx's own default group size, and the one the measurement above used.
+QUANTIZE_GROUP_SIZE = 64
 
 # One rewriter in bf16. The module docstring carries the same number.
 REWRITER_SIZE = "18.84 GB"
@@ -100,12 +115,47 @@ def _as_rewrite(text: str) -> PromptRewrite:
     try:
         answer = json.loads(body)
     except json.JSONDecodeError:
-        return PromptRewrite(prompt=body)
+        answer = _repaired(body)
+        if answer is None:
+            return PromptRewrite(prompt=body)
     return PromptRewrite(
         prompt=answer.get("rewritten_prompt") or body,
         ratio=answer.get("wh_ratio") or None,
         follow_reference=bool(answer.get("ratio_follow")),
     )
+
+
+_PROMPT_START = re.compile(r'^\{\s*"rewritten_prompt"\s*:\s*"')
+_PROMPT_END = re.compile(r'"\s*(?:,\s*"(?:wh_ratio|ratio_follow)"\s*:|\}\s*$)')
+_UNESCAPED_QUOTE = re.compile(r'(?<!\\)"')
+_RATIO = re.compile(r'"wh_ratio"\s*:\s*"([^"]*)"')
+_FOLLOW = re.compile(r'"ratio_follow"\s*:\s*true')
+
+
+def _repaired(body: str) -> dict | None:
+    """The card's answer read again when one quote inside the prompt lost its backslash.
+
+    Seen 2026-10-23: a quoted label closed with a bare quote, json.loads failed, and the
+    raw JSON went to the user as the prompt. The keys are fixed, so the prompt is the
+    text between its key and the next key or the closing brace.
+    """
+    start = _PROMPT_START.match(body)
+    if start is None:
+        return None
+    end = _PROMPT_END.search(body, start.end())
+    if end is None:
+        return None
+    raw = _UNESCAPED_QUOTE.sub(r'\\"', body[start.end() : end.start()])
+    try:
+        prompt = json.loads(f'"{raw}"', strict=False)  # strict=False keeps a raw line break
+    except json.JSONDecodeError:
+        return None
+    ratio = _RATIO.search(body, end.start())
+    return {
+        "rewritten_prompt": prompt,
+        "wh_ratio": ratio.group(1) if ratio else None,
+        "ratio_follow": bool(_FOLLOW.search(body, end.start())),
+    }
 
 
 # CJK Unified Ideographs, and the extensions that carry most everyday text.
@@ -140,9 +190,38 @@ def _in_the_request_language(prompt: str) -> str:
     return f"{prompt}\n\nWrite the instruction in English."
 
 
+def _quantize(model, config: dict, bits: int) -> None:
+    """Quantize a lazily loaded card's language model in place, then make its weights
+    resident.
+
+    The vision tower stays in bf16, as mlx-vlm's own loader keeps it. Quantized, its
+    position table becomes uint32, and the bilinear weights it reads back in that type
+    round every fraction to 0, so the edit card would lose where each patch of the
+    picture sits. The tower is small beside the 9B language model.
+
+    The weights are read from disk in this eval, once, on their way to `bits`, so the
+    bf16 card is never held whole. Without the eval the first token would pay for it.
+    quantize_model prints a line, and this server keeps its terminal quiet.
+    """
+    import mlx.core as mx
+    from mlx_vlm.quant_utils import quantize_model
+    from mlx_vlm.utils import skip_multimodal_module
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        quantize_model(
+            model,
+            config,
+            QUANTIZE_GROUP_SIZE,
+            bits,
+            quant_predicate=lambda path, _module: not skip_multimodal_module(path),
+        )
+    mx.eval(model.parameters())
+
+
 class Qwen21Rewriter(PromptRewriterGateway):
-    def __init__(self, models: Mapping[str, str]):
+    def __init__(self, models: Mapping[str, str], quantize: int = 0):
         self._models = dict(models)
+        self._quantize = quantize
         self._resident: tuple | None = None
 
     def modes(self) -> tuple[str, ...]:
@@ -222,6 +301,11 @@ class Qwen21Rewriter(PromptRewriterGateway):
         disable_progress_bars()
         hub_logging.set_verbosity_error()
         repo = self._models[mode]
-        model, processor = load(repo)
-        self._resident = (mode, model, processor, load_config(repo), _system_prompt(repo))
+        config = load_config(repo)
+        if self._quantize:
+            model, processor = load(repo, lazy=True)
+            _quantize(model, config, self._quantize)
+        else:
+            model, processor = load(repo)
+        self._resident = (mode, model, processor, config, _system_prompt(repo))
         return self._resident[1:]

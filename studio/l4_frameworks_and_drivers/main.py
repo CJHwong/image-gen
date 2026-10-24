@@ -225,6 +225,8 @@ VIDEO_BACKENDS = {
 # here reports no modes and the page hides its toggle rather than offering a button
 # that always refuses.
 REWRITERS = {"qwen21": Qwen21Rewriter, "qwen21_turbo": Qwen21Rewriter, "viggle_turbo": Qwen21Rewriter}
+# MLX quantizes to these widths only; 0 keeps full precision.
+REWRITE_QUANTIZE_BITS = (0, 2, 3, 4, 5, 6, 8)
 
 
 def qwen21_rewrite_models(config: Config, backend_id: str) -> dict | None:
@@ -244,6 +246,14 @@ def qwen21_rewrite_models(config: Config, backend_id: str) -> dict | None:
     return models if all(models.values()) else None
 
 
+def rewrite_quantize(config: Config, backend_id: str) -> int:
+    quantize = config.backend(backend_id).get("rewrite_quantize", 0)
+    # bool is an int in Python: `false` equals 0 and would pass as full precision.
+    if isinstance(quantize, bool) or quantize not in REWRITE_QUANTIZE_BITS:
+        raise ConfigError(f"rewrite_quantize under [{backend_id}] must be 0, 2, 3, 4, 5, 6 or 8, not {quantize!r}")
+    return quantize
+
+
 def build_rewriters(config: Config, plugins: ModelPlugins | None = None, stub: bool = False) -> dict:
     built = {}
     for backend_id in config.visible_backends:
@@ -251,7 +261,8 @@ def build_rewriters(config: Config, plugins: ModelPlugins | None = None, stub: b
             built[backend_id] = plugins.rewriter("image", backend_id, config, stub)
         else:
             models = qwen21_rewrite_models(config, backend_id) if backend_id in REWRITERS else None
-            built[backend_id] = REWRITERS[backend_id](models) if models else NoPromptRewriter()
+            quantize = rewrite_quantize(config, backend_id)
+            built[backend_id] = REWRITERS[backend_id](models, quantize=quantize) if models else NoPromptRewriter()
     return built
 
 

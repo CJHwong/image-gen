@@ -17,6 +17,7 @@ Normal startup offers one model per workspace. `--all-backends` exposes optional
 
 Capabilities from `GET /api/v1/studio` are the runtime source of truth for supported modes, controls, sizes, templates, and limits.
 Image quantization is controlled by each backend’s `quantize` setting; `-q 8` overrides the opening Image model.
+Image Rewrite quantizes its rewriter as it loads when the backend sets `rewrite_quantize`. The shipped `studio.toml` sets 8, which halves a rewrite; 0, the default, keeps full precision.
 
 ## Video
 

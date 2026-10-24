@@ -15,6 +15,7 @@ from studio.l3_interface_adapters.gateways.image.qwen_runtime import rewriter as
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter import (
     CACHE_FILES,
     MAX_TOKENS,
+    QUANTIZE_GROUP_SIZE,
     Qwen21Rewriter,
     _as_rewrite,
     _in_the_request_language,
@@ -148,6 +149,43 @@ def test_a_thinking_block_is_dropped_before_the_json():
 def test_a_fenced_answer_is_unwrapped():
     answer = _as_rewrite('```json\n{"rewritten_prompt": "a pear, longer"}\n```')
     assert answer.prompt == "a pear, longer"
+
+
+def test_json_with_an_unescaped_quote_still_yields_the_prompt_and_the_ratio():
+    """Seen 2026-10-23: the card closed a quoted label without its backslash, json.loads
+    failed, and the raw JSON text went to the user as the prompt."""
+    answer = _as_rewrite(
+        '{"rewritten_prompt": "A card. The label \\"有效期", then the value \\"3007\\".", "wh_ratio": "1:1"}'
+    )
+    assert answer.prompt == 'A card. The label "有效期", then the value "3007".'
+    assert answer.ratio == "1:1" and answer.follow_reference is False
+
+
+def test_a_broken_answer_keeps_the_reference_flag_and_its_line_breaks():
+    answer = _as_rewrite('{"rewritten_prompt": "Line one \\"A".\\nLine two.", "wh_ratio": "3:2", "ratio_follow": true}')
+    assert answer.prompt == 'Line one "A".\nLine two.'
+    assert answer.ratio == "3:2" and answer.follow_reference is True
+
+
+def test_a_broken_answer_cut_off_before_its_ratio_still_yields_the_prompt():
+    answer = _as_rewrite('{"rewritten_prompt": "A sign \\"OPEN" in red."}')
+    assert answer.prompt == 'A sign "OPEN" in red.' and answer.ratio is None
+
+
+def test_a_raw_line_break_inside_a_broken_answer_is_kept():
+    answer = _as_rewrite('{"rewritten_prompt": "Line one \\"A".\nLine two.", "wh_ratio": "3:2"}')
+    assert answer.prompt == 'Line one "A".\nLine two.'
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"rewritten_prompt": "A sign \\"OPEN" in red, and then the answer stops',
+        '{"rewritten_prompt": "A sign \\"OPEN" with a \\q bad escape.", "wh_ratio": "3:2"}',
+    ],
+)
+def test_an_answer_that_cannot_be_repaired_is_kept_as_written(text):
+    assert _as_rewrite(text).prompt == text
 
 
 def test_prose_is_kept_as_the_prompt_rather_than_failing_the_click():
@@ -299,6 +337,45 @@ def test_one_model_stays_resident_until_the_other_mode_asks_for_its_own(system_p
     # keeps its terminal quiet.
     assert stubs["huggingface_hub.utils"]["disable_progress_bars"].called
     assert stubs["huggingface_hub.logging"]["set_verbosity_error"].called
+
+
+def test_a_bf16_rewriter_loads_its_weights_eagerly_and_quantizes_nothing(system_prompt):
+    stubs = rewriter_stubs(answering("{}"), system_prompt)
+    quantize = Mock()
+    stubs["mlx_vlm.quant_utils"] = {"quantize_model": quantize}
+    with heavy_modules(stubs):
+        Qwen21Rewriter({"generate": "Qwen/PE-T2I"}).rewrite("a cat", "generate", (), no_writing, never_stop)
+    assert stubs["mlx_vlm"]["load"].call_args.kwargs == {}
+    assert not quantize.called
+
+
+def test_a_quantized_rewriter_loads_lazily_then_quantizes_and_evaluates_before_writing(system_prompt):
+    """Lazy, so the bf16 weights are read once on the way to their 8-bit form and
+    never held whole. Measured 2026-10-23: 4.4s to a resident 8-bit card, 12.8 GB
+    at the peak, against 5.0s and 18.8 GB for bf16."""
+    model = Mock()
+    order = []
+    stubs = rewriter_stubs(answering("{}"), system_prompt)
+    stubs["mlx_vlm"]["load"] = Mock(return_value=(model, "the processor"))
+    stubs["mlx_vlm.quant_utils"] = {
+        "quantize_model": Mock(side_effect=lambda *args, **kwargs: order.append("quantize") or (args[0], args[1]))
+    }
+    stubs["mlx.core"] = {"eval": Mock(side_effect=lambda *args: order.append("eval"))}
+    stubs["mlx_vlm.utils"]["skip_multimodal_module"] = Mock(side_effect=lambda path: "vision_tower" in path)
+    stubs["mlx_vlm"]["stream_generate"] = Mock(side_effect=lambda *args, **kwargs: order.append("write") or iter(()))
+    with heavy_modules(stubs):
+        Qwen21Rewriter({"generate": "Qwen/PE-T2I"}, quantize=8).rewrite("a cat", "generate", (), no_writing, never_stop)
+    assert stubs["mlx_vlm"]["load"].call_args == (("Qwen/PE-T2I",), {"lazy": True})
+    call = stubs["mlx_vlm.quant_utils"]["quantize_model"].call_args
+    assert call.args == (model, {"image_token": "<|image|>"}, QUANTIZE_GROUP_SIZE, 8)
+    # The language model only. The vision tower's position table, quantized, reads its
+    # bilinear weights back as uint32, so every fractional weight becomes 0 and the
+    # edit card loses where each patch of the picture sits.
+    keep = call.kwargs["quant_predicate"]
+    assert keep("vision_tower.pos_embed", Mock()) is False
+    assert keep("language_model.model.layers.0.mlp.up_proj", Mock()) is True
+    assert stubs["mlx.core"]["eval"].call_args.args == (model.parameters.return_value,)
+    assert order == ["quantize", "eval", "write"]
 
 
 def test_the_modes_are_the_ones_the_backend_wired_in():
