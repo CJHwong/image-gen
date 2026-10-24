@@ -17,4 +17,11 @@ a guided flow for users new to photography and art, an index of looks tested on
 Qwen-Image-2.1-Turbo, shoot planning, photo and art directions, composition, camera and lighting cues, design and
 text layouts, illustration and game assets, prompt writing and Rewrite, reference-based edits,
 visual review, and saved deliverables.
-It lives in the repository; it is not automatically installed into your agent's skill catalog.
+To install it into each agent's skill folder that exists (`~/.agents/skills`, `~/.codex/skills`,
+`~/.claude/skills`), run:
+
+```sh
+uv run https://raw.githubusercontent.com/CJHwong/open-imagine/main/scripts/install_skills.py
+```
+
+Run it again to update. It replaces an installed copy and prints a warning for each one.
