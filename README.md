@@ -28,7 +28,7 @@ Video needs [engine setup](docs/how-to/set-up-models.md#video-ltx-25). Use `uv r
 | I want to… | Read |
 |---|---|
 | Learn the workflow | [Generate and edit a first image](docs/tutorials/first-image.md) |
-| Complete a task | [Set up models](docs/how-to/set-up-models.md) · [Work with media](docs/how-to/work-with-media.md) · [Use the API](docs/how-to/use-the-api.md) · [Add a model plugin](docs/how-to/add-a-model-plugin.md) |
+| Complete a task | [Set up models](docs/how-to/set-up-models.md) · [Work with media](docs/how-to/work-with-media.md) · [Use the API](docs/how-to/use-the-api.md) · [Open from another device](docs/how-to/open-from-another-device.md) · [Add a model plugin](docs/how-to/add-a-model-plugin.md) |
 | Look up a setting or contract | [CLI and configuration](docs/reference/configuration.md) · [Models](docs/reference/models.md) · [API](API.md) |
 | Understand the design | [Shared operations](docs/explanation/operations-and-storage.md) · [Measurements](docs/explanation/design-decisions.md) · [Architecture](studio/ARCHITECTURE.md) |
 

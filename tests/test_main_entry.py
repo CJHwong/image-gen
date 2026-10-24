@@ -60,6 +60,73 @@ def test_a_good_run_serves_until_ctrl_c_then_frees_the_engine(tmp_path, monkeypa
     assert "Models load on first use" in printed and "Loading Qwen" not in printed
 
 
+def test_an_allowed_origin_reaches_the_handler_in_the_browser_form(tmp_path, monkeypatch, capsys):
+    """A URL copied from the browser bar can end in a slash or name the default port,
+    and an Origin header has neither."""
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    server_class = Mock(return_value=server)
+    monkeypatch.setattr(entry, "ThreadingHTTPServer", server_class)
+    proxy = "https://my-mac.example.ts.net"
+    argv(
+        monkeypatch,
+        "--stub",
+        "--config",
+        str(settings_file(tmp_path)),
+        "--allow-origin",
+        "HTTPS://My-Mac.example.ts.net:443/",
+    )
+
+    entry.main()
+
+    request = SimpleNamespace(
+        headers={"Host": "my-mac.example.ts.net", "Origin": proxy},
+        server=SimpleNamespace(server_address=("127.0.0.1", 8765)),
+    )
+    assert server_class.call_args.args[1]._from_this_page(request) is True
+    assert f"Pages at {proxy} may post too." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("value", "origin"),
+    [
+        ("https://my-mac.example.ts.net:8765", "https://my-mac.example.ts.net:8765"),
+        ("http://Studio.Local:80", "http://studio.local"),
+        (" https://my-mac.example.ts.net:8765/ ", "https://my-mac.example.ts.net:8765"),
+        ("http://[::1]:8765", "http://[::1]:8765"),
+    ],
+)
+def test_an_allowed_origin_takes_the_form_a_browser_sends(value, origin):
+    assert entry.allowed_origin(value) == origin
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "null",  # a sandboxed frame on any site sends this
+        "*",
+        "my-mac.example.ts.net:8765",  # no scheme
+        "ftp://my-mac.example.ts.net",
+        "https://",
+        "https://my-mac.example.ts.net/studio",
+        "https://my-mac.example.ts.net/?a=1",
+        "https://my-mac.example.ts.net/#top",
+        "https://user@my-mac.example.ts.net",
+        "https://my-mac.example.ts.net:99999",
+    ],
+)
+def test_an_origin_that_can_never_match_or_lets_every_site_post_stops_the_start(value, monkeypatch, capsys):
+    """A refused value stops the server before it binds, so a typo cannot leave every
+    POST refused, and `null` cannot open the check to every site."""
+    argv(monkeypatch, "--allow-origin", value)
+
+    with pytest.raises(SystemExit) as exits:
+        entry.parse_args()
+
+    assert exits.value.code == 2
+    assert "give scheme://host[:port]" in capsys.readouterr().err
+
+
 def test_the_startup_line_names_the_rewriters_before_the_click(tmp_path, monkeypatch, capsys):
     """The first rewrite in a mode fetches about 19 GB with the progress bar off, so
     the page looks merely busy. The wait has to be visible before the button is pressed."""

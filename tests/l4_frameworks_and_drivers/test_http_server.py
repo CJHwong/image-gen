@@ -534,6 +534,26 @@ def test_only_the_bound_names_accept_the_post(served):
     assert from_this_page(served[0], ("127.0.0.1", port), f"evil.example:{port}") is False
 
 
+def test_an_allowed_origin_posts_through_a_proxy():
+    """Tailscale serve gives the page an https origin and a host name that this
+    server did not bind, so only an origin named at the start lets it post."""
+    proxy = "https://my-mac.example.ts.net:8765"
+    handler = cast(Any, http_server.make_handler(cast(Any, None), cast(Any, None), allowed_origins=(proxy,)))
+
+    def posts(origin, host="my-mac.example.ts.net:8765"):
+        headers = {"Host": host} if origin is None else {"Host": host, "Origin": origin}
+        request = SimpleNamespace(headers=headers, server=SimpleNamespace(server_address=("127.0.0.1", 8765)))
+        return handler._from_this_page(request)
+
+    assert posts(proxy) is True
+    assert posts("http://my-mac.example.ts.net:8765") is False  # the host is not one this server bound
+    assert posts("https://evil.example") is False
+    # The list opens the Origin check only: the proxy's host name alone proves nothing.
+    assert posts(None) is False
+    # The page on the bound address keeps the rule it had before the list.
+    assert posts("http://127.0.0.1:8765", host="127.0.0.1:8765") is True
+
+
 # ---- The JSON API -----------------------------------------------------------
 # The routes the page does not use. They ride the same controller, so these
 # tests check the transport and the document, not a second set of rules.

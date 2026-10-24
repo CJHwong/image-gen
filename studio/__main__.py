@@ -11,12 +11,14 @@ USAGE:
     uv run studio --port 9000
     uv run studio --backend qwen21 -q 8
     uv run studio --stub --port 8832   # the page on fake engines, for page work
+    uv run studio --allow-origin https://my-mac.example.ts.net:8765   # behind a proxy
 """
 
 import argparse
 import sys
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter import cache_line
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
@@ -32,6 +34,37 @@ from studio.l4_frameworks_and_drivers.main import (
 )
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def allowed_origin(value: str) -> str:
+    """One --allow-origin value, in the form a browser sends as its Origin.
+
+    The check compares exact strings, so the scheme and host go to lower case, a
+    default port goes, and a trailing slash goes. Any other value is refused at
+    the start: `null` would let any site post from a sandboxed frame, and a path
+    or a missing scheme would never match, so every POST would fail without a cause.
+    """
+    parts = urlsplit(value.strip())
+    try:
+        port = parts.port
+    except ValueError:
+        port = -1
+    if (
+        parts.scheme not in DEFAULT_PORTS
+        or not parts.hostname
+        or parts.path not in ("", "/")
+        or parts.query
+        or parts.fragment
+        or parts.username is not None
+        or port == -1
+    ):
+        raise argparse.ArgumentTypeError(
+            f"give scheme://host[:port], such as https://my-mac.example.ts.net:8765, not {value!r}"
+        )
+    host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+    suffix = f":{port}" if port is not None and port != DEFAULT_PORTS[parts.scheme] else ""
+    return f"{parts.scheme}://{host}{suffix}"
 
 
 def parse_args():
@@ -58,6 +91,14 @@ def parse_args():
         "--stub",
         action="store_true",
         help="fake every engine: timed steps and placeholder images, no weights, no GPU. For work on the page",
+    )
+    parser.add_argument(
+        "--allow-origin",
+        action="append",
+        default=[],
+        type=allowed_origin,
+        metavar="URL",
+        help="let a page at this origin post, such as a Tailscale serve URL. Repeat it for each origin",
     )
     return parser.parse_args()
 
@@ -86,7 +127,12 @@ def main():
             visible_video=(*VIDEO_BACKENDS, *plugins.ids("video")) if args.all_backends else None,
             visible_voice=(*VOICE_BACKENDS, *plugins.ids("voice")) if args.all_backends else None,
         )
-        studio = create_studio(config, stub=args.stub, plugins=plugins)
+        studio = create_studio(
+            config,
+            stub=args.stub,
+            plugins=plugins,
+            allowed_origins=tuple(args.allow_origin),
+        )
     except ConfigError as error:
         sys.exit(f"Bad settings in {args.config}: {error}")
     except EngineUnavailable as error:
@@ -102,6 +148,8 @@ def main():
     if rewriters:
         print(rewriters, flush=True)
     print(f"\nReady on http://{args.host}:{args.port}", flush=True)
+    if args.allow_origin:
+        print("Pages at " + ", ".join(args.allow_origin) + " may post too.", flush=True)
     print(
         "Models load on first use. Switching workspaces releases inactive model memory. Ctrl-C to stop.\n",
         flush=True,
