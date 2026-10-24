@@ -10,7 +10,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `--all-backends` | Off | Enable model selectors across Image, Video, and Voice. |
 | `-q`, `--quantize` | Model configuration | Opening Image model quantization: 0, 3, 4, 5, 6, or 8 bits; 0 means full precision. |
 | `--config` | `studio.toml` | Configuration file. |
-| `--allow-origin` | None | Let a page at this origin post, such as a Tailscale serve URL. Repeat it for each origin. |
+| `--allow-origin` | None | Let a page at this origin post, such as a Tailscale serve URL. Repeat it for each origin. See [Open from another device](../how-to/open-from-another-device.md). |
 | `--stub` | Off | Simulated engines: placeholder images, a Voice test tone, and Video metadata. No model loading. |
 
 ## Settings
