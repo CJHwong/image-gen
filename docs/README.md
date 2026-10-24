@@ -10,3 +10,11 @@ Choose a page for the task you have. The documentation follows [Diátaxis](https
 | **Explanation — understand how and why** | [Shared operations and storage](explanation/operations-and-storage.md) · [Design decisions and measurements](explanation/design-decisions.md) · [Architecture](../studio/ARCHITECTURE.md) |
 
 [Model-specific prompt aids](../studio/l3_interface_adapters/gateways/PROMPTS.md) records the tested Looks and templates.
+
+For agent-led image work, use [Studio Image](../skills/studio-image/SKILL.md).
+Ask your agent to read that file and use it with your running Studio URL. The skill covers
+a guided flow for users new to photography and art, an index of looks tested on
+Qwen-Image-2.1-Turbo, shoot planning, photo and art directions, composition, camera and lighting cues, design and
+text layouts, illustration and game assets, prompt writing and Rewrite, reference-based edits,
+visual review, and saved deliverables.
+It lives in the repository; it is not automatically installed into your agent's skill catalog.
