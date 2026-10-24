@@ -1,3 +1,5 @@
+import {screenAwake} from './screen-awake.js';
+const awake = screenAwake();
 // Every tab reads the same operation. Results outlive the request that made them.
 const page = {};
 const imported = new Set();
@@ -163,15 +165,18 @@ async function poll() {
     const answer = await fetch('/api/v1/state', {cache: 'no-store'});
     if (answer.status === 404) {
       stopped = true;
+      awake.set(false);
       return;
     }
     if (answer.status === 503 && (await answer.clone().json()).error === 'The JSON API is not configured.') {
       stopped = true;
+      awake.set(false);
       return;
     }
     if (!answer.ok) throw new Error('Shared status is unavailable.');
     const state = await answer.json();
     active = state.active;
+    awake.set(active);
     if (active && !observed.has(active.id)) {
       observed.add(active.id);
       try {
@@ -200,6 +205,7 @@ async function poll() {
     }
     lastFailure = '';
   } catch (error) {
+    awake.set(false);
     if (lastFailure !== error.message) page.notify('info', error.message);
     lastFailure = error.message;
   } finally {
@@ -218,7 +224,7 @@ document.dispatchEvent(new CustomEvent('operations-ready', {
     }
     document.getElementById('shared-operation-cancel').addEventListener('click', cancelActive);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
-    window.addEventListener('pagehide', function () { stopped = true; });
+    window.addEventListener('pagehide', function () { stopped = true; awake.set(false); });
     window.addEventListener('pageshow', function () { stopped = false; poll(); });
     poll();
     window.setInterval(poll, 350);

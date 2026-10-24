@@ -73,3 +73,14 @@ video-gallery-preview > img { width: 100%; height: 100%; object-fit: contain; }
 .video-gallery-sheet { display: block; width: 100%; height: 100%; overflow: hidden; }
 .video-gallery-sheet image { animation: video-gallery-loop var(--loop-duration, 2s) steps(16, end) infinite; }
 @keyframes video-gallery-loop { from { transform: translateX(0); } to { transform: translateX(-2048px); } }
+
+/* Fixed card geometry allows bounded DOM windows without losing the scrollbar. */
+gallery-window { display: contents; }
+.strip:has(gallery-window) { gap: 12px; }
+.strip gallery-window > :not(.gallery-window-spacer) { flex: 0 0 112px; width: 112px; }
+.strip gallery-window .still { width: 112px; max-width: 112px; }
+.gallery-browser-grid { grid-auto-rows: auto; gap: 12px; }
+.gallery-browser-grid .gallery-card { height: 164px; box-sizing: border-box; }
+.gallery-window-spacer { pointer-events: none; }
+gallery-media { display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; }
+gallery-media > img { width: 100%; max-width: 100%; height: 100%; object-fit: contain; }

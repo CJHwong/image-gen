@@ -147,17 +147,63 @@ function blobOf(url) {
 // A stored record as the live entry the strip draws. Each image is shown by a
 // blob URL, because as a data URL every img that showed it made the browser
 // parse megabytes of base64 text again.
+// Metadata is browsable without retaining the original PNG or its before image.
 function liveEntry(record) {
-  const entry = {
-    src: URL.createObjectURL(record.png),
-    before: record.before && URL.createObjectURL(record.before),
-  };
-  KEPT_FIELDS.forEach(function (field) { entry[field] = record[field]; });
+  const entry = {stored: true, hasBefore: Boolean(record.before)};
+  KEPT_FIELDS.forEach(field => { entry[field] = record[field]; });
+  entry.loadMedia = () => inStore('readonly', images => images.get(entry.id));
   return entry;
+}
+const loadedImages = new Map();
+let retainingImages = false;
+function releaseImage(entry) {
+  page.release(entry);
+  delete entry.src; delete entry.before; delete entry.b64;
+}
+async function hydrate(entry) {
+  if (entry.src) return entry;
+  if (!entry.loading) entry.loading = entry.loadMedia().then(record => {
+    if (!record || wasRemoved(entry)) throw new Error('This image is no longer saved.');
+    entry.src = URL.createObjectURL(record.png);
+    entry.before = record.before && URL.createObjectURL(record.before);
+    loadedImages.delete(entry.id); loadedImages.set(entry.id, entry);
+    for (const [id, other] of loadedImages) {
+      if (retainingImages || forgetPins.size || !page.keeping() || loadedImages.size <= 2) break;
+      if (!other.stored || id === entry.id || id === page.selected?.()) continue;
+      releaseImage(other); loadedImages.delete(id);
+    }
+    return entry;
+  }).finally(() => { delete entry.loading; });
+  return entry.loading;
+}
+
+// Read bounded pages, yielding between transactions. Cursor values are discarded after
+// metadata extraction; no getAll of original media, decoding, or object URLs on restore.
+async function scanRecords(open, name, visit) {
+  let after;
+  while (true) {
+    const db = await open();
+    const result = await new Promise((resolve, reject) => {
+      const transaction = db.transaction(name, 'readonly');
+      const request = transaction.objectStore(name).openCursor(after === undefined ? null : IDBKeyRange.lowerBound(after, true));
+      let count = 0, last;
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        visit(cursor.value); last = cursor.key;
+        if (++count < 32) cursor.continue();
+      };
+      transaction.oncomplete = () => resolve({count, last});
+      transaction.onabort = () => reject(transaction.error);
+    });
+    if (result.count < 32) break;
+    after = result.last;
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
 }
 
 function keep(entry) {
-  if (!page.keeping() || wasRemoved(entry)) return Promise.resolve();
+  if (!page.keeping() || wasRemoved(entry) || (entry.stored && !entry.src)) return Promise.resolve();
   return Promise.all([blobOf(entry.src), entry.before ? blobOf(entry.before) : null]).then(function ([png, before]) {
     const record = { png: png, before: before };
     KEPT_FIELDS.forEach(function (field) { record[field] = entry[field]; });
@@ -167,6 +213,17 @@ function keep(entry) {
       return keepPreferred(images, record, wasRemoved);
     });
   }).then(function () {
+    if (!page.keeping() || wasRemoved(entry)) return;
+    entry.stored = true; entry.hasBefore = Boolean(entry.before);
+    entry.loadMedia = () => inStore('readonly', images => images.get(entry.id));
+    // A retained image does not need a second base64 copy in memory.
+    delete entry.b64;
+    loadedImages.set(entry.id, entry);
+    for (const [id, other] of loadedImages) {
+      if (retainingImages || forgetPins.size || !page.keeping() || loadedImages.size <= 2) break;
+      if (!other.stored || id === entry.id || id === page.selected?.()) continue;
+      releaseImage(other); loadedImages.delete(id);
+    }
     channel.postMessage({ kind: 'add', id: entry.id });
   }).catch(function (error) {
     page.notify('error', 'The browser did not keep image ' + page.frameNumber(entry.id) + ': ' + error.message
@@ -214,14 +271,17 @@ function keepVideoThumbnail(id, thumbnail) {
   });
 }
 
-function loadVideos() {
-  if (!page.keeping()) return Promise.resolve([]);
-  return inVideoStore('readonly', function (clips) { return clips.getAll(); }).then(function (records) {
-    return records.filter(record => !videoWasRemoved(record)).sort(function (first, second) { return first.createdAt - second.createdAt; });
-  }).catch(function (error) {
-    page.notify('error', 'The saved videos did not load: ' + error.message);
-    return [];
-  });
+async function loadVideos() {
+  if (!page.keeping()) return [];
+  const records = [];
+  try {
+    await scanRecords(openVideoStore, 'clips', record => {
+      if (videoWasRemoved(record)) return;
+      const {mp4, thumbnail, ...metadata} = record;
+      records.push(metadata);
+    });
+    return records.sort((first, second) => first.createdAt - second.createdAt);
+  } catch (error) { page.notify('error', 'The saved videos did not load: ' + error.message); return []; }
 }
 
 function removeVideo(id) {
@@ -263,22 +323,89 @@ function forget(work, message) {
   });
 }
 
-function load() {
+async function load() {
   if (!page.keeping()) return;
-  return inStore('readonly', function (images) { return images.getAll(); }).then(function (records) {
-    for (const record of records) if (!wasRemoved(record)) page.admit(liveEntry(record));
+  try {
+    await scanRecords(openStore, 'images', record => { if (!wasRemoved(record)) page.admit(liveEntry(record)); });
     page.showNewest();
-  }).catch(function (error) {
-    page.notify('error', 'The kept images did not load: ' + error.message);
-  });
+  } catch (error) { page.notify('error', 'The kept images did not load: ' + error.message); }
 }
 
 // Off empties the store at once; the images stay in the open tabs until a
 // reload. On keeps what the tab shows now, which is the page's to walk and this
 // module's to write, one image at a time.
+// Before disabling persistence, every open tab materializes its own lazy records.
+// Discovery/acknowledgement finishes before any shared store is cleared.
+const forgetting = new Map();
+const forgetPins = new Set();
+function pinForget(token) { forgetPins.add(token); page.pinMedia(true); }
+function unpinForget(token) { forgetPins.delete(token); page.pinMedia(Boolean(forgetPins.size)); }
+
+const tabId = crypto.randomUUID();
+const tabLockName = 'studio-gallery-tab-';
+let releaseMembership;
+let membership = null;
+function registerTab() {
+  if (navigator.locks) {
+    membership = new Promise(resolve => {
+      navigator.locks.request(tabLockName + tabId, async () => {
+        resolve(); await new Promise(release => { releaseMembership = release; });
+      });
+    });
+  } else {
+    localStorage.setItem(tabLockName + tabId, 'open');
+    membership = Promise.resolve();
+  }
+}
+registerTab();
+window.addEventListener('pagehide', () => {
+  releaseMembership?.(); localStorage.removeItem(tabLockName + tabId);
+});
+window.addEventListener('pageshow', event => { if (event.persisted) registerTab(); });
+async function openTabs() {
+  await membership;
+  if (navigator.locks) {
+    const {held} = await navigator.locks.query();
+    return held.filter(lock => lock.name.startsWith(tabLockName)).map(lock => lock.name.slice(tabLockName.length));
+  }
+  return Object.keys(localStorage).filter(key => key.startsWith(tabLockName)).map(key => key.slice(tabLockName.length));
+}
+let retainingPage;
+function retainPage() {
+  if (!retainingPage) retainingPage = Promise.resolve().then(() => page.retainMedia()).finally(() => { retainingPage = null; });
+  return retainingPage;
+}
+async function retainImages(entries) {
+  retainingImages = true;
+  try {
+    for (const entry of entries) if (!entry.src) await hydrate(entry);
+    for (const entry of entries) { entry.stored = false; delete entry.loadMedia; }
+  } finally { retainingImages = false; }
+}
+async function prepareForget() {
+  const token = crypto.randomUUID(), peers = new Map((await openTabs()).filter(id => id !== tabId).map(id => [id, 'waiting']));
+  forgetting.set(token, peers);
+  pinForget(token);
+  channel.postMessage({kind: 'prepare-forget', token});
+  try {
+    await retainPage();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const deadline = Date.now() + 15000;
+    while (Array.from(peers.values()).some(value => value === 'waiting')) {
+      if (Date.now() > deadline) throw new Error('Another Studio tab could not prepare its media. Try again when that tab is responsive.');
+      const live = new Set(await openTabs());
+      for (const id of peers.keys()) if (!live.has(id)) peers.delete(id);
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    if (Array.from(peers.values()).some(value => value !== 'ready')) throw new Error('Another Studio tab could not retain its media. Saved files were left intact.');
+  } catch (error) {
+    channel.postMessage({kind: 'forget-abort', token}); unpinForget(token); throw error;
+  } finally { forgetting.delete(token); }
+}
 function announce(on) {
   channel.postMessage({ kind: 'keep', on: on });
   if (on) return;
+  for (const token of forgetPins) unpinForget(token);
   Promise.all([
     inStore('readwrite', function (images) { return images.clear(); }),
     inVideoStore('readwrite', function (clips) { return clips.clear(); }),
@@ -292,9 +419,27 @@ function announce(on) {
 // what another tab did to the strip, and they are the page's to carry out.
 channel.addEventListener('message', function (event) {
   const message = event.data;
+  if (message.kind === 'forget-participant' || message.kind === 'forget-ready') {
+    const peers = forgetting.get(message.token);
+    if (peers && (message.kind === 'forget-ready' || !peers.has(message.tab))) peers.set(message.tab, message.state || 'waiting');
+    return;
+  }
+  if (message.kind === 'forget-abort') { unpinForget(message.token); return; }
+  if (message.kind === 'prepare-forget') {
+    pinForget(message.token);
+    channel.postMessage({kind: 'forget-participant', token: message.token, tab: tabId});
+    retainPage().then(() => {
+      channel.postMessage({kind: 'forget-ready', token: message.token, tab: tabId, state: 'ready'});
+    }).catch(() => channel.postMessage({kind: 'forget-ready', token: message.token, tab: tabId, state: 'failed'}));
+    return;
+  }
   if (message.kind === 'remove' || message.kind === 'clear') markRemoved(message);
   if (message.kind === 'video-remove' || message.kind === 'video-clear') markVideoRemoved(message);
-  if (message.kind !== 'add') return page.heard(message);
+  if (message.kind !== 'add') {
+    page.heard(message);
+    if (message.kind === 'keep' && !message.on) for (const token of forgetPins) unpinForget(token);
+    return;
+  }
   if (!page.keeping()) return;
   inStore('readonly', function (images) { return images.get(message.id); }).then(function (record) {
     if (!record || wasRemoved(record)) return;
@@ -325,6 +470,9 @@ function askForDurableStorage() {
 }
 
 const handle = {
+  prepareForget, retainImages,
+  hydrate: hydrate,
+  videoRecord: id => inVideoStore('readonly', clips => clips.get(id)),
   keep: keep,
   keepVideo: keepVideo,
   keepVideoThumbnail: keepVideoThumbnail,

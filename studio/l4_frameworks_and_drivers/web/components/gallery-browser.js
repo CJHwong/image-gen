@@ -1,6 +1,7 @@
 import {LitElement, html, svg, nothing} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
-import {repeat} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/directives/repeat.js/+esm';
 import './video-gallery-preview.js';
+import './gallery-media.js';
+import './gallery-window.js';
 import {pencilLoop} from './gallery-marker.js';
 import {galleryView, rememberGalleryView} from '../lib/gallery-view.js';
 
@@ -80,25 +81,22 @@ class GalleryBrowser extends LitElement {
     if (!this.items.length) return;
     if (this.gallery && !this.gallery.getClientRects().length) return;
     const strip = this.gallery?.querySelector('.strip');
-    if (strip && !this.expanded) {
-      const loading = Array.from(strip.querySelectorAll('img')).filter(image => !image.complete);
-      for (const image of loading) {
-        if (this.waitingImages.has(image)) continue;
-        this.waitingImages.add(image);
-        image.addEventListener('load', () => this.requestUpdate(), {once: true});
-        image.addEventListener('error', () => this.requestUpdate(), {once: true});
-      }
-      if (loading.length) return;
-    }
-    this.restoreScroll = false;
-    if (strip && !this.expanded) strip.scrollLeft = this.stripPosition;
     const grid = this.querySelector('.gallery-browser-grid');
-    if (grid) grid.scrollTop = this.gridScroll;
-    if (this.revealSelected) {
-      this.revealSelected = false;
-      strip?.querySelector('.selected')?.scrollIntoView({block: 'nearest', inline: 'nearest'});
-    }
+    const window = (this.expanded ? grid : strip)?.querySelector('gallery-window');
+    const apply = () => {
+      if (!this.isConnected || !this.restoreScroll) return;
+      if (strip && !this.expanded) strip.scrollLeft = this.stripPosition;
+      if (grid) grid.scrollTop = this.gridScroll;
+      this.restoreScroll = false;
+      if (this.revealSelected) {
+        this.revealSelected = false;
+        strip?.querySelector('.selected')?.scrollIntoView({block: 'nearest', inline: 'nearest'});
+      }
+    };
+    if (window?.isUpdatePending) window.updateComplete.then(apply);
+    else apply();
   }
+
   toggle() {
     if (this.working) return;
     this.expanded = !this.expanded;
@@ -164,7 +162,7 @@ class GalleryBrowser extends LitElement {
     } catch (error) { this.error = error.message || 'The gallery action failed. Try again.'; }
     finally { this.working = false; }
   }
-  key(event) {
+  async key(event) {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === 'Escape' && this.expanded) {
       event.preventDefault(); event.stopPropagation();
@@ -184,20 +182,27 @@ class GalleryBrowser extends LitElement {
       } else this.playback();
       return;
     }
-    const first = buttons[0].getBoundingClientRect();
-    const columns = buttons.filter(button => Math.abs(button.getBoundingClientRect().top - first.top) < 3).length || 1;
-    const moves = {ArrowRight: current + 1, ArrowLeft: current - 1, ArrowDown: current + columns,
-      ArrowUp: current - columns, Home: 0, End: buttons.length - 1};
-    if (!(event.key in moves)) return;
+    const rows = this.rows(this.filtered());
+    const rowId = row => String(row.batch ? 'batch-' + row.item.id : row.item.id);
+    const card = event.target.closest('.gallery-card-pick');
+    const position = rows.findIndex(row => rowId(row) === card.dataset.rowId);
+    const window = this.querySelector('gallery-window');
+    const columns = window?.geometry().columns || 1;
+    const moves = {ArrowRight: position + 1, ArrowLeft: position - 1, ArrowDown: position + columns,
+      ArrowUp: position - columns, Home: 0, End: rows.length - 1};
+    if (!(event.key in moves) || !rows.length) return;
     event.preventDefault(); event.stopPropagation();
-    const next = buttons[Math.max(0, Math.min(buttons.length - 1, moves[event.key]))];
-    next.focus(); next.scrollIntoView({block: 'nearest', inline: 'nearest'});
-    if (!this.selecting && next.dataset.itemId) {
-      const item = this.items.find(item => String(item.id) === next.dataset.itemId);
-      if (item) this.choose?.(item.id);
-    }
+    const index = Math.max(0, Math.min(rows.length - 1, moves[event.key]));
+    await window?.reveal(index);
+    const row = rows[index];
+    const next = Array.from(this.querySelectorAll('.gallery-card-pick')).find(button => button.dataset.rowId === rowId(row));
+    next?.focus(); next?.scrollIntoView({block: 'nearest', inline: 'nearest'});
+    if (!this.selecting && !row.batch) this.choose?.(row.item.id);
   }
+
   thumbnail(item) {
+    if (item.loadMedia) return html`<gallery-media .identity=${this.workspace + '-' + item.id} .load=${item.loadMedia}
+      .video=${this.workspace === 'video'} .blocked=${this.pending}></gallery-media>`;
     if (this.workspace === 'video' && item.video) return html`<video-gallery-preview .source=${item.video}
       .poster=${item.thumbnail} .blocked=${this.pending}></video-gallery-preview>`;
     if (item.thumbnail) return html`<img src=${item.thumbnail} alt="" loading="lazy" decoding="async">`;
@@ -212,6 +217,7 @@ class GalleryBrowser extends LitElement {
     const selected = String(this.selectedId) === String(item.id) && !this.pendingSelected;
     return html`<article class="gallery-card${this.checked.has(item.id) ? ' checked' : ''}">
       <button type="button" class=${'frame gallery-card-pick' + (selected && !row.batch ? ' selected' : '')}
+        data-row-id=${row.batch ? 'batch-' + item.id : item.id}
         data-item-id=${row.batch ? nothing : item.id} ?disabled=${this.working}
         aria-label=${row.batch ? 'Open batch of ' + row.batch.length + ' results' : 'View ' + this.workspace + ' ' + item.number}
         aria-pressed=${row.batch ? nothing : String(selected)}
@@ -274,6 +280,7 @@ class GalleryBrowser extends LitElement {
         </div>
         ${this.error ? html`<p class="gallery-browser-error" role="alert">${this.error}</p>` : nothing}
         <div class="gallery-browser-grid" role="group" aria-label="Gallery results" @scroll=${event => {
+          if (this.restoreScroll) return;
           this.gridScroll = event.target.scrollTop; this.remember();
         }}>
           ${this.pending ? html`<button type="button" class=${'frame gallery-card-pick gallery-pending' + (this.pendingSelected ? ' selected' : '')}
@@ -282,7 +289,7 @@ class GalleryBrowser extends LitElement {
             <span class="still"><span class="video-pending-indicator"></span><span>Generating</span></span>
             ${this.pendingSelected ? pencilLoop(false) : nothing}
           </button>` : nothing}
-          ${repeat(this.rows(items), row => row.batch ? 'batch-' + row.item.batch : row.item.id, row => this.card(row))}
+          <gallery-window axis="vertical" .items=${this.rows(items)} .selected=${this.selectedId} .renderItem=${row => this.card(row)}></gallery-window>
           ${!items.length ? html`<div class="gallery-no-results"><strong>${this.items.length ? 'No matching results' : 'No completed results yet'}</strong>
             ${this.items.length ? html`<button type="button" class="text-btn" @click=${() => {
               this.query = ''; this.mode = ''; this.model = ''; this.change('group', '');

@@ -12,7 +12,19 @@ See [Design decisions](design-decisions.md) for the workload-specific results an
 
 Browser persistence and server retention serve different purposes.
 **Keep in this browser** controls local drafts, references, and saved media. Its storage belongs to the address and port.
-Turning it off clears that local data.
+Turning it off clears that local data after open tabs have loaded their saved media into memory.
+If another tab cannot prepare its media, clearing is cancelled so its gallery remains usable.
+
+Galleries restore searchable metadata first. Only cards around the visible region are mounted;
+thumbnails and full previews load from IndexedDB when needed. Small caches retain recent previews,
+and offscreen thumbnail URLs are released. Voice stores audio separately from project metadata;
+older saved Voice projects migrate automatically in one database transaction.
+Keeping media only in memory requires retaining its originals until the tab closes.
+
+While the server reports an active operation, visible tabs request a screen wake lock where
+the browser supports it. The lock is released on completion, loss of status, or leaving the page,
+and requested again when a busy tab becomes visible. Browser permission, power settings, and
+secure-context requirements can prevent acquisition; generation does not depend on it.
 
 The server retains recent metadata and outputs in memory for API clients and open tabs.
 Results expire after one hour, 32 operations, or 256 MiB, whichever limit comes first.

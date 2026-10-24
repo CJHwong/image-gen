@@ -25,12 +25,13 @@
 // could disagree with it.
 
 import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
-import { repeat } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/directives/repeat.js/+esm';
 import { get, subscribe } from '../lib/state.js';
 import {pencilLoop} from './gallery-marker.js';
 import {mediaDownloadName} from '../lib/download-name.js';
 import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
 import './gallery-browser.js';
+import './gallery-media.js';
+import './gallery-window.js';
 
 // The page's helpers, on `image-strip-ready`.
 let page = null;
@@ -94,14 +95,14 @@ class ImageStrip extends LitElement {
     return true;
   }
 
-  updated() {
+  async updated() {
     if (!page) return;
     const browser = document.getElementById('image-gallery-browser');
     if (browser) {
       browser.items = this.entries().map(entry => ({id: entry.id, number: page.frameNumber(entry.id),
         text: entry.prompt, description: entry.look?.sent, model: entry.backend || entry.backendId,
-        mode: entry.mode, seed: entry.seed, at: entry.at, thumbnail: entry.src,
-        batch: galleryBatch(entry.operationId, true), downloadable: Boolean(entry.src)}));
+        mode: entry.mode, seed: entry.seed, at: entry.at, loadMedia: async () => ({blob: entry.loadMedia ? (await entry.loadMedia())?.png : await (await fetch(entry.src)).blob()}),
+        batch: galleryBatch(entry.operationId, true), downloadable: Boolean(entry.src || entry.stored)}));
       browser.selectedId = get('view');
       browser.keeping = page.keeping();
       browser.pending = get('busy');
@@ -124,6 +125,13 @@ class ImageStrip extends LitElement {
     const step = this.pendingStep;
     this.pendingStep = null;
     if (!step) return;
+    const view = get('view'), window = this.querySelector('gallery-window');
+    if (window) {
+      await window.updateComplete;
+      const index = this.rows().findIndex(row => row.key === String(view));
+      if (index >= 0) await window.reveal(index);
+    }
+    if (get('view') !== view) return;
     const selected = this.querySelector('.frame.selected');
     if (!selected) return;
     selected.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -154,7 +162,7 @@ class ImageStrip extends LitElement {
 
   frame(row) {
     const entry = row.entry;
-    return html`<button type="button" class="frame${row.arrive ? ' arrive' : ''}${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} title=${'Seed ' + entry.seed} aria-label=${entry.mode + ', seed ' + entry.seed} @click=${() => page.show(entry.id)}><span class="still"><img alt="" src=${entry.src}>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}</span><span class="no">${row.number}</span>${row.selected ? pencilLoop(row.draw) : ''}</button>`;
+    return html`<button type="button" class="frame${row.arrive ? ' arrive' : ''}${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} title=${'Seed ' + entry.seed} aria-label=${entry.mode + ', seed ' + entry.seed} @click=${() => page.show(entry.id)}><span class="still"><gallery-media .identity=${'image-' + entry.id} .load=${async () => ({blob: entry.loadMedia ? (await entry.loadMedia())?.png : await (await fetch(entry.src)).blob()})}></gallery-media>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}</span><span class="no">${row.number}</span>${row.selected ? pencilLoop(row.draw) : ''}</button>`;
   }
 
   waiting(row) {
@@ -163,7 +171,7 @@ class ImageStrip extends LitElement {
 
   render() {
     if (!page) return html``;
-    return html`${repeat(this.rows(), (row) => row.key, (row) => (row.pending ? this.waiting(row) : this.frame(row)))}`;
+    return html`<gallery-window .items=${this.rows()} .selected=${get('view')} .renderItem=${row => row.pending ? this.waiting(row) : this.frame(row)}></gallery-window>`;
   }
 }
 
@@ -282,7 +290,8 @@ function download(ids = null) {
   const facts = [];
   const pause = function () { return new Promise(function (resolve) { setTimeout(resolve, 300); }); };
   const saving = page.gallery().filter(entry => !ids || ids.includes(entry.id)).slice().reverse().reduce(function (previous, entry) {
-    return previous.then(function () {
+    return previous.then(async function () {
+      if (!entry.src && entry.loadMedia) await page.hydrate(entry);
       const file = page.fileName(entry);
       saveFile(entry.src, file);
       const fact = { file: file, before: null };

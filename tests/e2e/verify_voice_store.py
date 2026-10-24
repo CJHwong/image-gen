@@ -14,7 +14,7 @@ def check(name, condition):
 
 
 def ready(page):
-    context.request.post(URL + "/api/v1/voice/backend", data={"backend": "auk_base"})
+    page.request.post(URL + "/api/v1/voice/backend", data={"backend": "auk_base"})
     page.goto(URL + "/?workspace=voice")
     page.wait_for_function(
         "!document.getElementById('voice-studio').loading && document.getElementById('voice-studio').capabilities.modes.length === 3"

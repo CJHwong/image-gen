@@ -1814,6 +1814,7 @@
       // doors, and no order between them, so this asks through the page.
       forget: function (work, message) { kept.forget(work, message); },
       notify: showToast,
+      hydrate: entry => kept.hydrate(entry),
       keptFields: function () { return kept.fields(); },
       keeping: function () { return keeping; },
     });
@@ -1829,11 +1830,11 @@
   // the id counter, the arrival and the shown frame, because a run's card, the
   // stage bar's edge print and the strip all read them.
 
-  function show(id) {
+  async function show(id) {
     if (id !== 'progress') observedImageResult = null;
     view = id;
     renderStrip();
-    renderStage();
+    await renderStage();
   }
 
 
@@ -1940,7 +1941,19 @@
   // The page's own redraw request for the stage. The module owns the drawing and
   // this is the page asking for it: the startup's draw is a no-op, and the
   // handler above makes it once the module is here.
-  function renderStage() { if (stage) stage.renderStage(); }
+  async function renderStage() {
+    const entry = gallery.find(item => item.id === view);
+    if (entry && !entry.src && entry.loadMedia) {
+      if (!entry.loading) {
+        const loading = document.createElement('div'); loading.className = 'empty'; loading.setAttribute('role', 'status'); loading.textContent = 'Loading image…';
+        canvas.replaceChildren(loading); stageBar.hidden = true;
+      }
+      try { await kept.hydrate(entry); }
+      catch (error) { if (view === entry.id) showToast('error', error.message); return; }
+      if (view !== entry.id || !gallery.includes(entry)) return;
+    }
+    if (stage) stage.renderStage();
+  }
 
   // ---- The store, and the components the form is drawn from ------------------
   // Same door, same reason: each module is deferred and this script is not, so
@@ -1967,7 +1980,8 @@
   // image's own seed, so a rerun of the same edit gives the same result.
   // An image made in this tab carries its base64. A kept one reads it from its
   // blob only when it is used, so a long strip does not hold every image twice.
-  function referFrom(entry) {
+  async function referFrom(entry) {
+    if (!entry.src && entry.loadMedia) await kept.hydrate(entry);
     const ready = entry.b64 ? Promise.resolve(entry.b64) : kept.blobOf(entry.src).then(function (blob) {
       return new Promise(function (resolve, reject) {
         const reader = new FileReader();
@@ -2037,7 +2051,7 @@
     const existing = gallery.find(function (other) { return other.id === entry.id; });
     if (existing) {
       if (entry.nativeMetadata && !existing.nativeMetadata) {
-        URL.revokeObjectURL(existing.src);
+        if (entry.src && existing.src !== entry.src) URL.revokeObjectURL(existing.src);
         Object.assign(existing, entry, {number: existing.number || entry.number});
       } else if (existing.src !== entry.src) URL.revokeObjectURL(entry.src);
       return existing;
@@ -2058,13 +2072,17 @@
 
   // Off empties the store at once; the images stay in the open tabs until a
   // reload. On keeps what this tab shows now, oldest first.
-  function setKeep(on) {
+  async function setKeep(on) {
     const hasVideoResults = videoStudio.clips.some(function (clip) {
       return clip.kind === 'generated' && !clip.stub;
     });
     if (!on && (gallery.length || hasVideoResults || voiceStudio.takesCount)
       && !confirm('Stop keeping media? Saved images and videos leave this browser. Open tabs show them until a reload.')) {
       return;
+    }
+    if (!on) {
+      try { await kept.prepareForget(); }
+      catch (error) { showToast('error', error.message); return; }
     }
     keeping = on;
     try {
@@ -2100,6 +2118,12 @@
     kept = event.detail.configure({
       admit: admit,
       showNewest: showNewest,
+      selected: () => view,
+      release: entry => run.release(entry),
+      pinMedia: on => { videoStudio.forgettingMedia = on; voiceStudio.forgettingMedia = on; },
+      retainMedia: async () => {
+        await Promise.all([kept.retainImages(gallery), videoStudio.retainMedia(), voiceStudio.retainMedia()]);
+      },
       keeping: function () { return keeping; },
       // A message another tab sent about the strip. The three kinds are the
       // removal, the clear and the keep setting, and each one moves something
@@ -2497,7 +2521,7 @@
         if (voiceStudio.stepTake(event.key === 'ArrowRight' ? 1 : -1)) event.preventDefault();
       }
       if (event.key === ' ' && (!event.target.closest('button, a, [role="button"]') || event.target.closest('.frame'))) {
-        event.preventDefault(); voiceStudio.querySelector('audio-preview')?.play();
+        event.preventDefault(); voiceStudio.togglePreviewPlayback();
       }
       return;
     }

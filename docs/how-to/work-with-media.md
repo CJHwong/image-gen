@@ -20,6 +20,8 @@ the media itself keeps its original colors. Controls and actions stay in the sam
 ## Browse the gallery
 
 Choose **Browse** above any gallery to expand its strip into a grid while keeping one main preview.
+Long galleries load previews as you browse instead of decoding every saved file at startup.
+Search and keyboard navigation still cover the whole saved gallery; downloads use the original files.
 Search prompts, scripts, voice descriptions, model names, or seeds. Filter by model or mode
 and choose newest or oldest first. **Group batches** appears when existing operation identities
 identify multiple results; open a batch to browse its items and use **All results** to return.
@@ -81,6 +83,8 @@ Turn on **Keep in this browser** to retain drafts, references, and saved gallery
 A completed operation clears its submitted inputs; newer input drafts are preserved.
 Download media to keep it outside browser storage. Audio selection downloads include the selected time range in the filename.
 Turn Keep off to clear saved browser media and drafts.
+Open tabs retain their existing galleries in memory before saved files are cleared. This can take
+time for a large collection; keeping persistence enabled uses less memory while browsing it.
 
 ## Cancel a run
 

@@ -17,10 +17,10 @@ function waitFor(video, event, start) {
     start();
   });
 }
-async function contactSheet(source, active) {
+async function contactSheet(source, active, key = source) {
   if (!active()) return null;
-  if (cache.has(source)) {
-    const saved = cache.get(source); cache.delete(source); cache.set(source, saved); return saved;
+  if (cache.has(key)) {
+    const saved = cache.get(key); cache.delete(key); cache.set(key, saved); return saved;
   }
   const video = document.createElement('video');
   video.muted = true; video.playsInline = true; video.preload = 'metadata';
@@ -44,7 +44,7 @@ async function contactSheet(source, active) {
     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.55));
     if (!blob || !active()) return null;
     const result = {blob, seconds};
-    cache.set(source, result);
+    cache.set(key, result);
     if (cache.size > 32) cache.delete(cache.keys().next().value);
     return result;
   } finally {
@@ -53,7 +53,7 @@ async function contactSheet(source, active) {
 }
 
 class VideoGalleryPreview extends LitElement {
-  static properties = {source: {}, poster: {}, blocked: {type: Boolean}, sheet: {state: true}, seconds: {state: true}};
+  static properties = {source: {}, cacheKey: {}, poster: {}, blocked: {type: Boolean}, sheet: {state: true}, seconds: {state: true}};
   constructor() { super(); this.visible = false; this.sheet = ''; this.ticket = 0; }
   createRenderRoot() { return this; }
   connectedCallback() {
@@ -91,7 +91,7 @@ class VideoGalleryPreview extends LitElement {
     const source = this.source, ticket = ++this.ticket;
     this.queued = true;
     const active = () => this.active() && this.source === source && this.ticket === ticket;
-    const task = queue.then(() => contactSheet(source, active));
+    const task = queue.then(() => contactSheet(source, active, this.cacheKey || source));
     queue = task.catch(() => {});
     task.then(result => {
       if (result && active()) { this.seconds = result.seconds; this.sheet = URL.createObjectURL(result.blob); }

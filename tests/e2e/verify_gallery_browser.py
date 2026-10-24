@@ -273,7 +273,11 @@ with sync_playwright() as playwright:
         page.locator(f"#media-{workspace}-mode").click()
         selector = {"image": "#strip", "video": "#video-gallery .strip", "voice": "#voice-gallery .strip"}[workspace]
         strip = page.locator(selector)
-        expect(strip.locator(".frame:not(.pending)")).to_have_count(14)
+        page.wait_for_function(
+            "workspace => document.querySelector(`gallery-browser[workspace=${workspace}]`).items.length === 14",
+            arg=workspace,
+        )
+        assert 0 < strip.locator(".frame:not(.pending)").count() <= 14
         page.wait_for_function(
             "workspace => !document.querySelector(`gallery-browser[workspace=${workspace}]`).restoreScroll",
             arg=workspace,

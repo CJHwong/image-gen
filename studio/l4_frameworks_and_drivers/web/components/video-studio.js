@@ -3,6 +3,8 @@ import { closeMenus, menuItem, toggleMenu } from './popup-menu.js';
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
 import {pencilLoop} from './gallery-marker.js';
 import './gallery-browser.js';
+import './gallery-media.js';
+import './gallery-window.js';
 import {galleryBatch, galleryView, rememberGalleryView} from '../lib/gallery-view.js';
 
 let nextClipId = 1;
@@ -330,21 +332,19 @@ class VideoStudio extends LitElement {
         id: record.id,
         kind: 'generated',
         name: record.name,
-        url: URL.createObjectURL(record.mp4),
-        objectUrl: true,
-        mp4Blob: record.mp4,
-        thumbnailUrl: record.thumbnail ? URL.createObjectURL(record.thumbnail) : null,
-        thumbnailBlob: record.thumbnail,
+        url: null,
+        loadMedia: () => store.videoRecord(record.id),
+        objectUrl: false,
         duration: record.duration,
         metadata: record.metadata,
         createdAt: record.createdAt,
         nativeMetadata: record.nativeMetadata,
         keptInBrowser: true,
       };
-      this.addClip(clip);
-      if (!clip.thumbnailBlob) this.createThumbnail(clip);
+      this.clips = this.clips.concat(clip);
     });
-    if (restore && this.clips.some(clip => clip.id === preferred)) this.selectClip(preferred);
+    if (restore && this.clips.length) this.selectClip(this.clips.some(clip => clip.id === preferred) ? preferred : this.clips.at(-1).id);
+    else this.renderVideoGallery();
   }
 
   setStoragePersisted(value) {
@@ -369,10 +369,13 @@ class VideoStudio extends LitElement {
     return Promise.all(saves);
   }
 
-  persistVideo(clip) {
+  async persistVideo(clip) {
     if (!this.keepEnabled || !this.galleryStore) return Promise.resolve(false);
+    if (!clip.mp4Blob && clip.loadMedia) await this.ensureClip(clip);
     return this.galleryStore.keepVideo(clip, clip.mp4Blob, clip.thumbnailBlob).then((kept) => {
       clip.keptInBrowser = kept;
+      if (kept) clip.loadMedia = () => this.galleryStore.videoRecord(clip.id);
+      this.trimClipMedia();
       return kept;
     });
   }
@@ -1300,7 +1303,42 @@ class VideoStudio extends LitElement {
     this.inputsChanged();
   }
 
-  selectClip(id) {
+  async retainMedia() {
+    this.retainingMedia = true;
+    try {
+      for (const clip of this.clips) if (clip.kind === 'generated' && !clip.stub) await this.ensureClip(clip);
+      for (const clip of this.clips) delete clip.loadMedia;
+    } finally { this.retainingMedia = false; }
+  }
+
+  trimClipMedia() {
+    if (this.retainingMedia || this.forgettingMedia || !this.keepEnabled) return;
+    const loaded = this.clips.filter(clip => clip.keptInBrowser && clip.url && clip.loadMedia)
+      .sort((a, b) => (b.mediaUsed || 0) - (a.mediaUsed || 0));
+    let spare = 0;
+    for (const clip of loaded) {
+      if (clip.id === this.selectedClipId || clip.id === this.editTargetId) continue;
+      if (spare++ < 1) continue;
+      releaseClipUrls(clip);
+      clip.url = null; clip.objectUrl = false; clip.mp4Blob = null;
+      clip.thumbnailUrl = null; clip.thumbnailBlob = null;
+    }
+  }
+
+  async ensureClip(clip) {
+    if (!clip || clip.stub || clip.url) return clip;
+    if (!clip.mediaLoading) clip.mediaLoading = (async () => {
+      const record = await clip.loadMedia?.();
+      if (!record?.mp4) throw new Error('This video is no longer saved.');
+      if (!this.clips.includes(clip)) return clip;
+      clip.mp4Blob = record.mp4; clip.url = URL.createObjectURL(record.mp4); clip.objectUrl = true;
+      clip.mediaUsed = performance.now(); this.trimClipMedia();
+      return clip;
+    })().finally(() => { delete clip.mediaLoading; });
+    return clip.mediaLoading;
+  }
+
+  async selectClip(id) {
     this.closeOutputPromptSheet(false);
     // Preview navigation must preserve the input selected for an edit.
     this.selectedClipId = id;
@@ -1310,9 +1348,12 @@ class VideoStudio extends LitElement {
     const clip = this.selectedClip();
     this.duration = clip ? clip.duration || 0 : 0;
     this.error = '';
-    this.renderSourceVideos();
     this.renderSelectedClip();
-    this.announceSelection();
+    try { await this.ensureClip(clip); }
+    catch (error) { if (this.selectedClipId === id) this.setError(error.message); return; }
+    if (this.selectedClipId !== id || !this.clips.includes(clip)) return;
+    this.trimClipMedia();
+    this.renderSourceVideos(); this.renderSelectedClip(); this.announceSelection();
   }
 
   clearEditTarget() {
@@ -1356,6 +1397,10 @@ class VideoStudio extends LitElement {
   }
 
   async togglePlayback() {
+    const clip = this.selectedClip();
+    try { await this.ensureClip(clip); } catch (error) { this.setError(error.message); return; }
+    if (this.selectedClip() !== clip) return;
+    if (!this.querySelector('#video-preview')?.getAttribute('src') && clip?.url) this.renderPreview();
     const video = this.querySelector('#video-preview-root video');
     if (!video) return;
     if (!video.paused) video.pause();
@@ -1399,12 +1444,13 @@ class VideoStudio extends LitElement {
   }
 
   async downloadAllVideos(ids = null) {
-    const outputs = this.clips.filter((clip) => clip.kind === 'generated' && !clip.stub && clip.url
+    const outputs = this.clips.filter((clip) => clip.kind === 'generated' && !clip.stub && (clip.url || clip.loadMedia)
       && (!ids || ids.includes(clip.id))).reverse();
     if (!outputs.length) return;
     const details = [];
     try {
       for (const clip of outputs) {
+        await this.ensureClip(clip);
         const file = videoDownloadName(clip);
         saveFile(clip.url, file);
         details.push(videoExportMetadata(clip, file));
@@ -1525,6 +1571,11 @@ class VideoStudio extends LitElement {
 
   renderSelectedClip() {
     const clip = this.selectedClip();
+    if (clip?.loadMedia && !clip.url && !clip.mediaLoading && !clip.mediaError) {
+      this.ensureClip(clip).then(() => {
+        if (this.selectedClipId === clip.id) this.renderSelectedClip();
+      }).catch(error => { clip.mediaError = error.message; if (this.selectedClipId === clip.id) this.setError(error.message); });
+    }
     if (clip?.kind === 'generated') rememberGalleryView('video', {selected: clip.id}, this.keepEnabled);
     this.renderPreview();
     this.renderVideoGallery();
@@ -1649,9 +1700,10 @@ class VideoStudio extends LitElement {
   }
 
   // The menu's door into Edit: the clip is in hand, and the page owns the mode switch.
-  editThisClip(clipId) {
+  async editThisClip(clipId) {
     const previous = this.clips.find((clip) => clip.id === this.editTargetId);
-    this.selectClip(clipId);
+    await this.selectClip(clipId);
+    if (!this.clips.find(clip => clip.id === clipId)?.url) return;
     this.editTargetId = clipId;
     if (previous?.kind === 'source' && previous.id !== clipId) this.removeClip(previous.id);
     this.renderSourceVideos();
@@ -1760,7 +1812,7 @@ class VideoStudio extends LitElement {
     // arrow keys walk. The number stays the clip's own: it counts from the first clip of
     // the session and it is the one the preview edge carries.
     const newestFirst = outputs.slice().reverse();
-    const downloadable = outputs.filter((clip) => !clip.stub && clip.url);
+    const downloadable = outputs.filter((clip) => !clip.stub && (clip.url || clip.loadMedia));
     const kept = outputs.filter((clip) => clip.keptInBrowser).length;
     const videoCount = outputs.length + (outputs.length === 1 ? ' video' : ' videos');
     const note = !outputs.length
@@ -1779,7 +1831,9 @@ class VideoStudio extends LitElement {
             number: outputs.indexOf(clip) + 1, text: clip.metadata?.prompt, name: clip.name,
             model: clip.metadata?.modelName, mode: clip.metadata?.mode, seed: clip.metadata?.seed,
             at: clip.createdAt, batch: galleryBatch(clip.metadata?.operationId, true),
-            thumbnail: clip.thumbnailUrl, video: clip.stub ? null : clip.url, duration: clip.duration, downloadable: !clip.stub && Boolean(clip.url)}))}
+            thumbnail: clip.thumbnailUrl, video: clip.stub ? null : clip.url,
+            loadMedia: clip.stub ? null : async () => clip.loadMedia ? ({blob: (await clip.loadMedia())?.mp4}) : ({blob: clip.mp4Blob}),
+            duration: clip.duration, downloadable: !clip.stub && Boolean(clip.url || clip.loadMedia)}))}
             .selectedId=${this.selectedClipId} .keeping=${this.keepEnabled}
             .pending=${Boolean(this.pendingRender)} .pendingSelected=${renderOnScreen}
             .showPending=${() => this.showRenderMonitor()} .choose=${id => this.selectClip(id)}
@@ -1804,32 +1858,28 @@ class VideoStudio extends LitElement {
               <span class="no">${String(outputs.length + 1).padStart(2, '0')}</span>
               ${renderOnScreen ? pencilLoop() : nothing}
             </button>` : ''}
-          ${outputs.length ? newestFirst.map((clip, position) => html`
+          <gallery-window .items=${newestFirst} .selected=${this.selectedClipId} .renderItem=${(clip, position) => html`
             <div class="video-gallery-item">
               <button class="frame video-clip${clip.id === this.selectedClipId && !renderOnScreen ? ' selected' : ''}"
                 type="button" aria-label=${'Select video ' + clip.name}
                 aria-pressed=${clip.id === this.selectedClipId && !renderOnScreen}
                 data-action="select-clip" data-clip-id=${clip.id}>
                 <span class="still video-clip-thumb">
-                  ${clip.url && !clip.stub
-                    ? html`<video-gallery-preview .source=${clip.url} .poster=${clip.thumbnailUrl}
-                      .blocked=${Boolean(this.pendingRender)}></video-gallery-preview>`
-                    : clip.thumbnailUrl
-                    ? html`<img src=${clip.thumbnailUrl} alt="">`
-                    : html`<span class="video-clip-placeholder" title=${clip.thumbnailError || ''}>
-                      ${clip.stub ? 'STUB' : clip.thumbnailError ? 'NO PREVIEW' : 'PREVIEW'}
-                    </span>`}
+                  ${!clip.stub ? html`<gallery-media .identity=${'video-' + clip.id} .video=${true}
+                    .blocked=${Boolean(this.pendingRender)} .load=${async () => clip.loadMedia ? ({blob: (await clip.loadMedia())?.mp4}) : ({blob: clip.mp4Blob})}></gallery-media>`
+                    : html`<span class="video-clip-placeholder">STUB</span>`}
                   <span class="video-clip-duration">${formatTime(clip.duration || 0)}</span>
                 </span>
                 <span class="no">${String(outputs.length - position).padStart(2, '0')}</span>
                 ${clip.id === this.selectedClipId && !renderOnScreen ? pencilLoop(true) : nothing}
               </button>
-            </div>`) : ''}
+            </div>`}></gallery-window>
         </div>
       </section>`;
   }
 
   renderClip(clip) {
+    if (clip && !clip.stub && !clip.url) return html`<div class="video-empty" role="status">Loading video…<video id="video-preview" hidden preload="none"></video></div>`;
     if (!clip) {
       return html`<div class="video-empty">
         <div class="video-empty-mark">VIDEO</div>

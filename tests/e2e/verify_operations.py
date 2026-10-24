@@ -36,9 +36,29 @@ def active_at(request, label):
     raise AssertionError("The operation did not reach " + label)
 
 
+def quick_steps(page):
+    advanced = page.locator("#advanced")
+    was_open = advanced.get_attribute("open") is not None
+    if not was_open:
+        advanced.locator("summary").click()
+    page.locator("#steps").fill("4")
+    page.locator("#steps").dispatch_event("input")
+    if not was_open:
+        advanced.locator("summary").click()
+
+
 with sync_playwright() as tool:
     browser = tool.chromium.launch()
     context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    context.add_init_script("""window.wakeAudit = {active:0, requested:0};
+      Object.defineProperty(navigator, 'wakeLock', {value:{request: async () => {
+        wakeAudit.active++; wakeAudit.requested++;
+        const lock = new EventTarget();
+        lock.release = async () => {if (!lock.released) {
+          lock.released=true; wakeAudit.active--; lock.dispatchEvent(new Event('release'));
+        }}; return lock;
+      }}});
+    """)
     errors = []
     tabs = [context.new_page(), context.new_page()]
     for tab in tabs:
@@ -55,6 +75,7 @@ with sync_playwright() as tool:
             "prompt": "a red pear",
             "seed": 7,
             "size": "512x512",
+            "steps": 6,
         },
     )
     check("an asynchronous request returns an operation", result.status == 202)
@@ -62,6 +83,9 @@ with sync_playwright() as tool:
     for tab in tabs:
         tab.locator('#shared-operation[data-operation-id="' + operation_id + '"]:not([hidden])').wait_for()
     check("both tabs disable a conflicting run", all(tab.locator("#go").is_disabled() for tab in tabs))
+    for tab in tabs:
+        tab.wait_for_function("wakeAudit.active === 1")
+    check("API generation requests a screen wake lock in observing tabs", True)
     refusal = request.post(URL + "/api/v1/images/generate", data={"prompt": "a conflicting run"})
     check("a conflicting API request returns 409", refusal.status == 409)
     third = context.new_page()
@@ -75,6 +99,9 @@ with sync_playwright() as tool:
     for tab in tabs:
         tab.wait_for_function('document.querySelectorAll("#strip .frame").length === 1')
     check("every tab imports the completed image once", True)
+    for tab in tabs:
+        tab.wait_for_function("wakeAudit.active === 0")
+    check("completion releases observing tabs' screen wake locks", True)
     check("the observer keeps its unfinished draft", tabs[1].input_value("#prompt") == "Keep this unfinished draft")
     tabs[1].reload()
     tabs[1].wait_for_function('document.querySelectorAll("#strip .frame").length === 1')
@@ -113,6 +140,7 @@ with sync_playwright() as tool:
         tab.locator("#media-image-mode").click()
         tab.wait_for_function("mediaMode === 'image' && !workspaceSwitchPending")
     owner = tabs[0]
+    quick_steps(owner)
     owner.fill("#prompt", "a UI image that survives its originating tab reload")
     owner.locator("#go").click()
     owner.locator("#shared-operation:not([hidden])").wait_for()
@@ -128,14 +156,16 @@ with sync_playwright() as tool:
     for tab in tabs:
         tab.wait_for_function('document.querySelectorAll("#strip .frame").length === 2')
     check("the reloaded owner and every observer recover one result", True)
+    quick_steps(owner)
 
     owner.fill("#prompt", "a UI image that reaches every tab once")
     owner.locator("#go").click()
-    owner.wait_for_function('!document.body.classList.contains("busy")')
+    owner.wait_for_function('!document.body.classList.contains("busy")', timeout=60000)
     for tab in tabs:
         tab.wait_for_function('document.querySelectorAll("#strip .frame").length === 3')
     check("native UI output and shared polling do not duplicate the image", True)
 
+    quick_steps(owner)
     owner.fill("#prompt", "two native batch images")
     owner.locator("#count-toggle").click()
     owner.get_by_role("menuitemradio", name="2 images", exact=True).click()
@@ -149,14 +179,18 @@ with sync_playwright() as tool:
         completed(request, batch_operation["id"])["status"] == "succeeded",
     )
     batch_result = request.get(URL + "/api/v1/operations/" + batch_operation["id"] + "/result").json()
-    check("the native batch retains both image results", len(batch_result["images"]) == 2)
+    check(
+        "the native batch retains both image results",
+        len(batch_result["items"]) == 2
+        and all(request.get(URL + item["result_url"]).status == 200 for item in batch_result["items"]),
+    )
     for tab in tabs:
         tab.wait_for_function('document.querySelectorAll("#strip .frame").length === 5')
     check("reload during a native batch recovers both images without duplicates", True)
 
     partial = request.post(
         URL + "/api/v1/operations",
-        data={"kind": "image", "prompt": "retain the first batch image", "count": 2},
+        data={"kind": "image", "prompt": "retain the first batch image", "count": 2, "steps": 4},
     ).json()
     active_at(request, "2 of 2")
     request.post(URL + "/api/v1/operations/" + partial["id"] + "/cancel")

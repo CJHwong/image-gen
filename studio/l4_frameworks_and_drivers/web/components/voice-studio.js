@@ -1,12 +1,13 @@
 import {LitElement, html, svg, nothing, render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import {audioPeaks, blobBase64, decodeAudio, downloadAudio, joinAudio, normalizeReference, TRACK_GAP} from '../lib/voice-audio.js';
-import {clearVoice, loadVoice, saveVoice} from '../lib/voice-store.js';
+import {clearVoice, loadVoice, loadVoiceTake, saveVoice} from '../lib/voice-store.js';
 import {closeMenus, toggleMenu} from './popup-menu.js';
 import './run-button.js';
 import './audio-preview.js';
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
 import {pencilLoop} from './gallery-marker.js';
 import './gallery-browser.js';
+import './gallery-window.js';
 import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
 
 const DEFAULT_CAPABILITIES = {name: 'Drama-3', modes: []};
@@ -272,11 +273,38 @@ class VoiceStudio extends LitElement {
     if (this.mode !== 'edit') this.setScript(this.script);
   }
 
-  hydrate(take) {
-    if (take.url) return take;
-    const url = URL.createObjectURL(take.blob);
-    this.urls.add(url);
-    return {...take, url};
+  hydrate(take) { return {...take}; }
+
+  async retainMedia() {
+    await this.saved;
+    this.retainingMedia = true;
+    try {
+      for (const segment of this.segments) for (const take of segment.takes) await this.ensureTake(take);
+      for (const segment of this.segments) for (const take of segment.takes) take.stored = false;
+    } finally { this.retainingMedia = false; }
+  }
+
+  trimTakeMedia() {
+    if (this.retainingMedia || this.forgettingMedia || this.options.keeping?.() === false) return;
+    const selected = this.previewItem?.take;
+    let spare = 0;
+    for (const segment of this.segments) for (const take of segment.takes) {
+      if (!take.stored || !take.blob || take === selected) continue;
+      if (spare++ < 1) continue;
+      delete take.blob;
+    }
+  }
+
+  async ensureTake(take) {
+    if (take.blob) return take.blob;
+    if (!take.mediaLoading) take.mediaLoading = loadVoiceTake(take.id).then(blob => {
+      if (!blob) throw new Error('This audio clip is no longer saved.');
+      if (this.segments.some(segment => segment.takes.includes(take))) {
+        take.blob = blob; this.trimTakeMedia(); this.requestUpdate();
+      }
+      return blob;
+    }).finally(() => { delete take.mediaLoading; });
+    return take.mediaLoading;
   }
 
   snapshot() {
@@ -285,7 +313,7 @@ class VoiceStudio extends LitElement {
       engineOptions: this.engineOptions, convert: this.convert, seed: this.seed, reference: this.reference,
       templateName: this.templateName, fieldValues: this.fieldValues, editSegmentId: this.editSegmentId,
       cutoff: this.cutoff, removed: Array.from(this.removed).slice(-2048), selectedId: this.selectedId,
-      segments: this.segments.map(segment => ({...segment, takes: segment.takes.map(({url, ...take}) => take)})),
+      segments: this.segments.map(segment => ({...segment, takes: segment.takes.map(({url, mediaLoading, mediaError, ...take}) => take)})),
     };
   }
 
@@ -295,7 +323,11 @@ class VoiceStudio extends LitElement {
     const project = this.snapshot();
     const epoch = this.storageEpoch;
     this.saved = this.saved.then(() => {
-      if (epoch === this.storageEpoch && this.options.keeping?.() !== false) return saveVoice(project, draft, selection, expectedDraftId);
+      if (epoch === this.storageEpoch && this.options.keeping?.() !== false) return saveVoice(project, draft, selection, expectedDraftId).then(() => {
+        const saved = new Set(project.segments.flatMap(segment => segment.takes.map(take => take.id)));
+        for (const segment of this.segments) for (const take of segment.takes) if (saved.has(take.id)) take.stored = true;
+        this.trimTakeMedia();
+      });
     }).catch(error => {
       console.warn(error);
       this.options.notify?.('error', 'This browser did not keep the voice project. Export the WAV before closing this tab.');
@@ -677,6 +709,17 @@ class VoiceStudio extends LitElement {
     return true;
   }
 
+  async togglePreviewPlayback() {
+    const take = this.previewItem?.take, revision = this.playbackRevision;
+    if (!take || this.hidden) return;
+    try { await this.ensureTake(take); }
+    catch (error) { this.fail(error.message); return; }
+    if (this.previewItem?.take !== take) return;
+    await this.updateComplete;
+    if (revision !== this.playbackRevision || this.hidden || this.previewItem?.take !== take) return;
+    return this.querySelector('audio-preview')?.play();
+  }
+
   pausePlayback() {
     this.playbackRevision++;
     this.player.pause();
@@ -725,13 +768,17 @@ class VoiceStudio extends LitElement {
     this.voice = take.voice || '';
     this.convert = take.convert || 'tw2s';
     this.setScript(segment.text);
-    if (this.needsReference) await this.chooseReference(take.blob, {name: 'voice-reference.wav', transcript: transcriptText(segment.text)});
+    if (this.needsReference) {
+      await this.ensureTake(take);
+      await this.chooseReference(take.blob, {name: 'voice-reference.wav', transcript: transcriptText(segment.text)});
+    }
     this.persist(true);
     document.getElementById('voice-text')?.focus();
   }
 
   async useForEdit(take) {
     if (this.locked) return;
+    await this.ensureTake(take);
     this.referenceVersion += 1;
     this.referencePending = false;
     this.reference = {blob: take.blob, name: 'take.wav', duration: take.duration};
@@ -771,7 +818,9 @@ class VoiceStudio extends LitElement {
     const takes = this.selectedTakes;
     if (!takes.length) return;
     try {
-      const joined = await joinAudio(takes.map(take => take.blob));
+      const blobs = [];
+      for (const take of takes) blobs.push(await this.ensureTake(take));
+      const joined = await joinAudio(blobs);
       if (play) {
         if (revision !== this.trackRevision || playbackRevision !== this.playbackRevision) return;
         this.releaseUrl(this.trackUrl);
@@ -955,6 +1004,10 @@ class VoiceStudio extends LitElement {
   }
 
   updated(changes) {
+    const take = this.previewItem?.take;
+    if (take && !take.blob && !take.mediaLoading && !take.mediaError && !this.showingGeneration) {
+      this.ensureTake(take).catch(error => { take.mediaError = error.message; this.fail(error.message); });
+    }
     if (changes.has('selectedId') && this.selectedId) {
       rememberGalleryView('voice', {selected: this.selectedId}, this.options.keeping?.() !== false);
     }
@@ -1069,7 +1122,7 @@ class VoiceStudio extends LitElement {
         <gallery-browser workspace="voice" .items=${clips.map(({segment, take}) => ({id: take.id,
           number: this.clipNumber(take), text: segment.text, description: take.voice, model: take.model,
           mode: take.mode, seed: take.seed, at: take.createdAt, duration: take.duration, peaks: take.peaks,
-          batch: galleryBatch(take.id), downloadable: Boolean(take.blob)}))}
+          batch: galleryBatch(take.id), downloadable: Boolean(take.blob || take.stored)}))}
           .selectedId=${item?.take?.id} .keeping=${this.options.keeping?.() !== false}
           .pending=${rendering} .pendingSelected=${this.showingGeneration}
           .showPending=${() => { this.pausePlayback(); this.showGeneration = true; this.detailsOpen = false; }}
@@ -1077,11 +1130,12 @@ class VoiceStudio extends LitElement {
           .removeItem=${id => { this.removeTake(id); return !this.segments.some(segment => segment.takes.some(take => take.id === id)); }}
           .download=${async ids => {
             for (const {segment, take} of clips.filter(({take}) => ids.includes(take.id))) {
-              downloadAudio(take.blob, mediaDownloadName({kind: 'audio', text: segment.text,
-                at: take.createdAt, id: take.id, extension: mediaExtension(take.blob.type, 'wav')}));
+              const blob = await this.ensureTake(take);
+              downloadAudio(blob, mediaDownloadName({kind: 'audio', text: segment.text,
+                at: take.createdAt, id: take.id, extension: mediaExtension(blob.type, 'wav')}));
               await new Promise(resolve => setTimeout(resolve, 300));
             }
-          }} .playback=${() => this.querySelector('audio-preview')?.play()}></gallery-browser>
+          }} .playback=${() => this.togglePreviewPlayback()}></gallery-browser>
         <span class="strip-actions"><button type="button" class="text-btn" ?disabled=${!this.takesCount} @click=${() => {
           if (confirm('Remove all completed audio clips from this browser?')) this.clearCompleted();
         }}>Clear all</button></span></div>
@@ -1092,13 +1146,13 @@ class VoiceStudio extends LitElement {
           <span class="still voice-clip-thumb"><span class="video-pending-indicator" aria-hidden="true"></span><span>Generating</span></span>
           <span class="no">${String(this.takesCount + 1).padStart(2, '0')}</span>${this.showingGeneration ? pencilLoop() : nothing}
         </button>` : nothing}
-        ${clips.map(({segment, take}) => html`
+        <gallery-window .items=${clips} .selected=${item?.take?.id} .renderItem=${({segment, take}) => html`
           <button type="button" class=${'frame voice-clip' + (item?.take?.id === take.id && !this.showingGeneration ? ' selected' : '')}
             data-take-id=${take.id} data-segment-id=${segment.id} aria-pressed=${String(item?.take?.id === take.id && !this.showingGeneration)}
             aria-label=${'Select audio ' + this.clipNumber(take)} title=${segment.text}
             @click=${() => this.selectTake(segment.id, take.id)}>
             <span class="still voice-clip-thumb">${this.renderWaveform(take)}<span class="voice-clip-duration num">${durationLabel(take.duration)}</span></span>
-            <span class="no">${String(this.clipNumber(take)).padStart(2, '0')}</span>${item?.take?.id === take.id && !this.showingGeneration ? pencilLoop(true) : nothing}</button>`)}
+            <span class="no">${String(this.clipNumber(take)).padStart(2, '0')}</span>${item?.take?.id === take.id && !this.showingGeneration ? pencilLoop(true) : nothing}</button>`}></gallery-window>
       </div>
     </section>`;
   }

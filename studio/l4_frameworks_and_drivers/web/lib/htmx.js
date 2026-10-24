@@ -338,7 +338,7 @@ function release(entry) {
   const gallery = page.gallery();
   URL.revokeObjectURL(entry.src);
   const shared = entry.before === batchSource || gallery.some(function (other) {
-    return other.before === entry.before;
+    return other !== entry && other.before === entry.before;
   });
   if (entry.before && !shared) URL.revokeObjectURL(entry.before);
 }
