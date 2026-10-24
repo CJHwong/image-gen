@@ -105,8 +105,13 @@ def test_the_engine_is_alive_while_its_group_is():
 
 
 def test_cancel_reaches_an_engine_whose_wrapper_holds_the_pipes():
-    """A survivor on stdout blocks the read, so the cancel has to kill the group."""
-    command = f'( sleep 5 ) & exec "{sys.executable}" "{FAKE}"'
+    """A survivor on stdout blocks the read, so the cancel has to kill the group.
+
+    sh gives a background job /dev/null for stdin, so without `<&0` nothing held stdin once
+    the engine exited. The next write then broke the pipe, and the job failed before the
+    cancel, whenever the engine finished exiting first: a loaded machine lost that race.
+    """
+    command = f'( sleep 5 ) <&0 & exec "{sys.executable}" "{FAKE}"'
     runner = StdioChild(["/bin/sh", "-c", command])
     try:
         runner.request({"echo": "one", "exit": True}, lambda *_: None, never)
